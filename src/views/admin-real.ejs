@@ -1,0 +1,8268 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>ComandaMix | Painel Administrativo</title>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --vermelho-900: #651111;
+      --vermelho-800: #821717;
+      --vermelho-700: #a51f1f;
+      --vermelho-600: #c62828;
+      --laranja-600: #e96b13;
+      --laranja-500: #f58618;
+      --amarelo-500: #f6b817;
+      --verde-700: #177544;
+      --verde-600: #218c55;
+      --azul-600: #2768c7;
+      --cinza-950: #171717;
+      --cinza-900: #222222;
+      --cinza-800: #323232;
+      --cinza-700: #4c4c4c;
+      --cinza-600: #666666;
+      --cinza-500: #818181;
+      --cinza-400: #a7a7a7;
+      --cinza-300: #d4d4d4;
+      --cinza-200: #e8e8e8;
+      --cinza-100: #f5f5f5;
+      --cinza-50: #fafafa;
+      --branco: #ffffff;
+      --fundo: #f7f4f1;
+      --borda: #eadfd7;
+      --sombra: 0 12px 32px rgba(63, 30, 13, 0.08);
+      --sidebar: 280px;
+    }
+
+    .orders-filter-panel {
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid var(--cinza-200);
+  border-radius: 18px;
+  background: #fff;
+}
+
+.orders-quick-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-bottom: 14px;
+}
+
+.order-quick-filter {
+  min-height: 39px;
+  padding: 0 14px;
+  border: 1px solid var(--cinza-200);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--cinza-700);
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.order-quick-filter:hover {
+  border-color: var(--laranja-500);
+  transform: translateY(-1px);
+}
+
+.order-quick-filter.active {
+  border-color: transparent;
+  background: linear-gradient(
+    135deg,
+    var(--vermelho-600),
+    var(--laranja-500)
+  );
+  color: #fff;
+  box-shadow: 0 8px 20px
+    rgba(224, 74, 22, 0.2);
+}
+
+.orders-filter-form {
+  display: grid;
+  grid-template-columns:
+    repeat(2, minmax(150px, 1fr))
+    repeat(2, minmax(150px, 1fr))
+    auto;
+  gap: 11px;
+  align-items: end;
+}
+
+.orders-filter-field {
+  display: grid;
+  gap: 6px;
+}
+
+.orders-filter-field label {
+  color: var(--cinza-700);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.orders-filter-field input,
+.orders-filter-field select {
+  width: 100%;
+  min-height: 43px;
+  padding: 0 12px;
+  border: 1px solid var(--cinza-200);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--cinza-800);
+  outline: none;
+}
+
+.orders-filter-field input:focus,
+.orders-filter-field select:focus {
+  border-color: var(--laranja-500);
+  box-shadow: 0 0 0 3px
+    rgba(239, 108, 20, 0.1);
+}
+
+.orders-filter-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.orders-filter-button {
+  min-height: 43px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    var(--vermelho-600),
+    var(--laranja-500)
+  );
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.orders-clear-button {
+  min-height: 43px;
+  padding: 0 15px;
+  border: 1px solid var(--cinza-200);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--cinza-700);
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.orders-filter-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid var(--cinza-200);
+  color: var(--cinza-500);
+  font-size: 13px;
+}
+
+.orders-filter-result strong {
+  color: var(--cinza-800);
+}
+
+.orders-scroll-container {
+  max-height: 680px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 9px;
+  scroll-behavior: smooth;
+}
+
+/* Barra de rolagem para Chrome, Edge e Safari */
+.orders-scroll-container::-webkit-scrollbar {
+  width: 9px;
+}
+
+.orders-scroll-container::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: #f2ece8;
+}
+
+.orders-scroll-container::-webkit-scrollbar-thumb {
+  border: 2px solid #f2ece8;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    var(--vermelho-600),
+    var(--laranja-500)
+  );
+}
+
+.orders-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: var(--vermelho-600);
+}
+
+/* Barra de rolagem para Firefox */
+.orders-scroll-container {
+  scrollbar-width: thin;
+  scrollbar-color:
+    var(--laranja-500)
+    #f2ece8;
+}
+
+.order-card.order-filter-hidden {
+  display: none !important;
+}
+
+.orders-no-results {
+  display: none;
+  padding: 50px 20px;
+  border: 1px dashed var(--cinza-300);
+  border-radius: 18px;
+  background: #fff;
+  color: var(--cinza-500);
+  text-align: center;
+}
+
+.orders-no-results.visible {
+  display: block;
+}
+
+@media (max-width: 1050px) {
+  .orders-filter-form {
+    grid-template-columns:
+      repeat(2, minmax(0, 1fr));
+  }
+
+  .orders-filter-actions {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 600px) {
+  .orders-filter-form {
+    grid-template-columns: 1fr;
+  }
+
+  .orders-filter-actions {
+    grid-column: auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .orders-filter-button,
+  .orders-clear-button {
+    width: 100%;
+  }
+
+  .orders-scroll-container {
+    max-height: 620px;
+    padding-right: 5px;
+  }
+
+  .orders-filter-result {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+    .orders-notification-badge {
+  min-width: 24px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #ef3038;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow:
+    0 6px 16px
+    rgba(239, 48, 56, 0.4);
+  animation:
+    pedidoBadgePulse 1.5s
+    infinite;
+}
+
+.orders-notification-badge[hidden] {
+  display: none;
+}
+
+@keyframes pedidoBadgePulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.12);
+  }
+}
+
+.new-order-card {
+  animation:
+    newOrderEntry 0.45s ease;
+  border-color:
+    rgba(242, 118, 19, 0.55);
+  box-shadow:
+    0 16px 38px
+    rgba(242, 118, 19, 0.14);
+}
+
+@keyframes newOrderEntry {
+  from {
+    opacity: 0;
+    transform:
+      translateY(-18px)
+      scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform:
+      translateY(0)
+      scale(1);
+  }
+}
+
+.order-toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  width: min(
+    380px,
+    calc(100% - 30px)
+  );
+  display: grid;
+  gap: 10px;
+}
+
+.order-toast {
+  display: grid;
+  grid-template-columns:
+    48px
+    minmax(0, 1fr)
+    auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid
+    rgba(255, 255, 255, 0.12);
+  border-radius: 17px;
+  background:
+    linear-gradient(
+      135deg,
+      #381510,
+      #5b1a11
+    );
+  color: #fff;
+  box-shadow:
+    0 20px 50px
+    rgba(28, 10, 6, 0.28);
+  animation:
+    orderToastEntry 0.35s ease;
+}
+
+.order-toast-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background:
+    linear-gradient(
+      135deg,
+      var(--vermelho-600),
+      var(--laranja-500)
+    );
+  font-size: 23px;
+}
+
+.order-toast-text strong {
+  display: block;
+  font-size: 14px;
+}
+
+.order-toast-text span {
+  display: block;
+  margin-top: 5px;
+  color: #f0d7cb;
+  font-size: 12px;
+}
+
+.order-toast-close {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background:
+    rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: 19px;
+  cursor: pointer;
+}
+
+@keyframes orderToastEntry {
+  from {
+    opacity: 0;
+    transform:
+      translateX(30px);
+  }
+
+  to {
+    opacity: 1;
+    transform:
+      translateX(0);
+  }
+}
+
+@media (max-width: 600px) {
+  .order-toast-container {
+    top: 12px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+  }
+}
+
+    .week-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.week-day {
+  position: relative;
+  cursor: pointer;
+}
+
+.week-day input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.week-day span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 15px;
+  border: 1px solid var(--cinza-200);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--cinza-700);
+  font-size: 13px;
+  font-weight: 800;
+  transition: 0.2s;
+}
+
+.week-day input:checked + span {
+  border-color: transparent;
+  background: linear-gradient(
+    135deg,
+    var(--vermelho-600),
+    var(--laranja-500)
+  );
+  color: #fff;
+  box-shadow: 0 8px 18px
+    rgba(220, 60, 20, 0.2);
+}
+
+    .orders-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.order-card {
+  padding: 18px;
+  border: 1px solid var(--borda);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: var(--sombra);
+}
+
+.order-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--cinza-200);
+}
+
+.order-number {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.order-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  border-radius: 14px;
+  background: linear-gradient(
+    135deg,
+    var(--vermelho-600),
+    var(--laranja-500)
+  );
+  color: #fff;
+  font-size: 22px;
+}
+
+.order-number h3 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.order-number p {
+  margin-top: 5px;
+  color: var(--cinza-500);
+  font-size: 12px;
+}
+
+.order-origin {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.order-origin.mesa {
+  background: #e8f1ff;
+  color: #245eaa;
+}
+
+.order-origin.delivery {
+  background: #fff0cf;
+  color: #946200;
+}
+
+.order-origin.retirada {
+  background: #dcf6e8;
+  color: #177544;
+}
+
+.order-items {
+  display: grid;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.order-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 11px;
+  border-radius: 12px;
+  background: #faf8f6;
+}
+
+.order-item-quantity {
+  min-width: 32px;
+  color: var(--vermelho-600);
+  font-weight: 900;
+}
+
+.order-item-name {
+  font-weight: 800;
+}
+
+.order-item-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--cinza-500);
+  font-size: 12px;
+}
+
+.order-item-price {
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.order-observation {
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #fff8e8;
+  color: #765219;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.order-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 16px;
+  padding-top: 15px;
+  border-top: 1px solid var(--cinza-200);
+}
+
+.order-total span {
+  display: block;
+  color: var(--cinza-500);
+  font-size: 12px;
+}
+
+.order-total strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--verde-600);
+  font-size: 22px;
+}
+
+.order-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.order-status-form {
+  display: flex;
+  gap: 7px;
+}
+
+.order-status-form select {
+  min-width: 135px;
+}
+
+@media (max-width: 700px) {
+  .order-card-header,
+  .order-footer {
+    flex-direction: column;
+  }
+
+  .order-actions,
+  .order-status-form {
+    width: 100%;
+  }
+
+  .order-status-form {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .order-actions .mini-button,
+  .order-status-form .mini-button {
+    width: 100%;
+  }
+}
+
+    .employee-avatar {
+  overflow: hidden;
+}
+
+.employee-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.employee-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.employee-actions form {
+  margin: 0;
+}
+
+.employee-data-row {
+  display: grid;
+  grid-template-columns: 95px minmax(0, 1fr);
+  gap: 8px;
+  line-height: 1.45;
+}
+
+.employee-data-row strong {
+  color: var(--cinza-700);
+}
+
+.employee-address {
+  word-break: break-word;
+}
+
+.employee-salary {
+  color: var(--verde-600);
+  font-weight: 900;
+}
+
+.employee-photo-preview {
+  width: 90px;
+  height: 90px;
+  overflow: hidden;
+  border: 3px solid #f2ddd1;
+  border-radius: 50%;
+  background: var(--cinza-100);
+}
+
+.employee-photo-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+    .report-filter-panel {
+  margin-bottom: 20px;
+  padding: 18px;
+  border: 1px solid var(--borda);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: var(--sombra);
+}
+
+.report-filters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.report-filter-form {
+  display: grid;
+  grid-template-columns:
+    repeat(3, minmax(170px, 1fr))
+    auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.report-filter-field {
+  display: grid;
+  gap: 7px;
+}
+
+.report-filter-field label {
+  color: var(--cinza-700);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.report-filter-field input,
+.report-filter-field select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--cinza-300);
+  border-radius: 11px;
+  background: #fff;
+  color: var(--cinza-900);
+}
+
+.report-filter-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.report-filter-actions .button {
+  white-space: nowrap;
+}
+
+.report-filter-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 15px;
+  padding-top: 14px;
+  border-top: 1px solid var(--cinza-200);
+  color: var(--cinza-500);
+  font-size: 13px;
+}
+
+.report-filter-summary strong {
+  color: var(--cinza-800);
+}
+
+@media (max-width: 1050px) {
+  .report-filter-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .report-filter-actions {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 650px) {
+  .report-filter-form {
+    grid-template-columns: 1fr;
+  }
+
+  .report-filter-actions {
+    grid-column: auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .report-filter-actions .button {
+    width: 100%;
+  }
+
+  .report-filter-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--cinza-200);
+  background: #fff;
+  color: var(--cinza-700);
+  font-size: 13px;
+  font-weight: 800;
+  transition: 0.2s;
+}
+
+.filter-chip:hover {
+  transform: translateY(-1px);
+  border-color: var(--laranja-500);
+}
+
+.filter-chip.ativo {
+  background: linear-gradient(
+    135deg,
+    var(--vermelho-600),
+    var(--laranja-600)
+  );
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 10px 24px rgba(198, 40, 40, 0.18);
+}
+
+.report-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.report-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.report-icon svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+
+.chart-card {
+  padding: 22px;
+}
+
+.chart-title {
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.chart-title h3 {
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+.chart-wrapper {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 14px;
+  align-items: end;
+}
+
+.chart-y {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 280px;
+  padding-bottom: 30px;
+  color: var(--cinza-600);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chart-area {
+  position: relative;
+  min-width: 0;
+  height: 280px;
+  border-left: 2px solid #d9d9d9;
+  border-bottom: 2px solid #d9d9d9;
+  padding: 0 8px 0 18px;
+}
+
+.chart-bars {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(52px, 1fr));
+  gap: 18px;
+  align-items: end;
+  height: 100%;
+}
+
+.chart-bar-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: end;
+  align-items: center;
+  height: 100%;
+  min-width: 0;
+}
+
+.chart-bar {
+  width: 100%;
+  max-width: 58px;
+  border-radius: 0;
+  background: #07124f;
+  transition: 0.2s;
+}
+
+.chart-bar:hover {
+  opacity: 0.85;
+  transform: translateY(-2px);
+}
+
+.chart-bar-value {
+  margin-bottom: 8px;
+  color: var(--cinza-700);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.chart-label {
+  margin-top: 10px;
+  color: var(--cinza-800);
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.ranking-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.ranking-list {
+  display: grid;
+  gap: 12px;
+}
+
+.ranking-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--cinza-200);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.ranking-item strong {
+  display: block;
+  font-size: 14px;
+}
+
+.ranking-item span {
+  display: block;
+  margin-top: 4px;
+  color: var(--cinza-500);
+  font-size: 12px;
+}
+
+.ranking-badge {
+  min-width: 46px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: #f5f5f5;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ranking-badge.top {
+  background: #dcf6e8;
+  color: #177544;
+}
+
+.ranking-badge.low {
+  background: #fff0cf;
+  color: #946200;
+}
+
+@media (max-width: 900px) {
+  .ranking-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-wrapper {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-y {
+    display: none;
+  }
+}
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      min-height: 100vh;
+      overflow-x: hidden;
+      background: var(--fundo);
+      color: var(--cinza-900);
+      font-family: Inter, Arial, Helvetica, sans-serif;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    img,
+    svg {
+      max-width: 100%;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: var(--sidebar) minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow-y: auto;
+      padding: 22px 16px 28px;
+      background:
+        radial-gradient(
+          circle at top left,
+          rgba(246, 184, 23, 0.2),
+          transparent 30%
+        ),
+        linear-gradient(180deg, #24100c, #120b09);
+      color: var(--branco);
+      z-index: 1000;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 8px 22px;
+      margin-bottom: 18px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .brand-logo {
+      display: grid;
+      place-items: center;
+      width: 52px;
+      height: 52px;
+      flex: 0 0 52px;
+      overflow: hidden;
+      border-radius: 16px;
+      background:
+        linear-gradient(
+          135deg,
+          var(--laranja-500),
+          var(--vermelho-600)
+        );
+      box-shadow: 0 12px 28px rgba(198, 40, 40, 0.35);
+      font-size: 26px;
+    }
+
+    .brand-logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .brand strong {
+      display: block;
+      font-size: 21px;
+      letter-spacing: -0.5px;
+    }
+
+    .brand small {
+      display: block;
+      margin-top: 4px;
+      color: #e9cdbd;
+      font-size: 11px;
+      letter-spacing: 1.3px;
+      text-transform: uppercase;
+    }
+
+    .sidebar-title {
+      margin: 18px 12px 8px;
+      color: #ac8d7e;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+    }
+
+    .menu {
+      display: grid;
+      gap: 5px;
+    }
+
+    .menu-link {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 48px;
+      padding: 11px 12px;
+      border-radius: 12px;
+      color: #eaded8;
+      font-weight: 700;
+      transition: 0.2s;
+    }
+
+    .menu-link:hover,
+    .menu-link.ativo {
+      background:
+        linear-gradient(
+          135deg,
+          rgba(198,40,40,0.92),
+          rgba(233,107,19,0.88)
+        );
+      color: #fff;
+      transform: translateX(2px);
+      box-shadow: 0 10px 24px rgba(198,40,40,0.25);
+    }
+
+    .menu-link svg {
+      width: 21px;
+      height: 21px;
+      flex: 0 0 21px;
+      fill: currentColor;
+    }
+
+    .sidebar-card {
+      margin-top: auto;
+      padding: 16px;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 16px;
+      background: rgba(255,255,255,0.07);
+    }
+
+    .sidebar-card strong {
+      display: block;
+      margin-bottom: 7px;
+      font-size: 14px;
+    }
+
+    .sidebar-card p {
+      color: #d7c0b7;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .sidebar-card > span {
+      display: inline-flex;
+      margin-top: 12px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(33, 140, 85, 0.18);
+      color: #8ee3b3;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: capitalize;
+    }
+
+    .plan-button {
+      display: flex;
+      justify-content: center;
+      margin-top: 12px;
+      padding: 10px;
+      border-radius: 10px;
+      background:
+        linear-gradient(
+          135deg,
+          #c62828,
+          #e96b13
+        );
+      color: #fff;
+      font-weight: 900;
+    }
+
+    .plan-expired {
+      color: #ffb3b3 !important;
+    }
+
+    .main {
+      min-width: 0;
+      padding: 28px;
+    }
+
+    .mobile-topbar {
+      display: none;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 25px;
+    }
+
+    .topbar-title h1 {
+      color: var(--cinza-950);
+      font-size: clamp(26px, 3vw, 38px);
+      letter-spacing: -1px;
+    }
+
+    .topbar-title p {
+      margin-top: 6px;
+      color: var(--cinza-600);
+      line-height: 1.5;
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .profile-name {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .profile-name img,
+    .profile-avatar,
+    .mobile-profile-image {
+      width: 42px;
+      height: 42px;
+      flex: 0 0 42px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+
+    .mobile-profile-image {
+      display: block;
+      border: 2px solid rgba(255, 255, 255, 0.9);
+      background: #fff;
+    }
+
+    .profile-avatar {
+      display: grid;
+      place-items: center;
+      background:
+        linear-gradient(
+          135deg,
+          var(--vermelho-600),
+          var(--laranja-500)
+        );
+      color: white;
+      font-weight: 900;
+    }
+
+    .logout {
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: #b42323;
+      color: #fff;
+      font-weight: 800;
+    }
+
+    .page {
+      display: none;
+    }
+
+    .page.ativa {
+      display: block;
+      animation: fadeIn 0.2s ease;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(5px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .notice {
+      padding: 12px 14px;
+      margin-bottom: 12px;
+      border-radius: 10px;
+      font-weight: 700;
+    }
+
+    .notice.error {
+      background: #fde2e2;
+      color: #a32121;
+    }
+
+    .notice.success {
+      background: #dcf6e8;
+      color: #177544;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+
+    .stat-card {
+      position: relative;
+      overflow: hidden;
+      min-width: 0;
+      padding: 20px;
+      border: 1px solid var(--borda);
+      border-radius: 18px;
+      background: var(--branco);
+      box-shadow: var(--sombra);
+    }
+
+    .stat-card::after {
+      content: "";
+      position: absolute;
+      right: -20px;
+      bottom: -32px;
+      width: 110px;
+      height: 110px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.07;
+    }
+
+    .stat-label {
+      color: var(--cinza-600);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .stat-value {
+      margin-top: 12px;
+      color: var(--cinza-950);
+      font-size: 31px;
+      font-weight: 900;
+      letter-spacing: -1px;
+    }
+
+    .stat-card.vermelho {
+      color: var(--vermelho-600);
+    }
+
+    .stat-card.laranja {
+      color: var(--laranja-500);
+    }
+
+    .stat-card.verde {
+      color: var(--verde-600);
+    }
+
+    .stat-card.azul {
+      color: var(--azul-600);
+    }
+
+    .panel {
+      min-width: 0;
+      padding: 20px;
+      border: 1px solid var(--borda);
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: var(--sombra);
+    }
+
+    .panel + .panel {
+      margin-top: 20px;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .panel-title h2,
+    .panel-title h3 {
+      color: var(--cinza-950);
+      font-size: 20px;
+    }
+
+    .panel-title p {
+      margin-top: 5px;
+      color: var(--cinza-500);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 42px;
+      padding: 10px 15px;
+      border-radius: 11px;
+      background:
+        linear-gradient(
+          135deg,
+          var(--vermelho-600),
+          var(--laranja-600)
+        );
+      color: #fff;
+      font-weight: 800;
+      cursor: pointer;
+      transition: 0.2s;
+      box-shadow: 0 10px 22px rgba(198,40,40,0.18);
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+    }
+
+    .button.secondary {
+      border: 1px solid var(--borda);
+      background: #fff;
+      color: var(--cinza-800);
+      box-shadow: none;
+    }
+
+    .button.success {
+      background: var(--verde-600);
+    }
+
+    .inline-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 15px;
+    }
+
+    .mini-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      background: var(--cinza-100);
+      color: var(--cinza-800);
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .mini-button.edit {
+      background: #fff0d9;
+      color: #9a5100;
+    }
+
+    .mini-button.delete {
+      background: #fde2e2;
+      color: #a32121;
+    }
+
+    .mini-button.success {
+      background: #dcf6e8;
+      color: #177544;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      min-height: 44px;
+      padding: 10px 12px;
+      border: 1px solid var(--cinza-300);
+      border-radius: 10px;
+      outline: none;
+      background: #fff;
+      color: var(--cinza-900);
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: var(--laranja-500);
+      box-shadow: 0 0 0 3px rgba(245,134,24,0.12);
+    }
+
+    textarea {
+      min-height: 110px;
+      resize: vertical;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 13px;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+    }
+
+    .field.full {
+      grid-column: 1 / -1;
+    }
+
+    .field label {
+      color: var(--cinza-700);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      border-radius: 12px;
+    }
+
+    table {
+      width: 100%;
+      min-width: 840px;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      padding: 13px 12px;
+      border-bottom: 1px solid var(--cinza-200);
+      text-align: left;
+      font-size: 13px;
+      vertical-align: middle;
+    }
+
+    th {
+      background: #fbf7f4;
+      color: var(--cinza-700);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    td {
+      color: var(--cinza-800);
+    }
+
+    .empty {
+      padding: 28px;
+      color: var(--cinza-500);
+      text-align: center;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 9px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 900;
+      white-space: nowrap;
+      text-transform: capitalize;
+    }
+
+    .status.ativo,
+    .status.disponivel,
+    .status.livre,
+    .status.paga {
+      background: #dcf6e8;
+      color: #177544;
+    }
+
+    .status.ocupada,
+    .status.cancelado,
+    .status.inativo {
+      background: #fde2e2;
+      color: #a32121;
+    }
+
+    .status.baixo,
+    .status.reservada,
+    .status.aguardando_pagamento,
+    .status.pendente {
+      background: #fff0cf;
+      color: #946200;
+    }
+
+    .status.novo {
+      background: #e8f1ff;
+      color: #245eaa;
+    }
+
+    .status.preparo {
+      background: #fff0cf;
+      color: #946200;
+    }
+
+    .status.pronto,
+    .status.finalizado,
+    .status.pago {
+      background: #dcf6e8;
+      color: #177544;
+    }
+
+    .catalog-grid {
+      display: grid;
+      grid-template-columns:
+        repeat(auto-fill, minmax(250px, 1fr));
+      gap: 16px;
+    }
+
+    .product-card {
+      overflow: hidden;
+      border: 1px solid var(--borda);
+      border-radius: 17px;
+      background: #fff;
+      box-shadow: var(--sombra);
+    }
+
+    .product-cover {
+      display: grid;
+      place-items: center;
+      height: 170px;
+      overflow: hidden;
+      background:
+        radial-gradient(
+          circle at top left,
+          rgba(246,184,23,0.35),
+          transparent 35%
+        ),
+        linear-gradient(135deg, #fff6e7, #f6e1d2);
+      font-size: 68px;
+    }
+
+    .product-cover img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .product-body {
+      padding: 16px;
+    }
+
+    .product-body h3 {
+      font-size: 17px;
+    }
+
+    .product-category {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--laranja-600);
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .product-body p {
+      min-height: 39px;
+      margin-top: 7px;
+      color: var(--cinza-500);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .product-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .product-meta strong {
+      color: var(--verde-600);
+      font-size: 18px;
+    }
+
+    .tables-grid {
+      display: grid;
+      grid-template-columns:
+        repeat(auto-fill, minmax(310px, 1fr));
+      gap: 16px;
+    }
+
+    .table-card {
+      padding: 18px;
+      border: 1px solid var(--borda);
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: var(--sombra);
+      text-align: center;
+    }
+
+    .table-card.ocupada {
+      border-color: #efb2b2;
+    }
+
+    .table-card.aguardando_pagamento {
+      border-color: var(--amarelo-500);
+      box-shadow:
+        0 12px 32px rgba(246, 184, 23, 0.15);
+    }
+
+    .table-card.paga {
+      border-color: #9dd9b5;
+    }
+
+    .table-number {
+      display: grid;
+      place-items: center;
+      width: 70px;
+      height: 70px;
+      margin: 0 auto 12px;
+      border: 6px solid #f0d9c9;
+      border-radius: 50%;
+      background: #fff;
+      color: var(--vermelho-700);
+      font-size: 22px;
+      font-weight: 900;
+    }
+
+    .table-card.livre .table-number {
+      border-color: #bce8cc;
+      background: #f1fff6;
+      color: var(--verde-600);
+    }
+
+    .table-card.ocupada .table-number {
+      border-color: #f3b5b5;
+      background: #fff3f3;
+      color: var(--vermelho-600);
+    }
+
+    .table-card.aguardando_pagamento .table-number {
+      border-color: #f6d77f;
+      background: #fff9e5;
+      color: #946200;
+    }
+
+    .table-card h3 {
+      font-size: 16px;
+    }
+
+    .table-card > p {
+      margin-top: 6px;
+      color: var(--cinza-500);
+      font-size: 12px;
+    }
+
+    .mesa-conta {
+      display: grid;
+      gap: 4px;
+      margin: 14px 0;
+      padding: 14px;
+      border-radius: 13px;
+      background: #f8f5f2;
+      text-align: left;
+    }
+
+    .mesa-conta small {
+      color: var(--cinza-500);
+      font-weight: 700;
+    }
+
+    .mesa-conta strong {
+      color: var(--verde-600);
+      font-size: 22px;
+    }
+
+    .mesa-conta span {
+      color: var(--cinza-600);
+      font-size: 12px;
+    }
+
+    .qr {
+      width: 140px;
+      height: 140px;
+      margin: 14px auto;
+    }
+
+    .link-box {
+      padding: 12px;
+      border: 1px solid var(--cinza-200);
+      border-radius: 10px;
+      background: #f8f8f8;
+      color: var(--cinza-600);
+      font-size: 12px;
+      word-break: break-all;
+    }
+
+    .mesa-actions {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .mesa-actions form {
+      width: 100%;
+    }
+
+    .mesa-actions button,
+    .mesa-actions a {
+      width: 100%;
+    }
+
+    .pagamento-form,
+    .status-form {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 7px;
+    }
+
+    .pagamento-form select,
+    .status-form select {
+      min-width: 0;
+    }
+
+    .employee-grid {
+      display: grid;
+      grid-template-columns:
+        repeat(auto-fill, minmax(280px, 1fr));
+      gap: 15px;
+    }
+
+    .employee-card {
+      padding: 10px;
+      border: 1px solid var(--borda);
+      border-radius: 16px;
+      background: #fff;
+      box-shadow: var(--sombra);
+    }
+
+    .employee-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .employee-avatar {
+      display: grid;
+      place-items: center;
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background:
+        linear-gradient(
+          135deg,
+          var(--vermelho-600),
+          var(--laranja-500)
+        );
+      color: #fff;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .employee-info h3 {
+      font-size: 15px;
+    }
+
+    .employee-info p {
+      margin-top: 4px;
+      color: var(--cinza-500);
+      font-size: 12px;
+      text-transform: capitalize;
+    }
+
+    .employee-details {
+      display: grid;
+      gap: 7px;
+      margin-top: 15px;
+      padding-top: 14px;
+      border-top: 1px solid var(--cinza-200);
+      color: var(--cinza-600);
+      font-size: 12px;
+    }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 18px;
+    }
+
+    .profile-preview {
+      width: 88px;
+      height: 88px;
+      border-radius: 50%;
+      object-fit: cover;
+      background: #eee;
+    }
+
+    .permissions {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .permissions label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px;
+      border: 1px solid var(--cinza-200);
+      border-radius: 9px;
+      background: var(--cinza-50);
+      font-size: 12px;
+    }
+
+    .permissions input {
+      width: auto;
+      min-height: auto;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(20, 10, 8, 0.68);
+      z-index: 3000;
+    }
+
+    .modal.ativo {
+      display: flex;
+    }
+
+    .modal-card {
+      width: min(720px, 100%);
+      max-height: 90vh;
+      overflow-y: auto;
+      padding: 22px;
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: 0 25px 65px rgba(0,0,0,0.28);
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .modal-header h2 {
+      font-size: 22px;
+    }
+
+    .modal-header p {
+      margin-top: 5px;
+      color: var(--cinza-500);
+      font-size: 13px;
+    }
+
+    .close-modal {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: var(--cinza-100);
+      color: var(--cinza-700);
+      font-size: 24px;
+      cursor: pointer;
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .overlay {
+      display: none;
+    }
+
+    @media (max-width: 1180px) {
+      .stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 980px) {
+      .app {
+        display: block;
+      }
+
+      .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: min(86vw, 300px);
+        transform: translateX(-105%);
+        transition: transform 0.25s ease;
+      }
+
+      .profile-name {
+        display: none;
+      }
+
+      .sidebar.ativo {
+        transform: translateX(0);
+      }
+
+      .overlay.ativo {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(20,10,8,0.55);
+        z-index: 900;
+      }
+
+      .main {
+        padding: 18px;
+      }
+
+      .mobile-topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 18px;
+        padding: 12px 14px;
+        border-radius: 15px;
+        background: #fff;
+        box-shadow: var(--sombra);
+      }
+
+      .mobile-topbar button {
+        width: 43px;
+        height: 43px;
+        border-radius: 11px;
+        background: var(--cinza-950);
+        color: #fff;
+        font-size: 22px;
+        cursor: pointer;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .main {
+        padding: 12px;
+      }
+
+      .topbar {
+        align-items: flex-start;
+      }
+
+      .profile-name {
+        display: none;
+      }
+
+      .profile-name strong {
+        display: none;
+      }
+
+      .stats,
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .panel {
+        padding: 15px;
+      }
+
+      .panel-header {
+        flex-direction: column;
+      }
+
+      .panel-header .button {
+        width: 100%;
+      }
+
+      .field.full {
+        grid-column: auto;
+      }
+
+      .table-wrap {
+        overflow-x: hidden;
+      }
+
+      table,
+      thead,
+      tbody,
+      tr,
+      th,
+      td {
+        display: block;
+        width: 100%;
+      }
+
+      table {
+        min-width: 0;
+      }
+
+      thead {
+        display: none;
+      }
+
+      tr {
+        margin-bottom: 12px;
+        padding: 13px;
+        border: 1px solid var(--cinza-200);
+        border-radius: 13px;
+        background: #fff;
+      }
+
+      td {
+        display: grid;
+        grid-template-columns: 115px minmax(0, 1fr);
+        gap: 10px;
+        padding: 8px 0;
+        border-bottom: 0;
+      }
+
+      td::before {
+        content: attr(data-label);
+        color: var(--cinza-500);
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .pagamento-form,
+      .status-form {
+        grid-template-columns: 1fr;
+      }
+
+      .permissions {
+        grid-template-columns: 1fr;
+      }
+
+      .modal-footer {
+        flex-direction: column-reverse;
+      }
+
+      .modal-footer .button {
+        width: 100%;
+      }
+    }
+  
+    /* AJUSTES PROFISSIONAIS: DASHBOARD, PEDIDOS E RELATÓRIOS */
+    .dashboard-filter-panel,
+    .report-filter-panel {
+      margin-bottom: 18px;
+      padding: 16px;
+      border: 1px solid var(--borda);
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: var(--sombra);
+    }
+
+    .dashboard-filter-form,
+    .report-filter-form {
+      display: grid;
+      grid-template-columns:
+        repeat(2, minmax(170px, 1fr))
+        minmax(170px, 1fr)
+        auto;
+      gap: 11px;
+      align-items: end;
+    }
+
+    .dashboard-filter-field,
+    .report-filter-field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .dashboard-filter-field label,
+    .report-filter-field label {
+      color: var(--cinza-700);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .4px;
+      text-transform: uppercase;
+    }
+
+    .dashboard-filter-actions,
+    .report-filter-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .dashboard-scroll,
+    .report-history-scroll {
+      max-height: 430px;
+      overflow-y: auto;
+      overflow-x: auto;
+      padding-right: 7px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--laranja-500) #f2ece8;
+    }
+
+    .dashboard-scroll::-webkit-scrollbar,
+    .report-history-scroll::-webkit-scrollbar {
+      width: 9px;
+      height: 9px;
+    }
+
+    .dashboard-scroll::-webkit-scrollbar-track,
+    .report-history-scroll::-webkit-scrollbar-track {
+      border-radius: 999px;
+      background: #f2ece8;
+    }
+
+    .dashboard-scroll::-webkit-scrollbar-thumb,
+    .report-history-scroll::-webkit-scrollbar-thumb {
+      border: 2px solid #f2ece8;
+      border-radius: 999px;
+      background: linear-gradient(
+        180deg,
+        var(--vermelho-600),
+        var(--laranja-500)
+      );
+    }
+
+    .stat-card-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .stat-card-icon {
+      width: 52px;
+      height: 52px;
+      flex: 0 0 52px;
+      display: grid;
+      place-items: center;
+      border-radius: 16px;
+      background: currentColor;
+      color: inherit;
+      opacity: .12;
+    }
+
+    .stat-card-icon svg {
+      width: 25px;
+      height: 25px;
+      fill: currentColor;
+      opacity: 1;
+    }
+
+    .order-card {
+      padding: 14px;
+    }
+
+    .order-card-header {
+      padding-bottom: 10px;
+    }
+
+    .order-icon {
+      width: 42px;
+      height: 42px;
+      flex-basis: 42px;
+      border-radius: 12px;
+      font-size: 19px;
+    }
+
+    .order-number h3 {
+      font-size: 16px;
+    }
+
+    .order-number p {
+      margin-top: 3px;
+      font-size: 11px;
+    }
+
+    .order-origin {
+      margin-top: 5px;
+      padding: 5px 9px;
+      font-size: 11px;
+    }
+
+    .order-client-data {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px 18px;
+      margin-top: 10px;
+      padding: 9px 11px;
+      border-radius: 11px;
+      background: #faf8f6;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .order-client-data .delivery-address {
+      flex: 1 1 100%;
+      color: var(--cinza-700);
+    }
+
+    .order-items {
+      gap: 7px;
+      margin-top: 9px;
+    }
+
+    .order-item {
+      padding: 8px 10px;
+    }
+
+    .order-observation {
+      margin-top: 9px;
+      padding: 9px 11px;
+    }
+
+    .order-footer {
+      margin-top: 10px;
+      padding-top: 10px;
+    }
+
+    .order-total strong {
+      font-size: 19px;
+    }
+
+    @media (max-width: 900px) {
+      .dashboard-filter-form,
+      .report-filter-form {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .dashboard-filter-actions,
+      .report-filter-actions {
+        grid-column: 1 / -1;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .dashboard-filter-form,
+      .report-filter-form {
+        grid-template-columns: 1fr;
+      }
+
+      .dashboard-filter-actions,
+      .report-filter-actions {
+        grid-column: auto;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+  
+    .additional-list {
+      display: grid;
+      gap: 9px;
+      margin-top: 9px;
+    }
+
+    .additional-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 150px 42px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .remove-additional {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      background: #fde2e2;
+      color: #a32121;
+      font-size: 20px;
+      font-weight: 900;
+    }
+
+    .product-additionals-admin {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .product-additional-chip {
+      padding: 6px 8px;
+      border-radius: 999px;
+      background: #fff1e6;
+      color: #9a5100;
+      font-size: 10px;
+      font-weight: 800;
+    }
+
+    @media (max-width: 600px) {
+      .additional-row {
+        grid-template-columns: 1fr 105px 40px;
+      }
+    }
+
+  
+    .print-order-button {
+      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 7px 11px;
+      border-radius: 8px;
+      background: #e8f1ff;
+      color: #245eaa;
+      font-size: 12px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+
+    .print-order-button:disabled {
+      opacity: .55;
+      cursor: wait;
+    }
+
+    .printer-grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .printer-card {
+      padding: 17px;
+      border: 1px solid var(--cinza-200);
+      border-radius: 16px;
+      background: #fbfaf9;
+    }
+
+    .printer-card h3 {
+      margin-bottom: 13px;
+    }
+
+    .printer-config-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 11px;
+    }
+
+    .printer-help {
+      padding: 12px;
+      border-radius: 12px;
+      background: #fff6e8;
+      color: #765219;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .print-agent-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 11px;
+      border-radius: 999px;
+      background: #fde2e2;
+      color: #a32121;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .print-agent-status.online {
+      background: #dcf6e8;
+      color: #177544;
+    }
+
+    @media (max-width: 900px) {
+      .printer-config-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 600px) {
+      .printer-config-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+  
+    .connection-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .connection-option {
+      position: relative;
+    }
+
+    .connection-option input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .connection-option span {
+      min-height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--cinza-200);
+      border-radius: 12px;
+      background: white;
+      color: var(--cinza-700);
+      font-weight: 900;
+      cursor: pointer;
+      transition: .2s ease;
+    }
+
+    .connection-option input:checked + span {
+      border-color: var(--laranja-500);
+      background: #fff2e8;
+      color: #a94308;
+      box-shadow: 0 0 0 3px rgba(235, 103, 24, .10);
+    }
+
+    .connection-panel {
+      display: none;
+      grid-column: 1 / -1;
+      padding: 13px;
+      border: 1px dashed var(--cinza-300);
+      border-radius: 13px;
+      background: #fff;
+    }
+
+    .connection-panel.active {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 11px;
+    }
+
+    .printer-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .printer-tool-button {
+      min-height: 38px;
+      padding: 8px 12px;
+      border-radius: 10px;
+      background: #eef4ff;
+      color: #245eaa;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .printer-tool-button.test {
+      background: #e5f7ec;
+      color: #167344;
+    }
+
+    .printer-result {
+      display: none;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #f4f1ee;
+      color: #544842;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .printer-result.visible {
+      display: block;
+    }
+
+    @media (max-width: 700px) {
+      .connection-panel.active {
+        grid-template-columns: 1fr;
+      }
+    }
+
+  </style>
+</head>
+
+<%
+  const plano =
+    typeof assinatura !== 'undefined' && assinatura
+      ? assinatura
+      : { status: 'teste' };
+
+  const diasPlano =
+    typeof diasRestantes !== 'undefined'
+      ? diasRestantes
+      : 7;
+
+  const usuario =
+    typeof user !== 'undefined' && user
+      ? user
+      : {
+          tipo: 'proprietario',
+          permissoes: [],
+          nome: 'Usuário'
+        };
+
+  const config =
+    typeof configuracao !== 'undefined' && configuracao
+      ? configuracao
+      : {
+          nomeEstabelecimento: 'Meu estabelecimento',
+          fotoPerfil: '',
+          telefone: '',
+          endereco: '',
+          descricao: '',
+          slug: '',
+          impressoraNome: '',
+          impressoraTipo: 'rede',
+          impressoraIp: '',
+          impressoraPorta: 9100,
+          impressoraPapel: '80mm',
+          impressaoAutomatica: false,
+          impressoras: []
+        };
+
+  const painelDashboard =
+    typeof dashboard !== 'undefined' && dashboard
+      ? dashboard
+      : {
+          vendasHoje: 0,
+          pedidosHoje: 0,
+          ticketMedio: 0,
+          mesasOcupadas: 0,
+          totalMesas: 0
+        };
+
+  const painelRelatorios =
+    typeof relatorios !== 'undefined' && relatorios
+      ? relatorios
+      : {
+          faturamento: 0,
+          custo: 0,
+          lucro: 0,
+          totalPedidos: 0,
+          filtroAtual: 'hoje',
+          canalAtual: 'todos',
+          dataInicio: '',
+          dataFim: '',
+          grafico: {
+            labels: [],
+            valores: [],
+            maiorValor: 0
+          },
+          maisVendidos: [],
+          menosVendidos: [],
+          historico: []
+        };
+
+  const listaEstoque =
+    typeof estoque !== 'undefined' && Array.isArray(estoque)
+      ? estoque
+      : (
+          typeof itensEstoque !== 'undefined' &&
+          Array.isArray(itensEstoque)
+            ? itensEstoque
+            : []
+        );
+
+  const listaProdutos =
+    typeof produtos !== 'undefined' && Array.isArray(produtos)
+      ? produtos
+      : [];
+
+  const listaMesas =
+    typeof mesas !== 'undefined' && Array.isArray(mesas)
+      ? mesas
+      : [];
+
+  const listaFuncionarios =
+    typeof funcionarios !== 'undefined' &&
+    Array.isArray(funcionarios)
+      ? funcionarios
+      : [];
+
+  const listaPedidos =
+    typeof pedidos !== 'undefined' && Array.isArray(pedidos)
+      ? pedidos
+      : [];
+
+  const listaCategoriasEstoque =
+    typeof categoriasEstoque !== 'undefined' &&
+    Array.isArray(categoriasEstoque)
+      ? categoriasEstoque
+      : [];
+
+  const listaCategoriasCatalogo =
+    typeof categoriasCatalogo !== 'undefined' &&
+    Array.isArray(categoriasCatalogo)
+      ? categoriasCatalogo
+      : [];
+
+  const mensagensErro =
+    typeof errors !== 'undefined' && Array.isArray(errors)
+      ? errors
+      : [];
+
+  const mensagensSucesso =
+    typeof success !== 'undefined' && Array.isArray(success)
+      ? success
+      : [];
+
+  const linkCatalogo =
+    typeof catalogoLink !== 'undefined'
+      ? catalogoLink
+      : '#';
+
+  const pode = modulo => {
+    return (
+      usuario.tipo === 'proprietario' ||
+      usuario.permissoes?.includes(modulo)
+    );
+  };
+
+  const modulosMenuCompleto = [
+    'dashboard',
+    'pedidos',
+    'relatorios',
+    'estoque',
+    'catalogo',
+    'mesas',
+    'funcionarios',
+    'configuracoes'
+  ];
+
+  const menuCompleto =
+    usuario.tipo === 'proprietario' ||
+    modulosMenuCompleto.every(modulo =>
+      usuario.permissoes?.includes(modulo)
+    );
+
+  const formatarMoeda = valor => {
+    return Number(valor || 0).toLocaleString(
+      'pt-BR',
+      {
+        style: 'currency',
+        currency: 'BRL'
+      }
+    );
+  };
+
+  const nomeUsuario =
+    usuario.nome ||
+    config.nomeEstabelecimento ||
+    'Usuário';
+
+  const iniciaisUsuario = nomeUsuario
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(parte => parte[0])
+    .join('')
+    .toUpperCase();
+%>
+
+<body>
+  <div class="overlay" id="overlay"></div>
+
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-logo">
+          <img
+            src="/assets/imgs/comanda.png"
+            alt="ComandaMix"
+          >
+        </div>
+
+        <div>
+          <strong>ComandaMix</strong>
+          <small>Gestão Food Service</small>
+        </div>
+      </div>
+
+      <div class="sidebar-title">Menu</div>
+
+      <nav class="menu">
+        <% if (pode('dashboard')) { %>
+          <a
+            href="#dashboard"
+            class="menu-link"
+            data-page="dashboard"
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M3 13h8V3H3v10Zm0 8h8v-6H3v6Zm10 0h8V11h-8v10Zm0-18v6h8V3h-8Z"/>
+            </svg>
+
+            <span>Dashboard</span>
+          </a>
+        <% } %>
+
+        <% if (pode('pedidos')) { %>
+  <a
+    href="#pedidos"
+    class="menu-link"
+    data-page="pedidos"
+    id="menuPedidos"
+  >
+    <svg viewBox="0 0 24 24">
+      <path d="M7 2h10a2 2 0 0 1 2 2v18l-3-2-4 2-4-2-3 2V4a2 2 0 0 1 2-2Zm0 2v14.26l1-.67 4 2 4-2 1 .67V4H7Zm2 3h6v2H9V7Zm0 4h6v2H9v-2Zm0 4h4v2H9v-2Z"/>
+    </svg>
+
+    <span>Pedidos</span>
+
+    <span
+      class="orders-notification-badge"
+      id="ordersNotificationBadge"
+      hidden
+    >
+      0
+    </span>
+  </a>
+<% } %>
+
+        <% if (pode('relatorios')) { %>
+          <a
+            href="#relatorios"
+            class="menu-link"
+            data-page="relatorios"
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M5 21a2 2 0 0 1-2-2v-7a2 2 0 1 1 4 0v7a2 2 0 0 1-2 2Zm7 0a2 2 0 0 1-2-2V5a2 2 0 1 1 4 0v14a2 2 0 0 1-2 2Zm7 0a2 2 0 0 1-2-2V9a2 2 0 1 1 4 0v10a2 2 0 0 1-2 2Z"/>
+            </svg>
+
+            <span>Relatórios</span>
+          </a>
+        <% } %>
+
+        <% if (pode('estoque')) { %>
+          <a
+            href="#estoque"
+            class="menu-link"
+            data-page="estoque"
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Zm0 2.3L18.7 8 12 11.7 5.3 8 12 4.3ZM5 9.7l6 3.3v6.3L5 16V9.7Zm8 9.6V13l6-3.3V16l-6 3.3Z"/>
+            </svg>
+
+            <span>Estoque</span>
+          </a>
+        <% } %>
+
+        <% if (pode('catalogo')) { %>
+          <a
+            href="#catalogo"
+            class="menu-link"
+            data-page="catalogo"
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M4 3h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm1 4v10h14V7H5Zm2 2h4v4H7V9Zm6 0h4v2h-4V9Zm0 4h4v2h-4v-2Z"/>
+            </svg>
+
+            <span>Catálogo</span>
+          </a>
+        <% } %>
+
+        <% if (pode('mesas')) { %>
+          <a
+            href="#mesas"
+            class="menu-link"
+            data-page="mesas"
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M4 4h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-1v9a1 1 0 1 1-2 0v-9H7v9a1 1 0 1 1-2 0v-9H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
+            </svg>
+
+            <span>Mesas</span>
+          </a>
+        <% } %>
+
+        <% if (pode('funcionarios')) { %>
+          <a
+            href="#funcionarios"
+            class="menu-link"
+            data-page="funcionarios"
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-4 0-7 2.1-7 5v1a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1c0-2.9-3-5-7-5Zm8.5-2a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm0 2c-.6 0-1.2.1-1.8.2 1.5 1.1 2.3 2.7 2.3 4.8v1h3a1 1 0 0 0 1-1v-.7c0-2.5-1.9-4.3-4.5-4.3Z"/>
+            </svg>
+
+            <span>Funcionários</span>
+          </a>
+        <% } %>
+
+        <% if (pode('configuracoes')) { %>
+          <a
+            href="#configuracoes"
+            class="menu-link"
+            data-page="configuracoes"
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M19.4 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5a1 1 0 0 0 .2-1.3l-1.9-3.2a1 1 0 0 0-1.2-.4l-2.4 1a8.1 8.1 0 0 0-2.6-1.5L13.2 1a1 1 0 0 0-1-.8h-4a1 1 0 0 0-1 .8L6.8 3.6c-.9.3-1.8.8-2.6 1.5l-2.4-1a1 1 0 0 0-1.2.4L.7 7.7A1 1 0 0 0 .9 9l2 1.5C2.8 11 2.8 11.5 2.8 12s0 1 .1 1.5L.9 15a1 1 0 0 0-.2 1.3l1.9 3.2a1 1 0 0 0 1.2.4l2.4-1c.8.7 1.7 1.2 2.6 1.5l.4 2.6a1 1 0 0 0 1 .8h4a1 1 0 0 0 1-.8l.4-2.6c.9-.3 1.8-.8 2.6-1.5l2.4 1a1 1 0 0 0 1.2-.4l1.9-3.2a1 1 0 0 0-.2-1.3l-2.1-1.5ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/>
+            </svg>
+
+            <span>Configurações</span>
+          </a>
+        <% } %>
+      </nav>
+
+      <div class="sidebar-card">
+        <strong>
+          <%= plano.status === 'teste'
+            ? 'Teste grátis'
+            : 'Plano Profissional'
+          %>
+        </strong>
+
+        <p class="<%= plano.status === 'expirada'
+          ? 'plan-expired'
+          : ''
+        %>">
+          <% if (plano.status === 'teste') { %>
+            Você tem <%= diasPlano %> dia(s) restantes
+            no período gratuito.
+          <% } else if (plano.status === 'ativa') { %>
+            Sua assinatura está ativa.
+          <% } else { %>
+            Seu acesso ao plano expirou.
+          <% } %>
+        </p>
+
+        <span><%= plano.status %></span>
+
+        <a
+          class="plan-button"
+          href="/assinatura"
+        >
+          <%= plano.status === 'ativa'
+            ? 'Gerenciar plano'
+            : 'Assinar agora'
+          %>
+        </a>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="mobile-topbar">
+        <button type="button" id="openMenu">☰</button>
+        <strong>ComandaMix</strong>
+
+        <% if (config.fotoPerfil) { %>
+          <img
+            class="mobile-profile-image"
+            src="<%= config.fotoPerfil %>"
+            alt="<%= config.nomeEstabelecimento || 'Perfil' %>"
+          >
+        <% } else { %>
+          <div class="profile-avatar">
+            <%= iniciaisUsuario %>
+          </div>
+        <% } %>
+      </div>
+
+      <header class="topbar">
+        <div class="topbar-title">
+          <h1 id="pageTitle">Visão geral</h1>
+
+          <p id="pageSubtitle">
+            Acompanhe os dados do seu estabelecimento.
+          </p>
+        </div>
+
+        <div class="topbar-actions">
+          <div class="profile-name">
+            <% if (config.fotoPerfil) { %>
+              <img
+                src="<%= config.fotoPerfil %>"
+                alt="<%= config.nomeEstabelecimento %>"
+              >
+            <% } else { %>
+              <div class="profile-avatar">
+                <%= iniciaisUsuario %>
+              </div>
+            <% } %>
+
+            <strong>
+              <%= config.nomeEstabelecimento %>
+            </strong>
+          </div>
+
+          <a class="logout" href="/login/logout">
+            Sair
+          </a>
+        </div>
+      </header>
+
+      <% mensagensErro.forEach(mensagem => { %>
+        <div class="notice error">
+          <%= mensagem %>
+        </div>
+      <% }) %>
+
+      <% mensagensSucesso.forEach(mensagem => { %>
+        <div class="notice success">
+          <%= mensagem %>
+        </div>
+      <% }) %>
+
+      <!-- DASHBOARD -->
+      <section class="page" id="page-dashboard">
+        <section class="dashboard-filter-panel">
+          <form action="/admin" method="GET" class="dashboard-filter-form">
+            <input type="hidden" name="dashboardFiltro" value="personalizado">
+
+            <div class="dashboard-filter-field">
+              <label for="dashboardDataInicio">Data inicial</label>
+              <input
+                type="date"
+                id="dashboardDataInicio"
+                name="dashboardDataInicio"
+                value="<%= painelDashboard.dataInicio || '' %>"
+              >
+            </div>
+
+            <div class="dashboard-filter-field">
+              <label for="dashboardDataFim">Data final</label>
+              <input
+                type="date"
+                id="dashboardDataFim"
+                name="dashboardDataFim"
+                value="<%= painelDashboard.dataFim || '' %>"
+              >
+            </div>
+
+            <div class="dashboard-filter-field">
+              <label for="dashboardPeriodo">Período rápido</label>
+              <select
+                id="dashboardPeriodo"
+                onchange="
+                  if (this.value) {
+                    window.location.href =
+                      '/admin?dashboardFiltro=' +
+                      encodeURIComponent(this.value) +
+                      '#dashboard';
+                  }
+                "
+              >
+                <option value="">Selecionar</option>
+                <option value="hoje" <%= painelDashboard.filtroAtual === 'hoje' ? 'selected' : '' %>>Hoje</option>
+                <option value="semana" <%= painelDashboard.filtroAtual === 'semana' ? 'selected' : '' %>>Esta semana</option>
+                <option value="mes" <%= painelDashboard.filtroAtual === 'mes' ? 'selected' : '' %>>Este mês</option>
+                <option value="ano" <%= painelDashboard.filtroAtual === 'ano' ? 'selected' : '' %>>Este ano</option>
+                <option value="todos" <%= painelDashboard.filtroAtual === 'todos' ? 'selected' : '' %>>Todo o período</option>
+              </select>
+            </div>
+
+            <div class="dashboard-filter-actions">
+              <button type="submit" class="button">Filtrar</button>
+              <a href="/admin?dashboardFiltro=hoje#dashboard" class="button secondary">Limpar</a>
+            </div>
+          </form>
+        </section>
+
+        <div class="stats">
+          <article class="stat-card vermelho">
+            <div class="stat-card-content">
+              <div>
+                <div class="stat-label">Vendas no período</div>
+                <div class="stat-value"><%= formatarMoeda(painelDashboard.vendasHoje) %></div>
+              </div>
+              <div class="stat-card-icon">
+                <svg viewBox="0 0 24 24"><path d="M11 2h2v2.08c2.28.34 4 1.83 4 3.92h-2c0-1.1-1.34-2-3-2s-3 .9-3 2 1.34 2 3 2c2.76 0 5 1.79 5 4 0 2.09-1.72 3.58-4 3.92V20h-2v-2.08C8.72 17.58 7 16.09 7 14h2c0 1.1 1.34 2 3 2s3-.9 3-2-1.34-2-3-2c-2.76 0-5-1.79-5-4 0-2.09 1.72-3.58 4-3.92V2Z"/></svg>
+              </div>
+            </div>
+          </article>
+
+          <article class="stat-card laranja">
+            <div class="stat-card-content">
+              <div>
+                <div class="stat-label">Pedidos no período</div>
+                <div class="stat-value"><%= painelDashboard.pedidosHoje %></div>
+              </div>
+              <div class="stat-card-icon">
+                <svg viewBox="0 0 24 24"><path d="M7 2h10a2 2 0 0 1 2 2v18l-3-2-4 2-4-2-3 2V4a2 2 0 0 1 2-2Zm0 2v14.26l1-.67 4 2 4-2 1 .67V4H7Zm2 3h6v2H9V7Zm0 4h6v2H9v-2Z"/></svg>
+              </div>
+            </div>
+          </article>
+
+          <article class="stat-card verde">
+            <div class="stat-card-content">
+              <div>
+                <div class="stat-label">Ticket médio</div>
+                <div class="stat-value"><%= formatarMoeda(painelDashboard.ticketMedio) %></div>
+              </div>
+              <div class="stat-card-icon">
+                <svg viewBox="0 0 24 24"><path d="m4 14 4-4 4 4 7-7 1.41 1.41L12 17.24 8 13.24 5.41 15.83 4 14Zm14-9h6v6h-2V8.41l-7.29 7.3-1.42-1.42L20.59 7H18V5Z"/></svg>
+              </div>
+            </div>
+          </article>
+
+          <article class="stat-card azul">
+            <div class="stat-card-content">
+              <div>
+                <div class="stat-label">Mesas ocupadas</div>
+                <div class="stat-value"><%= painelDashboard.mesasOcupadas %>/<%= painelDashboard.totalMesas %></div>
+              </div>
+              <div class="stat-card-icon">
+                <svg viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-1v9a1 1 0 1 1-2 0v-9H7v9a1 1 0 1 1-2 0v-9H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/></svg>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <h2>Pedidos do período</h2>
+              <p>Pedidos encontrados conforme o filtro do dashboard.</p>
+            </div>
+          </div>
+
+          <div class="table-wrap dashboard-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Mesa/canal</th>
+                  <th>Total</th>
+                  <th>Pedido</th>
+                  <th>Pagamento</th>
+                  <th>Data</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% if (!painelDashboard.pedidosLista?.length) { %>
+                  <tr><td colspan="6" class="empty">Nenhum pedido encontrado no período.</td></tr>
+                <% } %>
+
+                <% (painelDashboard.pedidosLista || []).forEach(pedido => { %>
+                  <tr>
+                    <td data-label="Cliente"><%= pedido.cliente || 'Cliente' %></td>
+                    <td data-label="Mesa/canal">
+                      <% if (pedido.mesaId?.numero) { %>
+                        Mesa <%= pedido.mesaId.numero %>
+                      <% } else { %>
+                        <%= pedido.canal === 'retirada' || pedido.canal === 'balcao'
+                          ? 'Retirada no local'
+                          : (pedido.canal || '-')
+                        %>
+                      <% } %>
+                    </td>
+                    <td data-label="Total"><strong><%= formatarMoeda(pedido.total) %></strong></td>
+                    <td data-label="Pedido"><span class="status <%= pedido.status %>"><%= String(pedido.status || '').replaceAll('_', ' ') %></span></td>
+                    <td data-label="Pagamento"><span class="status <%= pedido.pagamentoStatus || 'pendente' %>"><%= String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ') %></span></td>
+                    <td data-label="Data"><%= pedido.createdAt ? new Date(pedido.createdAt).toLocaleString('pt-BR') : '-' %></td>
+                  </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <!-- PEDIDOS -->
+<section class="page" id="page-pedidos">
+  <section class="panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        <h2>Pedidos recebidos</h2>
+
+        <p>
+          Pedidos feitos por mesas, delivery e retirada no local.
+        </p>
+      </div>
+    </div>
+
+    <div class="orders-filter-panel">
+  <div class="orders-quick-filters">
+    <button
+      type="button"
+      class="order-quick-filter active"
+      data-orders-period="todos"
+    >
+      Todos
+    </button>
+
+    <button
+      type="button"
+      class="order-quick-filter"
+      data-orders-period="hoje"
+    >
+      Hoje
+    </button>
+
+    <button
+      type="button"
+      class="order-quick-filter"
+      data-orders-period="7dias"
+    >
+      Últimos 7 dias
+    </button>
+
+    <button
+      type="button"
+      class="order-quick-filter"
+      data-orders-period="mes"
+    >
+      Este mês
+    </button>
+  </div>
+
+  <div class="orders-filter-form">
+    <div class="orders-filter-field">
+      <label for="ordersDateStart">
+        Data inicial
+      </label>
+
+      <input
+        type="date"
+        id="ordersDateStart"
+      >
+    </div>
+
+    <div class="orders-filter-field">
+      <label for="ordersDateEnd">
+        Data final
+      </label>
+
+      <input
+        type="date"
+        id="ordersDateEnd"
+      >
+    </div>
+
+    <div class="orders-filter-field">
+      <label for="ordersChannelFilter">
+        Tipo do pedido
+      </label>
+
+      <select id="ordersChannelFilter">
+        <option value="todos">
+          Todos
+        </option>
+
+        <option value="delivery">
+          Delivery
+        </option>
+
+        <option value="retirada">
+          Retirada no local
+        </option>
+
+        <option value="mesa">
+          Mesa
+        </option>
+      </select>
+    </div>
+
+    <div class="orders-filter-field">
+      <label for="ordersStatusFilter">
+        Status
+      </label>
+
+      <select id="ordersStatusFilter">
+        <option value="todos">
+          Todos
+        </option>
+
+        <option value="novo">
+          Novo
+        </option>
+
+        <option value="preparo">
+          Em preparo
+        </option>
+
+        <option value="em_preparo">
+          Em preparo
+        </option>
+
+        <option value="pronto">
+          Pronto
+        </option>
+
+        <option value="entregue">
+          Entregue
+        </option>
+
+        <option value="finalizado">
+          Finalizado
+        </option>
+
+        <option value="cancelado">
+          Cancelado
+        </option>
+      </select>
+    </div>
+
+    <div class="orders-filter-actions">
+      <button
+        type="button"
+        class="orders-filter-button"
+        id="applyOrdersFilter"
+      >
+        Filtrar
+      </button>
+
+      <button
+        type="button"
+        class="orders-clear-button"
+        id="clearOrdersFilter"
+      >
+        Limpar
+      </button>
+    </div>
+  </div>
+
+  <div class="orders-filter-result">
+    <span>
+      Exibindo
+      <strong id="visibleOrdersCount">
+        0
+      </strong>
+      pedido(s)
+    </span>
+
+    <span id="ordersPeriodDescription">
+      Todos os períodos
+    </span>
+  </div>
+</div>
+
+    <div
+  class="orders-grid"
+  id="ordersGrid"
+>
+      <% if (!listaPedidos.length) { %>
+       <div
+        class="empty"
+        id="ordersEmptyState"
+      >
+        Nenhum pedido recebido.
+      </div>
+      <% } %>
+
+      <% listaPedidos.forEach(pedido => { %>
+        <%
+          let origemTexto = 'Retirada no local';
+          let origemClasse = 'retirada';
+          let origemIcone = '🏪';
+
+          if (pedido.canal === 'delivery') {
+            origemTexto = 'Delivery';
+            origemClasse = 'delivery';
+            origemIcone = '🛵';
+          }
+
+          if (
+            pedido.canal === 'mesa' &&
+            pedido.mesaId?.numero
+          ) {
+            origemTexto = `Mesa ${pedido.mesaId.numero}`;
+            origemClasse = 'mesa';
+            origemIcone = '🍽️';
+          }
+
+          if (
+            pedido.canal === 'balcao' ||
+            pedido.canal === 'retirada'
+          ) {
+            origemTexto = 'Retirada no local';
+            origemClasse = 'retirada';
+            origemIcone = '🏪';
+          }
+        %>
+
+        <article
+          class="order-card"
+          data-order-id="<%= pedido._id %>"
+          data-order-date="<%= pedido.createdAt
+            ? new Date(pedido.createdAt).toISOString()
+            : ''
+          %>"
+          data-order-channel="<%= pedido.canal === 'balcao'
+            ? 'retirada'
+            : (pedido.canal || 'retirada')
+          %>"
+          data-order-status="<%= pedido.status || 'novo' %>"
+        >
+          <div class="order-card-header">
+            <div class="order-number">
+              <div class="order-icon">
+                <%= origemIcone %>
+              </div>
+
+              <div>
+                <h3>
+                  Pedido #<%= String(pedido._id).slice(-6).toUpperCase() %>
+                </h3>
+
+                <p>
+                  <%= pedido.createdAt
+                    ? new Date(
+                        pedido.createdAt
+                      ).toLocaleString('pt-BR')
+                    : '-'
+                  %>
+                </p>
+
+                <span class="order-origin <%= origemClasse %>">
+                  <%= origemIcone %>
+                  <%= origemTexto %>
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <span class="status <%= pedido.status %>">
+                <%= String(pedido.status || 'novo')
+                  .replaceAll('_', ' ')
+                %>
+              </span>
+
+              <span class="status <%= pedido.pagamentoStatus || 'pendente' %>">
+                <%= String(
+                  pedido.pagamentoStatus || 'pendente'
+                ).replaceAll('_', ' ') %>
+              </span>
+            </div>
+          </div>
+
+          <div class="order-client-data">
+            <div>
+              <strong>Cliente:</strong>
+              <%= pedido.cliente || 'Cliente não informado' %>
+            </div>
+
+            <% if (pedido.telefoneCliente) { %>
+              <div>
+                <strong>WhatsApp:</strong>
+                <%= pedido.telefoneCliente %>
+              </div>
+            <% } %>
+
+            <% if (
+              pedido.canal === 'delivery' &&
+              pedido.enderecoEntrega
+            ) { %>
+              <div class="delivery-address">
+                <strong>Endereço de entrega:</strong>
+                <%= pedido.enderecoEntrega %>
+              </div>
+            <% } %>
+          </div>
+
+          <div class="order-items">
+            <% if (!pedido.itens?.length) { %>
+              <div class="empty">
+                O pedido não possui itens.
+              </div>
+            <% } %>
+
+            <% (pedido.itens || []).forEach(item => { %>
+              <div class="order-item">
+                <div class="order-item-quantity">
+                  <%= item.quantidade %>x
+                </div>
+
+                <div>
+                  <div class="order-item-name">
+                    <%= item.nome %>
+                  </div>
+
+                  <% if (item.observacao) { %>
+                    <span class="order-item-note">
+                      Observação: <%= item.observacao %>
+                    </span>
+                  <% } %>
+                </div>
+
+                <div class="order-item-price">
+                  <%= formatarMoeda(
+                    Number(item.subtotal) ||
+                    Number(item.preco || 0) *
+                    Number(item.quantidade || 0)
+                  ) %>
+                </div>
+              </div>
+            <% }) %>
+          </div>
+
+          <% if (pedido.observacao) { %>
+            <div class="order-observation">
+              <strong>Observação geral:</strong>
+              <%= pedido.observacao %>
+            </div>
+          <% } %>
+
+          <div class="order-footer">
+            <div class="order-total">
+              <span>Total do pedido</span>
+
+              <strong>
+                <%= formatarMoeda(pedido.total) %>
+              </strong>
+            </div>
+
+            <div class="order-actions">
+              <form
+                action="/admin/pedidos/<%= pedido._id %>/status"
+                method="POST"
+                class="order-status-form"
+              >
+                <select name="status">
+                  <option
+                    value="novo"
+                    <%= pedido.status === 'novo'
+                      ? 'selected'
+                      : ''
+                    %>
+                  >
+                    Novo
+                  </option>
+
+                  <option
+                    value="preparo"
+                    <%= pedido.status === 'preparo'
+                      ? 'selected'
+                      : ''
+                    %>
+                  >
+                    Em preparo
+                  </option>
+
+                  <option
+                    value="pronto"
+                    <%= pedido.status === 'pronto'
+                      ? 'selected'
+                      : ''
+                    %>
+                  >
+                    Pronto
+                  </option>
+
+                  <option
+                    value="entregue"
+                    <%= pedido.status === 'entregue'
+                      ? 'selected'
+                      : ''
+                    %>
+                  >
+                    Entregue
+                  </option>
+
+                  <option
+                    value="finalizado"
+                    <%= pedido.status === 'finalizado'
+                      ? 'selected'
+                      : ''
+                    %>
+                  >
+                    Finalizado
+                  </option>
+
+                  <option
+                    value="cancelado"
+                    <%= pedido.status === 'cancelado'
+                      ? 'selected'
+                      : ''
+                    %>
+                  >
+                    Cancelado
+                  </option>
+                </select>
+
+                <button
+                  type="submit"
+                  class="mini-button edit"
+                >
+                  Atualizar
+                </button>
+              </form>
+
+              <% if (pode('imprimir_pedidos')) { %>
+                <button
+                  type="button"
+                  class="print-order-button"
+                  data-print-order="<%= pedido._id %>"
+                >
+                  🖨 Imprimir pedido
+                </button>
+              <% } %>
+            </div>
+          </div>
+        </article>
+      <% }) %>
+    </div>
+
+    <div
+      class="orders-no-results"
+      id="ordersNoResults"
+    >
+      Nenhum pedido encontrado com os filtros selecionados.
+    </div>
+  </section>
+</section>
+
+      <!-- RELATÓRIOS -->
+      <section class="page" id="page-relatorios">
+  <section class="report-filter-panel">
+    <div class="report-filters">
+      <a href="/admin?filtro=hoje#relatorios" class="filter-chip <%= relatorios.filtroAtual === 'hoje' ? 'ativo' : '' %>">Hoje</a>
+      <a href="/admin?filtro=semana#relatorios" class="filter-chip <%= relatorios.filtroAtual === 'semana' ? 'ativo' : '' %>">Esta semana</a>
+      <a href="/admin?filtro=mes#relatorios" class="filter-chip <%= relatorios.filtroAtual === 'mes' ? 'ativo' : '' %>">Este mês</a>
+      <a href="/admin?filtro=ano#relatorios" class="filter-chip <%= relatorios.filtroAtual === 'ano' ? 'ativo' : '' %>">Este ano</a>
+      <a href="/admin?filtro=todos#relatorios" class="filter-chip <%= relatorios.filtroAtual === 'todos' ? 'ativo' : '' %>">Todos</a>
+    </div>
+
+    <form action="/admin" method="GET" class="report-filter-form">
+      <input type="hidden" name="filtro" value="personalizado">
+
+      <div class="report-filter-field">
+        <label for="dataInicio">Data inicial</label>
+        <input type="date" id="dataInicio" name="dataInicio" value="<%= relatorios.dataInicio || '' %>">
+      </div>
+
+      <div class="report-filter-field">
+        <label for="dataFim">Data final</label>
+        <input type="date" id="dataFim" name="dataFim" value="<%= relatorios.dataFim || '' %>">
+      </div>
+
+      <div class="report-filter-field">
+        <label for="canalRelatorio">Tipo do pedido</label>
+        <select id="canalRelatorio" name="canal">
+          <option value="todos" <%= !relatorios.canalAtual || relatorios.canalAtual === 'todos' ? 'selected' : '' %>>Todos</option>
+          <option value="delivery" <%= relatorios.canalAtual === 'delivery' ? 'selected' : '' %>>Delivery</option>
+          <option value="mesa" <%= relatorios.canalAtual === 'mesa' ? 'selected' : '' %>>Mesa</option>
+          <option value="retirada" <%= relatorios.canalAtual === 'retirada' ? 'selected' : '' %>>Retirada no local</option>
+        </select>
+      </div>
+
+      <div class="report-filter-actions">
+        <button type="submit" class="button">Filtrar</button>
+        <a href="/admin?filtro=hoje&canal=todos#relatorios" class="button secondary">Limpar</a>
+      </div>
+    </form>
+  </section>
+
+  <div class="stats">
+    <article class="stat-card vermelho">
+      <div class="report-card-head">
+        <div>
+          <div class="stat-label">Faturamento</div>
+          <div class="stat-value">
+            <%= formatarMoeda(relatorios.faturamento) %>
+          </div>
+        </div>
+
+        <div class="report-icon">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 1a11 11 0 1 0 11 11A11 11 0 0 0 12 1Zm1 17.93V20h-2v-1.05A4 4 0 0 1 8 15h2a2 2 0 1 0 2-2 4 4 0 0 1-1-7.87V4h2v1.13A4 4 0 0 1 16 9h-2a2 2 0 1 0-2 2 4 4 0 0 1 1 7.87Z"/>
+          </svg>
+        </div>
+      </div>
+    </article>
+
+    <article class="stat-card laranja">
+      <div class="report-card-head">
+        <div>
+          <div class="stat-label">Custos</div>
+          <div class="stat-value">
+            <%= formatarMoeda(relatorios.custo) %>
+          </div>
+        </div>
+
+        <div class="report-icon">
+          <svg viewBox="0 0 24 24">
+            <path d="M4 4h16v2H4V4Zm0 7h10v2H4v-2Zm0 7h7v2H4v-2Zm13.59 2L14 16.41l1.41-1.41 2.18 2.17 4.59-4.58L23.59 14 17.59 20Z"/>
+          </svg>
+        </div>
+      </div>
+    </article>
+
+    <article class="stat-card verde">
+      <div class="report-card-head">
+        <div>
+          <div class="stat-label">Lucro</div>
+          <div class="stat-value">
+            <%= formatarMoeda(relatorios.lucro) %>
+          </div>
+        </div>
+
+        <div class="report-icon">
+          <svg viewBox="0 0 24 24">
+            <path d="m4 14 4-4 4 4 7-7 1.41 1.41L12 17.24 8 13.24 5.41 15.83 4 14Zm14-9h6v6h-2V8.41l-7.29 7.3-1.42-1.42L20.59 7H18V5Z"/>
+          </svg>
+        </div>
+      </div>
+    </article>
+
+    <article class="stat-card azul">
+      <div class="report-card-head">
+        <div>
+          <div class="stat-label">Pedidos finalizados</div>
+          <div class="stat-value">
+            <%= relatorios.totalPedidos %>
+          </div>
+        </div>
+
+        <div class="report-icon">
+          <svg viewBox="0 0 24 24">
+            <path d="M7 18c-1.1 0-2 .9-2 2h14a2 2 0 0 0-2-2H7Zm11-2H6a2 2 0 0 1-2-2V4h2v10h12V4h2v10a2 2 0 0 1-2 2ZM8 6h8v2H8V6Zm0 4h8v2H8v-2Z"/>
+          </svg>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <section class="panel chart-card">
+    <div class="chart-title">
+      <h3>
+        As vendas têm mostrado o desempenho do período selecionado
+      </h3>
+    </div>
+
+    <div class="chart-wrapper">
+      <div class="chart-y">
+        <span><%= formatarMoeda(relatorios.grafico.maiorValor) %></span>
+        <span><%= formatarMoeda(relatorios.grafico.maiorValor * 0.75) %></span>
+        <span><%= formatarMoeda(relatorios.grafico.maiorValor * 0.5) %></span>
+        <span><%= formatarMoeda(relatorios.grafico.maiorValor * 0.25) %></span>
+        <span>0</span>
+      </div>
+
+      <div class="chart-area">
+        <div class="chart-bars">
+          <% relatorios.grafico.labels.forEach((label, index) => { %>
+            <% const valor = relatorios.grafico.valores[index] || 0; %>
+            <% const altura = relatorios.grafico.maiorValor > 0 ? (valor / relatorios.grafico.maiorValor) * 220 : 0; %>
+
+            <div class="chart-bar-item">
+              <div class="chart-bar-value">
+                <%= valor > 0 ? formatarMoeda(valor) : '—' %>
+              </div>
+
+              <div
+                class="chart-bar"
+                style="height: <%= altura %>px;"
+                title="<%= label %> - <%= formatarMoeda(valor) %>"
+              ></div>
+
+              <div class="chart-label">
+                <%= label %>
+              </div>
+            </div>
+          <% }) %>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="ranking-grid">
+    <section class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <h2>Pedidos mais vendidos</h2>
+          <p>Produtos que mais saem no período.</p>
+        </div>
+      </div>
+
+      <div class="ranking-list">
+        <% if (!relatorios.maisVendidos.length) { %>
+          <div class="empty">
+            Nenhum produto vendido neste período.
+          </div>
+        <% } %>
+
+        <% relatorios.maisVendidos.forEach(produto => { %>
+          <div class="ranking-item">
+            <div>
+              <strong><%= produto.nome %></strong>
+              <span>
+                Total vendido:
+                <%= formatarMoeda(produto.total) %>
+              </span>
+            </div>
+
+            <div class="ranking-badge top">
+              <%= produto.quantidade %>x
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <h2>Pedidos que menos saem</h2>
+          <p>Produtos com menor saída no período.</p>
+        </div>
+      </div>
+
+      <div class="ranking-list">
+        <% if (!relatorios.menosVendidos.length) { %>
+          <div class="empty">
+            Nenhum produto vendido neste período.
+          </div>
+        <% } %>
+
+        <% relatorios.menosVendidos.forEach(produto => { %>
+          <div class="ranking-item">
+            <div>
+              <strong><%= produto.nome %></strong>
+              <span>
+                Total vendido:
+                <%= formatarMoeda(produto.total) %>
+              </span>
+            </div>
+
+            <div class="ranking-badge low">
+              <%= produto.quantidade %>x
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel" style="margin-top: 20px;">
+    <div class="panel-header">
+      <div class="panel-title">
+        <h2>Histórico de pedidos</h2>
+        <p>Informações utilizadas nos relatórios financeiros.</p>
+      </div>
+    </div>
+
+    <div class="table-wrap report-history-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Cliente</th>
+            <th>Canal</th>
+            <th>Total</th>
+            <th>Custo</th>
+            <th>Lucro</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <% if (!relatorios.historico.length) { %>
+            <tr>
+              <td colspan="7" class="empty">
+                Nenhum dado disponível.
+              </td>
+            </tr>
+          <% } %>
+
+          <% relatorios.historico.forEach(pedido => { %>
+            <tr>
+              <td data-label="Data">
+                <%= pedido.createdAt ? new Date(pedido.createdAt).toLocaleString('pt-BR') : '-' %>
+              </td>
+
+              <td data-label="Cliente">
+                <%= pedido.cliente || 'Cliente' %>
+              </td>
+
+              <td data-label="Canal">
+                <%= pedido.canal || '-' %>
+              </td>
+
+              <td data-label="Total">
+                <%= formatarMoeda(pedido.total) %>
+              </td>
+
+              <td data-label="Custo">
+                <%= formatarMoeda(pedido.custo) %>
+              </td>
+
+              <td data-label="Lucro">
+                <%= formatarMoeda((Number(pedido.total || 0) - Number(pedido.custo || 0))) %>
+              </td>
+
+              <td data-label="Status">
+                <span class="status <%= pedido.status %>">
+                  <%= pedido.status %>
+                </span>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
+
+      <!-- ESTOQUE -->
+      <section class="page" id="page-estoque">
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <h2>Categorias de estoque</h2>
+
+              <p>
+                Organize ingredientes, embalagens e insumos.
+              </p>
+            </div>
+          </div>
+
+          <form
+            action="/admin/categorias"
+            method="POST"
+            class="form-grid"
+          >
+            <input
+              type="hidden"
+              name="tipo"
+              value="estoque"
+            >
+
+            <div class="field">
+              <label for="categoriaEstoqueNome">
+                Nome da categoria
+              </label>
+
+              <input
+                id="categoriaEstoqueNome"
+                name="nome"
+                placeholder="Ex.: Carnes"
+                required
+              >
+            </div>
+
+            <div class="field">
+              <label>&nbsp;</label>
+
+              <button class="button" type="submit">
+                Cadastrar categoria
+              </button>
+            </div>
+          </form>
+
+          <div class="inline-actions">
+            <% listaCategoriasEstoque.forEach(categoria => { %>
+              <form
+                action="/admin/categorias/<%= categoria._id %>/excluir"
+                method="POST"
+              >
+                <button
+                  type="submit"
+                  class="mini-button delete"
+                >
+                  <%= categoria.nome %> ×
+                </button>
+              </form>
+            <% }) %>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <h2>Itens de estoque</h2>
+
+              <p>
+                Dados reais de quantidade, mínimo e custo.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              class="button open-modal"
+              data-modal="modalEstoque"
+            >
+              + Novo item
+            </button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Categoria</th>
+                  <th>Quantidade</th>
+                  <th>Mínimo</th>
+                  <th>Custo unitário</th>
+                  <th>Status</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                <% if (!listaEstoque.length) { %>
+                  <tr>
+                    <td colspan="7" class="empty">
+                      Nenhum item cadastrado.
+                    </td>
+                  </tr>
+                <% } %>
+
+                <% listaEstoque.forEach(item => { %>
+                  <tr>
+                    <td data-label="Item">
+                      <strong><%= item.nome %></strong>
+                    </td>
+
+                    <td data-label="Categoria">
+                      <%= item.categoriaId?.nome || '-' %>
+                    </td>
+
+                    <td data-label="Quantidade">
+                      <%= item.quantidade %>
+                      <%= item.unidade %>
+                    </td>
+
+                    <td data-label="Mínimo">
+                      <%= item.minimo %>
+                    </td>
+
+                    <td data-label="Custo">
+                      <%= formatarMoeda(
+                        item.custoUnitario
+                      ) %>
+                    </td>
+
+                    <td data-label="Status">
+                      <span
+                        class="status <%= Number(item.quantidade) <= Number(item.minimo)
+                          ? 'baixo'
+                          : 'disponivel'
+                        %>"
+                      >
+                        <%= Number(item.quantidade) <= Number(item.minimo)
+                          ? 'Estoque baixo'
+                          : 'Disponível'
+                        %>
+                      </span>
+                    </td>
+
+                    <td data-label="Ações">
+                      <form
+                        action="/admin/estoque/<%= item._id %>/excluir"
+                        method="POST"
+                      >
+                        <button
+                          type="submit"
+                          class="mini-button delete"
+                        >
+                          Excluir
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                <% }) %>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <!-- CATÁLOGO -->
+      <section class="page" id="page-catalogo">
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <h2>Catálogo público</h2>
+
+              <p>
+                Compartilhe este endereço com os seus clientes.
+              </p>
+            </div>
+
+            <% if (linkCatalogo !== '#') { %>
+              <a
+                target="_blank"
+                class="button secondary"
+                href="<%= linkCatalogo %>"
+              >
+                Abrir catálogo
+              </a>
+            <% } %>
+          </div>
+
+          <div class="link-box">
+            <%= linkCatalogo === '#'
+              ? 'Salve as configurações para gerar o link do catálogo.'
+              : linkCatalogo
+            %>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <h2>Categorias do catálogo</h2>
+
+              <p>
+                Separe produtos por hambúrgueres, pizzas,
+                bebidas e outras categorias.
+              </p>
+            </div>
+          </div>
+
+          <form
+            action="/admin/categorias"
+            method="POST"
+            class="form-grid"
+          >
+            <input
+              type="hidden"
+              name="tipo"
+              value="catalogo"
+            >
+
+            <div class="field">
+              <label for="categoriaCatalogoNome">
+                Nome da categoria
+              </label>
+
+              <input
+                id="categoriaCatalogoNome"
+                name="nome"
+                placeholder="Ex.: Hambúrgueres"
+                required
+              >
+            </div>
+
+            <div class="field">
+              <label>&nbsp;</label>
+
+              <button type="submit" class="button">
+                Cadastrar categoria
+              </button>
+            </div>
+          </form>
+
+          <div class="inline-actions">
+            <% listaCategoriasCatalogo.forEach(categoria => { %>
+              <form
+                action="/admin/categorias/<%= categoria._id %>/excluir"
+                method="POST"
+              >
+                <button
+                  type="submit"
+                  class="mini-button delete"
+                >
+                  <%= categoria.nome %> ×
+                </button>
+              </form>
+            <% }) %>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <h2>Produtos</h2>
+
+              <p>
+                Produtos exibidos no catálogo e nas mesas.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              class="button open-modal"
+              data-modal="modalProduto"
+            >
+              + Novo produto
+            </button>
+          </div>
+
+          <div class="catalog-grid">
+            <% if (!listaProdutos.length) { %>
+              <div class="empty">
+                Nenhum produto cadastrado.
+              </div>
+            <% } %>
+
+            <% listaProdutos.forEach(produto => { %>
+              <article class="product-card">
+                <div class="product-cover">
+                  <% if (produto.imagem) { %>
+                    <img
+                      src="<%= produto.imagem %>"
+                      alt="<%= produto.nome %>"
+                    >
+                  <% } else { %>
+                    🍽️
+                  <% } %>
+                </div>
+
+                <div class="product-body">
+                  <span class="product-category">
+                    <%= produto.categoriaId?.nome ||
+                        'Sem categoria'
+                    %>
+                  </span>
+
+                  <h3><%= produto.nome %></h3>
+
+                  <p>
+                    <%= produto.descricao ||
+                        'Produto sem descrição.'
+                    %>
+                  </p>
+
+                  <div class="product-meta">
+                    <strong>
+                      <%= formatarMoeda(produto.preco) %>
+                    </strong>
+
+                    <span
+                      class="status <%= produto.ativo
+                        ? 'ativo'
+                        : 'inativo'
+                      %>"
+                    >
+                      <%= produto.ativo
+                        ? 'Ativo'
+                        : 'Inativo'
+                      %>
+                    </span>
+                  </div>
+
+                  <% if (produto.adicionais?.length) { %>
+                    <div class="product-additionals-admin">
+                      <% produto.adicionais.forEach(adicional => { %>
+                        <span class="product-additional-chip">
+                          + <%= adicional.nome %>
+                          (<%= formatarMoeda(adicional.preco) %>)
+                        </span>
+                      <% }) %>
+                    </div>
+                  <% } %>
+
+                  <div class="employee-actions">
+                    <button
+                      type="button"
+                      class="mini-button edit open-modal"
+                      data-modal="modalEditarProduto-<%= produto._id %>"
+                    >
+                      Editar produto
+                    </button>
+
+                    <form
+                      action="/admin/produtos/<%= produto._id %>/excluir"
+                    method="POST"
+                    style="margin-top: 12px;"
+                  >
+                    <button
+                      type="submit"
+                      class="mini-button delete"
+                    >
+                      Excluir produto
+                    </button>
+                    </form>
+                  </div>
+                </div>
+              </article>
+            <% }) %>
+          </div>
+        </section>
+      </section>
+
+      <!-- MESAS -->
+      <section class="page" id="page-mesas">
+        <section class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <h2>Mesas</h2>
+
+              <p>
+                Conta, status, pedidos, links e QR Codes.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              class="button open-modal"
+              data-modal="modalMesa"
+            >
+              + Nova mesa
+            </button>
+          </div>
+
+          <div class="tables-grid">
+            <% if (!listaMesas.length) { %>
+              <div class="empty">
+                Nenhuma mesa cadastrada.
+              </div>
+            <% } %>
+
+            <% listaMesas.forEach(mesa => { %>
+              <article
+                class="table-card <%= mesa.status %>"
+              >
+                <div class="table-number">
+                  <%= mesa.numero %>
+                </div>
+
+                <h3>Mesa <%= mesa.numero %></h3>
+
+                <p>
+                  <%= mesa.capacidade %> lugares •
+                  <%= mesa.setor %>
+                </p>
+
+                <div style="margin-top: 10px;">
+                  <span class="status <%= mesa.status %>">
+                    <%= String(mesa.status || '')
+                      .replaceAll('_', ' ')
+                    %>
+                  </span>
+                </div>
+
+                <div class="mesa-conta">
+                  <small>Conta atual</small>
+
+                  <strong>
+                    <%= formatarMoeda(
+                      mesa.totalConta
+                    ) %>
+                  </strong>
+
+                  <span>
+                    <%= mesa.quantidadePedidos || 0 %>
+                    pedido(s) em aberto
+                  </span>
+                </div>
+
+                <% if (mesa.qrCode) { %>
+                  <img
+                    class="qr"
+                    src="<%= mesa.qrCode %>"
+                    alt="QR Code da mesa <%= mesa.numero %>"
+                  >
+                <% } %>
+
+                <% if (mesa.link) { %>
+                  <div class="link-box">
+                    <%= mesa.link %>
+                  </div>
+                <% } %>
+
+                <div class="mesa-actions">
+                  <% if (mesa.link) { %>
+                    <a
+                      target="_blank"
+                      class="mini-button"
+                      href="<%= mesa.link %>"
+                    >
+                      Abrir cardápio da mesa
+                    </a>
+                  <% } %>
+
+                  <form
+                    action="/admin/mesas/<%= mesa._id %>/solicitar-conta"
+                    method="POST"
+                  >
+                    <button
+                      type="submit"
+                      class="mini-button edit"
+                    >
+                      Marcar aguardando pagamento
+                    </button>
+                  </form>
+
+                  <form
+                    action="/admin/mesas/<%= mesa._id %>/pagar"
+                    method="POST"
+                    class="pagamento-form"
+                  >
+                    <select
+                      name="formaPagamento"
+                      aria-label="Forma de pagamento"
+                    >
+                      <option value="dinheiro">
+                        Dinheiro
+                      </option>
+
+                      <option value="pix">
+                        Pix
+                      </option>
+
+                      <option value="cartao">
+                        Cartão
+                      </option>
+
+                      <option value="nao_informado">
+                        Não informado
+                      </option>
+                    </select>
+
+                    <button
+                      type="submit"
+                      class="mini-button success"
+                    >
+                      Pagar e liberar
+                    </button>
+                  </form>
+
+                  <form
+                    action="/admin/mesas/<%= mesa._id %>/status"
+                    method="POST"
+                    class="status-form"
+                  >
+                    <select
+                      name="status"
+                      aria-label="Status da mesa"
+                    >
+                      <option
+                        value="livre"
+                        <%= mesa.status === 'livre'
+                          ? 'selected'
+                          : ''
+                        %>
+                      >
+                        Livre
+                      </option>
+
+                      <option
+                        value="ocupada"
+                        <%= mesa.status === 'ocupada'
+                          ? 'selected'
+                          : ''
+                        %>
+                      >
+                        Ocupada
+                      </option>
+
+                      <option
+                        value="aguardando_pagamento"
+                        <%= mesa.status === 'aguardando_pagamento'
+                          ? 'selected'
+                          : ''
+                        %>
+                      >
+                        Aguardando pagamento
+                      </option>
+
+                      <option
+                        value="paga"
+                        <%= mesa.status === 'paga'
+                          ? 'selected'
+                          : ''
+                        %>
+                      >
+                        Paga
+                      </option>
+
+                      <option
+                        value="reservada"
+                        <%= mesa.status === 'reservada'
+                          ? 'selected'
+                          : ''
+                        %>
+                      >
+                        Reservada
+                      </option>
+
+                      <option
+                        value="inativa"
+                        <%= mesa.status === 'inativa'
+                          ? 'selected'
+                          : ''
+                        %>
+                      >
+                        Inativa
+                      </option>
+                    </select>
+
+                    <button
+                      type="submit"
+                      class="mini-button"
+                    >
+                      Alterar status
+                    </button>
+                  </form>
+
+                  <form
+                    action="/admin/mesas/<%= mesa._id %>/excluir"
+                    method="POST"
+                    class="confirmar-exclusao"
+                  >
+                    <button
+                      type="submit"
+                      class="mini-button delete"
+                    >
+                      Excluir mesa
+                    </button>
+                  </form>
+                </div>
+              </article>
+            <% }) %>
+          </div>
+        </section>
+      </section>
+
+      <!-- FUNCIONÁRIOS -->
+      <section class="page" id="page-funcionarios">
+  <section class="panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        <h2>Funcionários e permissões</h2>
+
+        <p>
+          Cadastre os dados pessoais, salário,
+          função e permissões de acesso.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        class="button open-modal"
+        data-modal="modalFuncionario"
+      >
+        + Novo funcionário
+      </button>
+    </div>
+
+    <div class="employee-grid">
+      <% if (!listaFuncionarios.length) { %>
+        <div class="empty">
+          Nenhum funcionário cadastrado.
+        </div>
+      <% } %>
+
+      <% listaFuncionarios.forEach(funcionario => { %>
+        <article class="employee-card">
+          <div class="employee-head">
+            <div class="employee-avatar">
+              <% if (funcionario.foto) { %>
+                <img
+                  src="<%= funcionario.foto %>"
+                  alt="<%= funcionario.nome %>"
+                >
+              <% } else { %>
+                <%= funcionario.nome
+                  .split(' ')
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map(parte => parte[0])
+                  .join('')
+                  .toUpperCase()
+                %>
+              <% } %>
+            </div>
+
+            <div class="employee-info">
+              <h3>
+                <%= funcionario.nome %>
+              </h3>
+
+              <p>
+                <%= funcionario.funcao %>
+              </p>
+
+              <span
+                class="status <%= funcionario.ativo
+                  ? 'ativo'
+                  : 'inativo'
+                %>"
+                style="margin-top: 7px;"
+              >
+                <%= funcionario.ativo
+                  ? 'Ativo'
+                  : 'Inativo'
+                %>
+              </span>
+            </div>
+          </div>
+
+          <div class="employee-details">
+            <div class="employee-data-row">
+              <strong>E-mail:</strong>
+
+              <span>
+                <%= funcionario.email %>
+              </span>
+            </div>
+
+            <div class="employee-data-row">
+              <strong>CPF:</strong>
+
+              <span>
+                <%= funcionario.cpf || '-' %>
+              </span>
+            </div>
+
+            <div class="employee-data-row">
+              <strong>Telefone:</strong>
+
+              <span>
+                <%= funcionario.telefone || '-' %>
+              </span>
+            </div>
+
+            <div class="employee-data-row">
+              <strong>Salário:</strong>
+
+              <span class="employee-salary">
+                <%= formatarMoeda(
+                  funcionario.salario
+                ) %>
+              </span>
+            </div>
+
+            <div class="employee-data-row">
+              <strong>Endereço:</strong>
+
+              <span class="employee-address">
+                <%= funcionario.endereco || '-' %>
+              </span>
+            </div>
+
+            <div class="employee-data-row">
+              <strong>Permissões:</strong>
+
+              <span>
+                <%= funcionario.permissoes?.length
+                  ? funcionario.permissoes.join(', ')
+                  : 'Nenhuma'
+                %>
+              </span>
+            </div>
+          </div>
+
+          <div class="employee-actions">
+            <button
+              type="button"
+              class="mini-button edit editar-funcionario"
+              data-id="<%= funcionario._id %>"
+              data-nome="<%= funcionario.nome %>"
+              data-email="<%= funcionario.email %>"
+              data-cpf="<%= funcionario.cpf || '' %>"
+              data-telefone="<%= funcionario.telefone || '' %>"
+              data-endereco="<%= funcionario.endereco || '' %>"
+              data-salario="<%= funcionario.salario || 0 %>"
+              data-funcao="<%= funcionario.funcao %>"
+              data-ativo="<%= funcionario.ativo ? 'true' : 'false' %>"
+              data-foto="<%= funcionario.foto || '' %>"
+              data-permissoes="<%= (funcionario.permissoes || []).join(',') %>"
+            >
+              Editar funcionário
+            </button>
+
+            <form
+              action="/admin/funcionarios/<%= funcionario._id %>/excluir"
+              method="POST"
+              class="confirmar-exclusao"
+            >
+              <button
+                type="submit"
+                class="mini-button delete"
+              >
+                Excluir funcionário
+              </button>
+            </form>
+          </div>
+        </article>
+      <% }) %>
+    </div>
+  </section>
+</section>
+
+      <!-- CONFIGURAÇÕES -->
+      <section class="page" id="page-configuracoes">
+        <div class="settings-grid">
+          <section class="panel">
+            <div class="panel-header">
+              <div class="panel-title">
+                <h2>Perfil do estabelecimento</h2>
+
+                <p>
+                  A foto e o nome aparecem no catálogo público.
+                </p>
+              </div>
+            </div>
+
+            <form
+              action="/admin/configuracoes"
+              method="POST"
+              enctype="multipart/form-data"
+              class="form-grid"
+            >
+              <div class="field full">
+                <% if (config.fotoPerfil) { %>
+                  <img
+                    class="profile-preview"
+                    src="<%= config.fotoPerfil %>"
+                    alt="Foto do estabelecimento"
+                  >
+                <% } %>
+              </div>
+
+              <div class="field full">
+                <label for="fotoPerfil">
+                  Foto de perfil
+                </label>
+
+                <input
+                  type="file"
+                  id="fotoPerfil"
+                  name="fotoPerfil"
+                  accept="image/*"
+                >
+              </div>
+
+              <div class="field">
+                <label for="nomeEstabelecimento">
+                  Nome do estabelecimento
+                </label>
+
+                <input
+                  id="nomeEstabelecimento"
+                  name="nomeEstabelecimento"
+                  value="<%= config.nomeEstabelecimento %>"
+                  required
+                >
+              </div>
+
+              <div class="field">
+                <label for="telefone">
+                  Telefone
+                </label>
+
+                <input
+                  id="telefone"
+                  name="telefone"
+                  value="<%= config.telefone || '' %>"
+                >
+              </div>
+
+              <div class="field full">
+                <label for="endereco">
+                  Endereço
+                </label>
+
+                <div class="field">
+  <label for="horarioAbertura">
+    Horário de abertura
+  </label>
+
+  <input
+    type="time"
+    id="horarioAbertura"
+    name="horarioAbertura"
+    value="<%= configuracao.horarioAbertura || '08:00' %>"
+    required
+  >
+</div>
+
+<div class="field">
+  <label for="horarioFechamento">
+    Horário de fechamento
+  </label>
+
+  <input
+    type="time"
+    id="horarioFechamento"
+    name="horarioFechamento"
+    value="<%= configuracao.horarioFechamento || '22:00' %>"
+    required
+  >
+</div>
+
+<div class="field full">
+  <label>
+    Dias de funcionamento
+  </label>
+
+  <div class="week-days">
+    <%
+      const diasSelecionados =
+        configuracao.diasFuncionamento ||
+        [0, 1, 2, 3, 4, 5, 6];
+
+      const diasSemana = [
+        { valor: 0, nome: 'Domingo' },
+        { valor: 1, nome: 'Segunda' },
+        { valor: 2, nome: 'Terça' },
+        { valor: 3, nome: 'Quarta' },
+        { valor: 4, nome: 'Quinta' },
+        { valor: 5, nome: 'Sexta' },
+        { valor: 6, nome: 'Sábado' },
+      ];
+    %>
+
+    <% diasSemana.forEach(dia => { %>
+      <label class="week-day">
+        <input
+          type="checkbox"
+          name="diasFuncionamento"
+          value="<%= dia.valor %>"
+          <%= diasSelecionados.includes(dia.valor) ? 'checked' : '' %>
+        >
+
+        <span>
+          <%= dia.nome %>
+        </span>
+      </label>
+    <% }) %>
+  </div>
+</div>
+
+                <input
+                  id="endereco"
+                  name="endereco"
+                  value="<%= config.endereco || '' %>"
+                >
+              </div>
+
+              <div class="field full">
+                <label for="descricao">
+                  Descrição
+                </label>
+
+                <textarea
+                  id="descricao"
+                  name="descricao"
+                ><%= config.descricao || '' %></textarea>
+              </div>
+
+              <div class="field full">
+                <label>Link do catálogo</label>
+
+                <div class="link-box">
+                  <%= linkCatalogo === '#'
+                    ? 'O link será criado depois de salvar.'
+                    : linkCatalogo
+                  %>
+                </div>
+              </div>
+
+              <div class="field full">
+                <button type="submit" class="button">
+                  Salvar configurações
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <% if (pode('configurar_impressoras')) { %>
+          <section class="panel">
+            <div class="panel-header">
+              <div class="panel-title">
+                <h2>Impressoras USB e de rede</h2>
+                <p>
+                  Configure até duas impressoras para cozinha, caixa ou balcão.
+                </p>
+              </div>
+
+              <span class="print-agent-status" id="printAgentStatus">Agente desconectado</span>
+              <button type="button" class="printer-tool-button" id="generateAgentCode">Vincular novo agente</button>
+              <strong id="agentPairCode" style="font-size:22px"></strong>
+            </div>
+
+            <form
+              action="/admin/configuracoes/impressora"
+              method="POST"
+              class="printer-grid"
+            >
+              <% for (let indice = 0; indice < 2; indice += 1) { %>
+                <% const impressora =
+                  config.impressoras?.[indice] || {
+                    nome: `Impressora ${indice + 1}`,
+                    tipoConexao: 'usb',
+                    deviceName: '',
+                    ip: '',
+                    porta: 9100,
+                    papel: indice === 0 ? '80mm' : '58mm',
+                    modo: 'desativada',
+                    copias: 1,
+                    fontePx: 13,
+                    espacamentoLinhaPx: 4,
+                    espacamentoLetrasPx: 0,
+                    margemSuperiorMm: 2,
+                    margemInferiorMm: 5,
+                    margemEsquerdaMm: 2,
+                    margemDireitaMm: 2,
+                    alturaMaximaMm: 500,
+                    imprimirLogo: true,
+                    imprimirValores: true,
+                    imprimirEndereco: true,
+                    imprimirObservacoes: true,
+                    corteAutomatico: true
+                  };
+                %>
+
+                <article
+                  class="printer-card"
+                  data-printer-card="<%= indice %>"
+                >
+                  <h3>Impressora <%= indice + 1 %></h3>
+
+                  <div class="connection-tabs">
+                    <label class="connection-option">
+                      <input
+                        type="radio"
+                        name="impressoras[<%= indice %>][tipoConexao]"
+                        value="usb"
+                        data-connection-type="usb"
+                        <%= impressora.tipoConexao !== 'rede'
+                          ? 'checked'
+                          : ''
+                        %>
+                      >
+                      <span>🔌 USB</span>
+                    </label>
+
+                    <label class="connection-option">
+                      <input
+                        type="radio"
+                        name="impressoras[<%= indice %>][tipoConexao]"
+                        value="rede"
+                        data-connection-type="rede"
+                        <%= impressora.tipoConexao === 'rede'
+                          ? 'checked'
+                          : ''
+                        %>
+                      >
+                      <span>🌐 Rede</span>
+                    </label>
+                  </div>
+
+                  <div class="printer-config-grid">
+                    <div class="field">
+                      <label>Apelido</label>
+                      <input
+                        name="impressoras[<%= indice %>][nome]"
+                        value="<%= impressora.nome %>"
+                        placeholder="Cozinha, Caixa..."
+                      >
+                    </div>
+
+                    <div class="field">
+                      <label>Papel</label>
+                      <select name="impressoras[<%= indice %>][papel]">
+                        <option
+                          value="58mm"
+                          <%= impressora.papel === '58mm'
+                            ? 'selected'
+                            : ''
+                          %>
+                        >
+                          58 mm
+                        </option>
+
+                        <option
+                          value="80mm"
+                          <%= impressora.papel === '80mm'
+                            ? 'selected'
+                            : ''
+                          %>
+                        >
+                          80 mm
+                        </option>
+                      </select>
+                    </div>
+
+                    <div class="field">
+                      <label>Modo</label>
+                      <select name="impressoras[<%= indice %>][modo]">
+                        <% [
+                          ['desativada', 'Desativada'],
+                          ['manual', 'Somente manual'],
+                          ['automatica', 'Somente automática'],
+                          ['manual_automatica', 'Manual e automática']
+                        ].forEach(opcao => { %>
+                          <option
+                            value="<%= opcao[0] %>"
+                            <%= impressora.modo === opcao[0]
+                              ? 'selected'
+                              : ''
+                            %>
+                          >
+                            <%= opcao[1] %>
+                          </option>
+                        <% }) %>
+                      </select>
+                    </div>
+
+                    <div class="field">
+                      <label>Cópias</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="5"
+                        name="impressoras[<%= indice %>][copias]"
+                        value="<%= impressora.copias || 1 %>"
+                      >
+                    </div>
+
+                    <div
+                      class="connection-panel <%= impressora.tipoConexao === 'rede'
+                        ? ''
+                        : 'active'
+                      %>"
+                      data-connection-panel="usb"
+                    >
+                      <div class="field">
+                        <label>Nome da impressora no Windows</label>
+
+                        <select
+                          name="impressoras[<%= indice %>][deviceName]"
+                          data-usb-printer-select
+                        >
+                          <option value="<%= impressora.deviceName || '' %>">
+                            <%= impressora.deviceName
+                              ? impressora.deviceName
+                              : 'Abra o agente e atualize a lista'
+                            %>
+                          </option>
+                        </select>
+                      </div>
+
+                      <div class="field">
+                        <label>Conexão</label>
+                        <input
+                          value="Impressora instalada no Windows"
+                          disabled
+                        >
+                      </div>
+
+                      <div class="printer-tools">
+                        <button
+                          type="button"
+                          class="printer-tool-button"
+                          data-refresh-usb
+                        >
+                          ↻ Atualizar lista USB
+                        </button>
+
+                        <button
+                          type="button"
+                          class="printer-tool-button test"
+                          data-test-printer
+                        >
+                          🖨 Imprimir teste
+                        </button>
+                      </div>
+                    </div>
+
+                    <div
+                      class="connection-panel <%= impressora.tipoConexao === 'rede'
+                        ? 'active'
+                        : ''
+                      %>"
+                      data-connection-panel="rede"
+                    >
+                      <div class="field">
+                        <label>Endereço IP</label>
+                        <input
+                          name="impressoras[<%= indice %>][ip]"
+                          value="<%= impressora.ip || '' %>"
+                          placeholder="192.168.0.120"
+                          inputmode="decimal"
+                        >
+                      </div>
+
+                      <div class="field">
+                        <label>Porta</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="65535"
+                          name="impressoras[<%= indice %>][porta]"
+                          value="<%= impressora.porta || 9100 %>"
+                        >
+                      </div>
+
+                      <div class="printer-tools">
+                        <button
+                          type="button"
+                          class="printer-tool-button"
+                          data-scan-network
+                        >
+                          🔍 Procurar na rede
+                        </button>
+
+                        <button
+                          type="button"
+                          class="printer-tool-button test"
+                          data-test-printer
+                        >
+                          🧪 Testar conexão e impressão
+                        </button>
+                      </div>
+                    </div>
+
+                    <div
+                      class="printer-result"
+                      data-printer-result
+                    ></div>
+
+                    <div class="field">
+                      <label>Tamanho da letra</label>
+                      <input
+                        type="number"
+                        min="8"
+                        max="30"
+                        name="impressoras[<%= indice %>][fontePx]"
+                        value="<%= impressora.fontePx || 13 %>"
+                      >
+                    </div>
+
+                    <div class="field">
+                      <label>Espaçamento entre linhas</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="30"
+                        name="impressoras[<%= indice %>][espacamentoLinhaPx]"
+                        value="<%= impressora.espacamentoLinhaPx ?? 4 %>"
+                      >
+                    </div>
+
+                    <div class="field">
+                      <label>Espaçamento entre letras</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="10"
+                        name="impressoras[<%= indice %>][espacamentoLetrasPx]"
+                        value="<%= impressora.espacamentoLetrasPx ?? 0 %>"
+                      >
+                    </div>
+
+                    <div class="field">
+                      <label>Altura máxima do papel (mm)</label>
+                      <input
+                        type="number"
+                        min="100"
+                        max="3000"
+                        name="impressoras[<%= indice %>][alturaMaximaMm]"
+                        value="<%= impressora.alturaMaximaMm || 500 %>"
+                      >
+                    </div>
+
+                    <% [
+                      ['margemSuperiorMm', 'Margem superior', 30],
+                      ['margemInferiorMm', 'Margem inferior', 80],
+                      ['margemEsquerdaMm', 'Margem esquerda', 20],
+                      ['margemDireitaMm', 'Margem direita', 20]
+                    ].forEach(item => { %>
+                      <div class="field">
+                        <label><%= item[1] %> (mm)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="<%= item[2] %>"
+                          name="impressoras[<%= indice %>][<%= item[0] %>]"
+                          value="<%= impressora[item[0]] ?? 2 %>"
+                        >
+                      </div>
+                    <% }) %>
+
+                    <% [
+                      ['imprimirLogo', 'Imprimir logo (USB)'],
+                      ['imprimirValores', 'Imprimir valores'],
+                      ['imprimirEndereco', 'Imprimir endereço do delivery'],
+                      ['imprimirObservacoes', 'Imprimir observações'],
+                      ['corteAutomatico', 'Corte automático']
+                    ].forEach(item => { %>
+                      <div class="field">
+                        <label>
+                          <input
+                            type="checkbox"
+                            name="impressoras[<%= indice %>][<%= item[0] %>]"
+                            style="width:auto;min-height:auto;"
+                            <%= impressora[item[0]]
+                              ? 'checked'
+                              : ''
+                            %>
+                          >
+                          <%= item[1] %>
+                        </label>
+                      </div>
+                    <% }) %>
+                  </div>
+                </article>
+              <% } %>
+
+              <div class="printer-help">
+                <strong>USB:</strong> a impressora deve estar instalada no
+                Windows e o ComandaFácil Print Agent precisa estar aberto.
+                <br>
+                <strong>Rede:</strong> informe o IP da própria impressora e,
+                normalmente, a porta 9100. A impressora e o computador devem
+                estar conectados à mesma rede.
+              </div>
+
+              <button type="submit" class="button">
+                Salvar impressoras
+              </button>
+            </form>
+          </section>
+          <% } %>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- MODAL ESTOQUE -->
+  <div class="modal" id="modalEstoque">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2>Novo item de estoque</h2>
+
+          <p>
+            Cadastre um ingrediente, embalagem ou insumo.
+          </p>
+        </div>
+
+        <button type="button" class="close-modal">
+          ×
+        </button>
+      </div>
+
+      <form
+        action="/admin/estoque"
+        method="POST"
+        class="form-grid"
+      >
+        <div class="field">
+          <label for="estoqueNome">Nome</label>
+
+          <input
+            id="estoqueNome"
+            name="nome"
+            required
+          >
+        </div>
+
+        <div class="field">
+          <label for="estoqueCategoria">
+            Categoria
+          </label>
+
+          <select
+            id="estoqueCategoria"
+            name="categoriaId"
+            required
+          >
+            <option value="">
+              Selecione
+            </option>
+
+            <% listaCategoriasEstoque.forEach(categoria => { %>
+              <option value="<%= categoria._id %>">
+                <%= categoria.nome %>
+              </option>
+            <% }) %>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="estoqueQuantidade">
+            Quantidade
+          </label>
+
+          <input
+            type="number"
+            id="estoqueQuantidade"
+            name="quantidade"
+            min="0"
+            step="0.01"
+            value="0"
+            required
+          >
+        </div>
+
+        <div class="field">
+          <label for="estoqueMinimo">
+            Quantidade mínima
+          </label>
+
+          <input
+            type="number"
+            id="estoqueMinimo"
+            name="minimo"
+            min="0"
+            step="0.01"
+            value="0"
+            required
+          >
+        </div>
+
+        <div class="field">
+          <label for="estoqueUnidade">
+            Unidade
+          </label>
+
+          <select
+            id="estoqueUnidade"
+            name="unidade"
+          >
+            <option value="unidade">Unidade</option>
+            <option value="kg">Quilograma</option>
+            <option value="g">Grama</option>
+            <option value="litro">Litro</option>
+            <option value="ml">Mililitro</option>
+            <option value="caixa">Caixa</option>
+            <option value="pacote">Pacote</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="estoqueCusto">
+            Custo unitário
+          </label>
+
+          <input
+            type="number"
+            id="estoqueCusto"
+            name="custoUnitario"
+            min="0"
+            step="0.01"
+            value="0"
+            required
+          >
+        </div>
+
+        <div class="field full">
+          <button type="submit" class="button">
+            Cadastrar item
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL PRODUTO -->
+  <div class="modal" id="modalProduto">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2>Novo produto</h2>
+
+          <p>
+            Cadastre um produto para o catálogo.
+          </p>
+        </div>
+
+        <button type="button" class="close-modal">
+          ×
+        </button>
+      </div>
+
+      <form
+        action="/admin/produtos"
+        method="POST"
+        enctype="multipart/form-data"
+        class="form-grid"
+      >
+        <div class="field">
+          <label for="produtoNome">Nome</label>
+
+          <input
+            id="produtoNome"
+            name="nome"
+            required
+          >
+        </div>
+
+        <div class="field">
+          <label for="produtoCategoria">
+            Categoria
+          </label>
+
+          <select
+            id="produtoCategoria"
+            name="categoriaId"
+            required
+          >
+            <option value="">
+              Selecione
+            </option>
+
+            <% listaCategoriasCatalogo.forEach(categoria => { %>
+              <option value="<%= categoria._id %>">
+                <%= categoria.nome %>
+              </option>
+            <% }) %>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="produtoPreco">Preço</label>
+
+          <input
+            type="number"
+            id="produtoPreco"
+            name="preco"
+            min="0"
+            step="0.01"
+            required
+          >
+        </div>
+
+        <div class="field">
+          <label for="produtoImagem">Imagem</label>
+
+          <input
+            type="file"
+            id="produtoImagem"
+            name="imagem"
+            accept="image/*"
+          >
+        </div>
+
+        <div class="field full">
+          <label for="produtoDescricao">
+            Descrição
+          </label>
+
+          <textarea
+            id="produtoDescricao"
+            name="descricao"
+            placeholder="Descreva os ingredientes e detalhes."
+          ></textarea>
+        </div>
+
+        <div class="field full">
+          <label>Adicionais do produto</label>
+
+          <div
+            class="additional-list"
+            data-additional-list
+          ></div>
+
+          <button
+            type="button"
+            class="mini-button edit"
+            data-add-additional
+            style="margin-top:9px;"
+          >
+            + Adicionar opção
+          </button>
+
+          <small style="color:var(--cinza-500);">
+            Exemplo: Bacon extra — R$ 4,00. Produtos sem adicionais continuam aparecendo normalmente.
+          </small>
+        </div>
+
+        <div class="field full">
+          <label>
+            <input
+              type="checkbox"
+              name="ativo"
+              checked
+              style="width:auto; min-height:auto;"
+            >
+
+            Produto ativo no catálogo
+          </label>
+        </div>
+
+        <div class="field full">
+          <button type="submit" class="button">
+            Cadastrar produto
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <% listaProdutos.forEach(produto => { %>
+    <div
+      class="modal"
+      id="modalEditarProduto-<%= produto._id %>"
+    >
+      <div class="modal-card">
+        <div class="modal-header">
+          <div>
+            <h2>Editar produto</h2>
+            <p>Atualize os dados e adicionais do produto.</p>
+          </div>
+
+          <button type="button" class="close-modal">×</button>
+        </div>
+
+        <form
+          action="/admin/produtos/<%= produto._id %>/editar"
+          method="POST"
+          enctype="multipart/form-data"
+          class="form-grid"
+        >
+          <div class="field">
+            <label>Nome</label>
+            <input
+              name="nome"
+              value="<%= produto.nome %>"
+              required
+            >
+          </div>
+
+          <div class="field">
+            <label>Categoria</label>
+            <select name="categoriaId" required>
+              <% listaCategoriasCatalogo.forEach(categoria => { %>
+                <option
+                  value="<%= categoria._id %>"
+                  <%= String(produto.categoriaId?._id || produto.categoriaId) === String(categoria._id)
+                    ? 'selected'
+                    : ''
+                  %>
+                >
+                  <%= categoria.nome %>
+                </option>
+              <% }) %>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Preço</label>
+            <input
+              type="number"
+              name="preco"
+              min="0"
+              step="0.01"
+              value="<%= produto.preco %>"
+              required
+            >
+          </div>
+
+          <div class="field">
+            <label>Nova imagem (opcional)</label>
+            <input
+              type="file"
+              name="imagem"
+              accept="image/*"
+            >
+          </div>
+
+          <div class="field full">
+            <label>Descrição</label>
+            <textarea name="descricao"><%= produto.descricao || '' %></textarea>
+          </div>
+
+          <div class="field full">
+            <label>Adicionais do produto</label>
+
+            <div
+              class="additional-list"
+              data-additional-list
+            >
+              <% (produto.adicionais || []).forEach(adicional => { %>
+                <div class="additional-row">
+                  <input
+                    name="adicionaisNome[]"
+                    value="<%= adicional.nome %>"
+                    placeholder="Nome do adicional"
+                    required
+                  >
+
+                  <input
+                    type="number"
+                    name="adicionaisPreco[]"
+                    min="0"
+                    step="0.01"
+                    value="<%= adicional.preco %>"
+                    placeholder="Preço"
+                    required
+                  >
+
+                  <button
+                    type="button"
+                    class="remove-additional"
+                    title="Remover adicional"
+                  >
+                    ×
+                  </button>
+                </div>
+              <% }) %>
+            </div>
+
+            <button
+              type="button"
+              class="mini-button edit"
+              data-add-additional
+              style="margin-top:9px;"
+            >
+              + Adicionar opção
+            </button>
+          </div>
+
+          <div class="field full">
+            <label>
+              <input
+                type="checkbox"
+                name="ativo"
+                <%= produto.ativo ? 'checked' : '' %>
+                style="width:auto;min-height:auto;"
+              >
+              Produto ativo no catálogo
+            </label>
+          </div>
+
+          <div class="field full">
+            <button type="submit" class="button">
+              Salvar alterações
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  <% }) %>
+
+  <!-- MODAL MESA -->
+  <div class="modal" id="modalMesa">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2>Nova mesa</h2>
+
+          <p>
+            O link e o QR Code serão criados automaticamente.
+          </p>
+        </div>
+
+        <button type="button" class="close-modal">
+          ×
+        </button>
+      </div>
+
+      <form
+        action="/admin/mesas"
+        method="POST"
+        class="form-grid"
+      >
+        <div class="field">
+          <label for="mesaNumero">
+            Número da mesa
+          </label>
+
+          <input
+            type="number"
+            id="mesaNumero"
+            name="numero"
+            min="1"
+            required
+          >
+        </div>
+
+        <div class="field">
+          <label for="mesaCapacidade">
+            Capacidade
+          </label>
+
+          <input
+            type="number"
+            id="mesaCapacidade"
+            name="capacidade"
+            min="1"
+            value="1"
+            required
+          >
+        </div>
+
+        <div class="field">
+          <label for="mesaSetor">
+            Setor
+          </label>
+
+          <input
+            id="mesaSetor"
+            name="setor"
+            value="Salão principal"
+            required
+          >
+        </div>
+
+        <div class="field">
+          <label for="mesaStatus">
+            Status inicial
+          </label>
+
+          <select
+            id="mesaStatus"
+            name="status"
+          >
+            <option value="livre">Livre</option>
+            <option value="reservada">Reservada</option>
+            <option value="inativa">Inativa</option>
+          </select>
+        </div>
+
+        <div class="field full">
+          <button type="submit" class="button">
+            Cadastrar mesa
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL FUNCIONÁRIO -->
+  <div class="modal" id="modalFuncionario">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div>
+        <h2>Novo funcionário</h2>
+
+        <p>
+          Cadastre os dados pessoais e o acesso
+          do funcionário.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        class="close-modal"
+      >
+        ×
+      </button>
+    </div>
+
+    <form
+      action="/admin/funcionarios"
+      method="POST"
+      enctype="multipart/form-data"
+      class="form-grid"
+      id="formFuncionario"
+    >
+      <div class="field">
+        <label for="funcionarioNome">
+          Nome completo
+        </label>
+
+        <input
+          id="funcionarioNome"
+          name="nome"
+          required
+        >
+      </div>
+
+      <div class="field">
+        <label for="funcionarioCpf">
+          CPF
+        </label>
+
+        <input
+          id="funcionarioCpf"
+          name="cpf"
+          placeholder="000.000.000-00"
+          maxlength="14"
+          inputmode="numeric"
+          required
+        >
+      </div>
+
+      <div class="field">
+        <label for="funcionarioEmail">
+          E-mail
+        </label>
+
+        <input
+          type="email"
+          id="funcionarioEmail"
+          name="email"
+          required
+        >
+      </div>
+
+      <div class="field">
+        <label for="funcionarioTelefone">
+          Telefone
+        </label>
+
+        <input
+          id="funcionarioTelefone"
+          name="telefone"
+          placeholder="(99) 99999-9999"
+          maxlength="15"
+        >
+      </div>
+
+      <div class="field">
+        <label for="funcionarioFuncao">
+          Função
+        </label>
+
+        <select
+          id="funcionarioFuncao"
+          name="funcao"
+          required
+        >
+          <option value="">Selecione</option>
+          <option value="gerente">Gerente</option>
+          <option value="garcom">Garçom</option>
+          <option value="caixa">Caixa</option>
+          <option value="cozinha">Cozinha</option>
+          <option value="atendente">Atendente</option>
+          <option value="entregador">Entregador</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="funcionarioSalario">
+          Salário
+        </label>
+
+        <input
+          type="number"
+          id="funcionarioSalario"
+          name="salario"
+          min="0"
+          step="0.01"
+          value="0"
+          required
+        >
+      </div>
+
+      <div class="field full">
+        <label for="funcionarioEndereco">
+          Endereço completo
+        </label>
+
+        <input
+          id="funcionarioEndereco"
+          name="endereco"
+          placeholder="Rua, número, bairro, cidade"
+        >
+      </div>
+
+      <div class="field">
+        <label for="funcionarioFoto">
+          Foto
+        </label>
+
+        <input
+          type="file"
+          id="funcionarioFoto"
+          name="foto"
+          accept="image/*"
+        >
+      </div>
+
+      <div class="field">
+        <label for="funcionarioSenha">
+          Senha inicial
+        </label>
+
+        <input
+          type="password"
+          id="funcionarioSenha"
+          name="senha"
+          minlength="6"
+          required
+        >
+      </div>
+
+      <div class="field full">
+        <label>
+          <input
+            type="checkbox"
+            name="ativo"
+            checked
+            style="width:auto; min-height:auto;"
+          >
+
+          Funcionário ativo
+        </label>
+      </div>
+
+      <div class="field full">
+        <label>Permissões</label>
+
+        <div class="permissions">
+          <% [
+            'dashboard',
+            'pedidos',
+            'relatorios',
+            'estoque',
+            'catalogo',
+            'mesas',
+            'funcionarios',
+            'configuracoes',
+            'imprimir_pedidos',
+            'configurar_impressoras'
+          ].forEach(permissao => { %>
+            <label>
+              <input
+                type="checkbox"
+                name="permissoes"
+                value="<%= permissao %>"
+                data-permissao="<%= permissao %>"
+              >
+
+              <% const nomePermissao = {
+                dashboard: 'Dashboard',
+                pedidos: 'Pedidos',
+                relatorios: 'Relatórios',
+                estoque: 'Estoque',
+                catalogo: 'Catálogo',
+                mesas: 'Mesas',
+                funcionarios: 'Funcionários',
+                configuracoes: 'Configurações',
+                imprimir_pedidos: 'Imprimir pedidos',
+                configurar_impressoras: 'Configurar impressoras'
+              }[permissao] || permissao;
+              %>
+
+              <%= nomePermissao %>
+            </label>
+          <% }) %>
+        </div>
+      </div>
+
+      <div class="field full">
+        <button
+          type="submit"
+          class="button"
+        >
+          Cadastrar funcionário
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="modal" id="modalEditarFuncionario">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div>
+        <h2>Editar funcionário</h2>
+
+        <p>
+          Atualize os dados pessoais, salário
+          e permissões.
+        </p>
+      </div>
+
+      <button
+        type="button"
+        class="close-modal"
+      >
+        ×
+      </button>
+    </div>
+
+    <form
+      action=""
+      method="POST"
+      enctype="multipart/form-data"
+      class="form-grid"
+      id="formEditarFuncionario"
+    >
+      <div class="field full">
+        <div
+          class="employee-photo-preview"
+          id="editarFotoPreviewContainer"
+          style="display:none;"
+        >
+          <img
+            id="editarFotoPreview"
+            src=""
+            alt="Foto do funcionário"
+          >
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="editarFuncionarioNome">
+          Nome completo
+        </label>
+
+        <input
+          id="editarFuncionarioNome"
+          name="nome"
+          required
+        >
+      </div>
+
+      <div class="field">
+        <label for="editarFuncionarioCpf">
+          CPF
+        </label>
+
+        <input
+          id="editarFuncionarioCpf"
+          name="cpf"
+          maxlength="14"
+          required
+        >
+      </div>
+
+      <div class="field">
+        <label for="editarFuncionarioEmail">
+          E-mail
+        </label>
+
+        <input
+          type="email"
+          id="editarFuncionarioEmail"
+          name="email"
+          required
+        >
+      </div>
+
+      <div class="field">
+        <label for="editarFuncionarioTelefone">
+          Telefone
+        </label>
+
+        <input
+          id="editarFuncionarioTelefone"
+          name="telefone"
+          maxlength="15"
+        >
+      </div>
+
+      <div class="field">
+        <label for="editarFuncionarioFuncao">
+          Função
+        </label>
+
+        <select
+          id="editarFuncionarioFuncao"
+          name="funcao"
+          required
+        >
+          <option value="gerente">Gerente</option>
+          <option value="garcom">Garçom</option>
+          <option value="caixa">Caixa</option>
+          <option value="cozinha">Cozinha</option>
+          <option value="atendente">Atendente</option>
+          <option value="entregador">Entregador</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="editarFuncionarioSalario">
+          Salário
+        </label>
+
+        <input
+          type="number"
+          id="editarFuncionarioSalario"
+          name="salario"
+          min="0"
+          step="0.01"
+          required
+        >
+      </div>
+
+      <div class="field full">
+        <label for="editarFuncionarioEndereco">
+          Endereço completo
+        </label>
+
+        <input
+          id="editarFuncionarioEndereco"
+          name="endereco"
+        >
+      </div>
+
+      <div class="field">
+        <label for="editarFuncionarioFoto">
+          Alterar foto
+        </label>
+
+        <input
+          type="file"
+          id="editarFuncionarioFoto"
+          name="foto"
+          accept="image/*"
+        >
+      </div>
+
+      <div class="field">
+        <label for="editarFuncionarioSenha">
+          Nova senha
+        </label>
+
+        <input
+          type="password"
+          id="editarFuncionarioSenha"
+          name="senha"
+          minlength="6"
+          placeholder="Deixe vazio para manter"
+        >
+      </div>
+
+      <div class="field full">
+        <label>
+          <input
+            type="checkbox"
+            id="editarFuncionarioAtivo"
+            name="ativo"
+            style="width:auto; min-height:auto;"
+          >
+
+          Funcionário ativo
+        </label>
+      </div>
+
+      <div class="field full">
+        <label>Permissões</label>
+
+        <div class="permissions">
+          <% [
+            'dashboard',
+            'pedidos',
+            'relatorios',
+            'estoque',
+            'catalogo',
+            'mesas',
+            'funcionarios',
+            'configuracoes',
+            'imprimir_pedidos',
+            'configurar_impressoras'
+          ].forEach(permissao => { %>
+            <label>
+              <input
+                type="checkbox"
+                name="permissoes"
+                value="<%= permissao %>"
+                data-editar-permissao="<%= permissao %>"
+              >
+
+              <% const nomePermissao = {
+                dashboard: 'Dashboard',
+                pedidos: 'Pedidos',
+                relatorios: 'Relatórios',
+                estoque: 'Estoque',
+                catalogo: 'Catálogo',
+                mesas: 'Mesas',
+                funcionarios: 'Funcionários',
+                configuracoes: 'Configurações',
+                imprimir_pedidos: 'Imprimir pedidos',
+                configurar_impressoras: 'Configurar impressoras'
+              }[permissao] || permissao;
+              %>
+
+              <%= nomePermissao %>
+            </label>
+          <% }) %>
+        </div>
+      </div>
+
+      <div class="field full">
+        <button
+          type="submit"
+          class="button"
+        >
+          Salvar alterações
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+  <div
+  class="order-toast-container"
+  id="orderToastContainer"
+></div>
+
+  <script>
+    const pageInfo = {
+      dashboard: [
+        'Visão geral',
+        'Acompanhe os dados do seu estabelecimento.'
+      ],
+
+      pedidos: [
+        'Pedidos',
+        'Acompanhe pedidos de mesas, delivery e retirada no local.'
+      ],
+
+      relatorios: [
+        'Relatórios',
+        'Resultados calculados a partir dos pedidos.'
+      ],
+
+      estoque: [
+        'Estoque',
+        'Controle categorias, insumos e níveis mínimos.'
+      ],
+
+      catalogo: [
+        'Catálogo',
+        'Gerencie os produtos exibidos aos clientes.'
+      ],
+
+      mesas: [
+        'Mesas',
+        'Controle contas, pedidos, status, links e QR Codes.'
+      ],
+
+      funcionarios: [
+        'Funcionários',
+        'Cadastre a equipe e defina permissões.'
+      ],
+
+      configuracoes: [
+        'Configurações',
+        'Perfil, catálogo e impressora do estabelecimento.'
+      ]
+    };
+
+    const links = document.querySelectorAll(
+      '.menu-link'
+    );
+
+    const pages = document.querySelectorAll(
+      '.page'
+    );
+
+    const pageTitle = document.querySelector(
+      '#pageTitle'
+    );
+
+    const pageSubtitle = document.querySelector(
+      '#pageSubtitle'
+    );
+
+    const sidebar = document.querySelector(
+      '#sidebar'
+    );
+
+    const overlay = document.querySelector(
+      '#overlay'
+    );
+
+    function showPage(pageName) {
+      const targetPage = document.querySelector(
+        `#page-${pageName}`
+      );
+
+      if (!targetPage) {
+        return;
+      }
+
+      pages.forEach(page => {
+        page.classList.remove('ativa');
+      });
+
+      links.forEach(link => {
+        link.classList.toggle(
+          'ativo',
+          link.dataset.page === pageName
+        );
+      });
+
+      targetPage.classList.add('ativa');
+
+      pageTitle.textContent =
+        pageInfo[pageName]?.[0] || '';
+
+      pageSubtitle.textContent =
+        pageInfo[pageName]?.[1] || '';
+
+      sidebar.classList.remove('ativo');
+      overlay.classList.remove('ativo');
+    }
+
+    links.forEach(link => {
+      link.addEventListener('click', event => {
+        event.preventDefault();
+
+        const pageName = link.dataset.page;
+
+        showPage(pageName);
+
+        history.replaceState(
+          null,
+          '',
+          `#${pageName}`
+        );
+      });
+    });
+
+    const initialPage =
+      window.location.hash.slice(1) ||
+      document.querySelector(
+        '.menu-link'
+      )?.dataset.page ||
+      'dashboard';
+
+    showPage(initialPage);
+
+    document
+      .querySelectorAll('.open-modal')
+      .forEach(button => {
+        button.addEventListener('click', () => {
+          const modal = document.getElementById(
+            button.dataset.modal
+          );
+
+          modal?.classList.add('ativo');
+        });
+      });
+
+    document
+      .querySelectorAll('.close-modal')
+      .forEach(button => {
+        button.addEventListener('click', () => {
+          button
+            .closest('.modal')
+            ?.classList.remove('ativo');
+        });
+      });
+
+    document
+      .querySelectorAll('.modal')
+      .forEach(modal => {
+        modal.addEventListener('click', event => {
+          if (event.target === modal) {
+            modal.classList.remove('ativo');
+          }
+        });
+      });
+
+    document
+      .querySelector('#openMenu')
+      ?.addEventListener('click', () => {
+        sidebar.classList.add('ativo');
+        overlay.classList.add('ativo');
+      });
+
+    overlay.addEventListener('click', () => {
+      sidebar.classList.remove('ativo');
+      overlay.classList.remove('ativo');
+    });
+
+    document
+      .querySelectorAll('.confirmar-exclusao')
+      .forEach(form => {
+        form.addEventListener('submit', event => {
+          const confirmar = window.confirm(
+            'Tem certeza que deseja excluir este registro?'
+          );
+
+          if (!confirmar) {
+            event.preventDefault();
+          }
+        });
+      });
+
+    const funcionarioFuncao =
+      document.querySelector('#funcionarioFuncao');
+
+    const permissoes = document.querySelectorAll(
+      '[data-permissao]'
+    );
+
+    function marcarPermissoes(lista) {
+      permissoes.forEach(input => {
+        input.checked = lista.includes(input.value);
+      });
+    }
+
+    funcionarioFuncao?.addEventListener(
+      'change',
+      event => {
+        const funcao = event.target.value;
+
+        if (funcao === 'gerente') {
+          marcarPermissoes([
+            'dashboard',
+            'pedidos',
+            'relatorios',
+            'estoque',
+            'catalogo',
+            'mesas',
+            'funcionarios',
+            'configuracoes'
+          ]);
+
+          return;
+        }
+
+        if (funcao === 'garcom') {
+          marcarPermissoes([
+            'catalogo',
+            'mesas'
+          ]);
+
+          return;
+        }
+
+        if (funcao === 'cozinha') {
+          marcarPermissoes([
+            'dashboard',
+            'pedidos',
+            'catalogo'
+          ]);
+
+          return;
+        }
+
+        if (funcao === 'caixa') {
+          marcarPermissoes([
+            'dashboard',
+            'pedidos',
+            'relatorios',
+            'mesas'
+          ]);
+
+          return;
+        }
+
+        marcarPermissoes([]);
+      }
+    );
+
+    const modalEditarFuncionario =
+  document.querySelector(
+    '#modalEditarFuncionario'
+  );
+
+const formEditarFuncionario =
+  document.querySelector(
+    '#formEditarFuncionario'
+  );
+
+const editarNome =
+  document.querySelector(
+    '#editarFuncionarioNome'
+  );
+
+const editarCpf =
+  document.querySelector(
+    '#editarFuncionarioCpf'
+  );
+
+const editarEmail =
+  document.querySelector(
+    '#editarFuncionarioEmail'
+  );
+
+const editarTelefone =
+  document.querySelector(
+    '#editarFuncionarioTelefone'
+  );
+
+const editarFuncao =
+  document.querySelector(
+    '#editarFuncionarioFuncao'
+  );
+
+const editarSalario =
+  document.querySelector(
+    '#editarFuncionarioSalario'
+  );
+
+const editarEndereco =
+  document.querySelector(
+    '#editarFuncionarioEndereco'
+  );
+
+const editarAtivo =
+  document.querySelector(
+    '#editarFuncionarioAtivo'
+  );
+
+const editarFotoPreview =
+  document.querySelector(
+    '#editarFotoPreview'
+  );
+
+const editarFotoPreviewContainer =
+  document.querySelector(
+    '#editarFotoPreviewContainer'
+  );
+
+const editarPermissoes =
+  document.querySelectorAll(
+    '[data-editar-permissao]'
+  );
+
+document
+  .querySelectorAll('.editar-funcionario')
+  .forEach(botao => {
+    botao.addEventListener('click', () => {
+      const permissoesFuncionario =
+        String(
+          botao.dataset.permissoes || ''
+        )
+          .split(',')
+          .filter(Boolean);
+
+      formEditarFuncionario.action =
+        `/admin/funcionarios/${botao.dataset.id}/editar`;
+
+      editarNome.value =
+        botao.dataset.nome || '';
+
+      editarCpf.value =
+        formatarCpf(
+          botao.dataset.cpf || ''
+        );
+
+      editarEmail.value =
+        botao.dataset.email || '';
+
+      editarTelefone.value =
+        botao.dataset.telefone || '';
+
+      editarFuncao.value =
+        botao.dataset.funcao || '';
+
+      editarSalario.value =
+        botao.dataset.salario || 0;
+
+      editarEndereco.value =
+        botao.dataset.endereco || '';
+
+      editarAtivo.checked =
+        botao.dataset.ativo === 'true';
+
+      editarPermissoes.forEach(input => {
+        input.checked =
+          permissoesFuncionario.includes(
+            input.value
+          );
+      });
+
+      if (botao.dataset.foto) {
+        editarFotoPreview.src =
+          botao.dataset.foto;
+
+        editarFotoPreviewContainer.style.display =
+          'block';
+      } else {
+        editarFotoPreview.src = '';
+
+        editarFotoPreviewContainer.style.display =
+          'none';
+      }
+
+      modalEditarFuncionario.classList.add(
+        'ativo'
+      );
+    });
+  });
+
+function formatarCpf(valor) {
+  const numeros = String(valor)
+    .replace(/\D/g, '')
+    .slice(0, 11);
+
+  return numeros
+    .replace(/^(\d{3})(\d)/, '$1.$2')
+    .replace(
+      /^(\d{3})\.(\d{3})(\d)/,
+      '$1.$2.$3'
+    )
+    .replace(
+      /^(\d{3})\.(\d{3})\.(\d{3})(\d)/,
+      '$1.$2.$3-$4'
+    );
+}
+
+function aplicarMascaraCpf(input) {
+  input.addEventListener('input', event => {
+    event.target.value =
+      formatarCpf(event.target.value);
+  });
+}
+
+function formatarTelefone(valor) {
+  const numeros = String(valor)
+    .replace(/\D/g, '')
+    .slice(0, 11);
+
+  if (numeros.length <= 10) {
+    return numeros
+      .replace(/^(\d{2})(\d)/, '($1) $2')
+      .replace(
+        /(\d{4})(\d{1,4})$/,
+        '$1-$2'
+      );
+  }
+
+  return numeros
+    .replace(/^(\d{2})(\d)/, '($1) $2')
+    .replace(
+      /(\d{5})(\d{1,4})$/,
+      '$1-$2'
+    );
+}
+
+function aplicarMascaraTelefone(input) {
+  input.addEventListener('input', event => {
+    event.target.value =
+      formatarTelefone(
+        event.target.value
+      );
+  });
+}
+
+const cpfCadastro =
+  document.querySelector(
+    '#funcionarioCpf'
+  );
+
+const cpfEdicao =
+  document.querySelector(
+    '#editarFuncionarioCpf'
+  );
+
+const telefoneCadastro =
+  document.querySelector(
+    '#funcionarioTelefone'
+  );
+
+const telefoneEdicao =
+  document.querySelector(
+    '#editarFuncionarioTelefone'
+  );
+
+if (cpfCadastro) {
+  aplicarMascaraCpf(cpfCadastro);
+}
+
+if (cpfEdicao) {
+  aplicarMascaraCpf(cpfEdicao);
+}
+
+if (telefoneCadastro) {
+  aplicarMascaraTelefone(
+    telefoneCadastro
+  );
+}
+
+if (telefoneEdicao) {
+  aplicarMascaraTelefone(
+    telefoneEdicao
+  );
+}
+
+
+
+
+/*
+|--------------------------------------------------------------------------
+| FILTROS DA ABA PEDIDOS
+|--------------------------------------------------------------------------
+*/
+
+const ordersDateStart =
+  document.querySelector('#ordersDateStart');
+
+const ordersDateEnd =
+  document.querySelector('#ordersDateEnd');
+
+const ordersChannelFilter =
+  document.querySelector('#ordersChannelFilter');
+
+const ordersStatusFilter =
+  document.querySelector('#ordersStatusFilter');
+
+const applyOrdersFilterButton =
+  document.querySelector('#applyOrdersFilter');
+
+const clearOrdersFilterButton =
+  document.querySelector('#clearOrdersFilter');
+
+const visibleOrdersCount =
+  document.querySelector('#visibleOrdersCount');
+
+const ordersPeriodDescription =
+  document.querySelector('#ordersPeriodDescription');
+
+const ordersNoResults =
+  document.querySelector('#ordersNoResults');
+
+const orderQuickFilters =
+  document.querySelectorAll('[data-orders-period]');
+
+let activeOrdersPeriod = 'todos';
+
+function startOfDay(date) {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+function endOfDay(date) {
+  const result = new Date(date);
+  result.setHours(23, 59, 59, 999);
+  return result;
+}
+
+function formatDateInput(date) {
+  const year = date.getFullYear();
+  const month = String(
+    date.getMonth() + 1
+  ).padStart(2, '0');
+  const day = String(
+    date.getDate()
+  ).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
+function getSelectedOrderDates() {
+  const startValue =
+    ordersDateStart?.value || '';
+
+  const endValue =
+    ordersDateEnd?.value || '';
+
+  const startDate = startValue
+    ? startOfDay(
+        new Date(`${startValue}T00:00:00`)
+      )
+    : null;
+
+  const endDate = endValue
+    ? endOfDay(
+        new Date(`${endValue}T00:00:00`)
+      )
+    : null;
+
+  return {
+    startValue,
+    endValue,
+    startDate,
+    endDate
+  };
+}
+
+function updateQuickFilterActive(period) {
+  orderQuickFilters.forEach(button => {
+    button.classList.toggle(
+      'active',
+      button.dataset.ordersPeriod === period
+    );
+  });
+}
+
+function setQuickOrderPeriod(period) {
+  const today = new Date();
+  let startDate = null;
+  let endDate = null;
+
+  activeOrdersPeriod = period;
+
+  if (period === 'hoje') {
+    startDate = today;
+    endDate = today;
+  }
+
+  if (period === '7dias') {
+    startDate = new Date(today);
+    startDate.setDate(
+      today.getDate() - 6
+    );
+    endDate = today;
+  }
+
+  if (period === 'mes') {
+    startDate = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      1
+    );
+
+    endDate = today;
+  }
+
+  if (ordersDateStart) {
+    ordersDateStart.value = startDate
+      ? formatDateInput(startDate)
+      : '';
+  }
+
+  if (ordersDateEnd) {
+    ordersDateEnd.value = endDate
+      ? formatDateInput(endDate)
+      : '';
+  }
+
+  updateQuickFilterActive(period);
+  applyOrdersFilters();
+}
+
+function getOrderPeriodDescription(
+  startValue,
+  endValue
+) {
+  if (!startValue && !endValue) {
+    return 'Todos os períodos';
+  }
+
+  const format = value => {
+    if (!value) {
+      return '';
+    }
+
+    return new Date(
+      `${value}T00:00:00`
+    ).toLocaleDateString('pt-BR');
+  };
+
+  if (startValue && endValue) {
+    return `${format(startValue)} até ${format(endValue)}`;
+  }
+
+  if (startValue) {
+    return `A partir de ${format(startValue)}`;
+  }
+
+  return `Até ${format(endValue)}`;
+}
+
+function applyOrdersFilters() {
+  const cards = Array.from(
+    document.querySelectorAll(
+      '#ordersGrid .order-card'
+    )
+  );
+
+  const {
+    startValue,
+    endValue,
+    startDate,
+    endDate
+  } = getSelectedOrderDates();
+
+  const selectedChannel =
+    ordersChannelFilter?.value || 'todos';
+
+  const selectedStatus =
+    ordersStatusFilter?.value || 'todos';
+
+  let visible = 0;
+
+  cards.forEach(card => {
+    const orderDateValue =
+      card.dataset.orderDate || '';
+
+    const orderChannel =
+      card.dataset.orderChannel || 'retirada';
+
+    const orderStatus =
+      card.dataset.orderStatus || 'novo';
+
+    const orderDate = orderDateValue
+      ? new Date(orderDateValue)
+      : null;
+
+    const matchesStart =
+      !startDate ||
+      (
+        orderDate &&
+        orderDate >= startDate
+      );
+
+    const matchesEnd =
+      !endDate ||
+      (
+        orderDate &&
+        orderDate <= endDate
+      );
+
+    const matchesChannel =
+      selectedChannel === 'todos' ||
+      orderChannel === selectedChannel;
+
+    const matchesStatus =
+      selectedStatus === 'todos' ||
+      orderStatus === selectedStatus ||
+      (
+        selectedStatus === 'preparo' &&
+        orderStatus === 'em_preparo'
+      ) ||
+      (
+        selectedStatus === 'em_preparo' &&
+        orderStatus === 'preparo'
+      );
+
+    const show =
+      matchesStart &&
+      matchesEnd &&
+      matchesChannel &&
+      matchesStatus;
+
+    card.classList.toggle(
+      'order-filter-hidden',
+      !show
+    );
+
+    if (show) {
+      visible += 1;
+    }
+  });
+
+  if (visibleOrdersCount) {
+    visibleOrdersCount.textContent =
+      String(visible);
+  }
+
+  if (ordersPeriodDescription) {
+    ordersPeriodDescription.textContent =
+      getOrderPeriodDescription(
+        startValue,
+        endValue
+      );
+  }
+
+  if (ordersNoResults) {
+    ordersNoResults.classList.toggle(
+      'visible',
+      cards.length > 0 &&
+      visible === 0
+    );
+  }
+
+  if (ordersEmptyState) {
+    ordersEmptyState.style.display =
+      cards.length === 0
+        ? ''
+        : 'none';
+  }
+}
+
+orderQuickFilters.forEach(button => {
+  button.addEventListener(
+    'click',
+    () => {
+      setQuickOrderPeriod(
+        button.dataset.ordersPeriod
+      );
+    }
+  );
+});
+
+applyOrdersFilterButton?.addEventListener(
+  'click',
+  () => {
+    activeOrdersPeriod = 'personalizado';
+    updateQuickFilterActive('');
+    applyOrdersFilters();
+  }
+);
+
+clearOrdersFilterButton?.addEventListener(
+  'click',
+  () => {
+    activeOrdersPeriod = 'todos';
+
+    if (ordersDateStart) {
+      ordersDateStart.value = '';
+    }
+
+    if (ordersDateEnd) {
+      ordersDateEnd.value = '';
+    }
+
+    if (ordersChannelFilter) {
+      ordersChannelFilter.value = 'todos';
+    }
+
+    if (ordersStatusFilter) {
+      ordersStatusFilter.value = 'todos';
+    }
+
+    updateQuickFilterActive('todos');
+    applyOrdersFilters();
+  }
+);
+
+ordersChannelFilter?.addEventListener(
+  'change',
+  applyOrdersFilters
+);
+
+ordersStatusFilter?.addEventListener(
+  'change',
+  applyOrdersFilters
+);
+
+ordersDateStart?.addEventListener(
+  'change',
+  () => {
+    activeOrdersPeriod = 'personalizado';
+    updateQuickFilterActive('');
+  }
+);
+
+ordersDateEnd?.addEventListener(
+  'change',
+  () => {
+    activeOrdersPeriod = 'personalizado';
+    updateQuickFilterActive('');
+  }
+);
+
+document.addEventListener(
+  'DOMContentLoaded',
+  applyOrdersFilters
+);
+
+
+const podeReceberNotificacoes =
+  <%- JSON.stringify(menuCompleto); %>;
+
+const podeImprimirPedidos =
+  <%- JSON.stringify(pode('imprimir_pedidos')); %>;
+
+const impressorasConfiguradas =
+  <%- JSON.stringify(config.impressoras || []); %>;
+
+const printAgentUrl = '/admin/agente';
+
+const ordersGrid =
+  document.querySelector(
+    '#ordersGrid'
+  );
+
+const ordersEmptyState =
+  document.querySelector(
+    '#ordersEmptyState'
+  );
+
+const ordersBadge =
+  document.querySelector(
+    '#ordersNotificationBadge'
+  );
+
+const menuPedidos =
+  document.querySelector(
+    '#menuPedidos'
+  );
+
+function obterToastContainer() {
+  return document.querySelector(
+    '#orderToastContainer'
+  );
+}
+
+const pedidosConhecidos =
+  new Set(
+    Array.from(
+      document.querySelectorAll(
+        '[data-order-id]'
+      )
+    ).map(elemento => {
+      return elemento.dataset.orderId;
+    })
+  );
+
+let ultimaVerificacaoPedidos =
+  new Date().toISOString();
+
+let quantidadeNaoVisualizada = 0;
+
+let verificandoPedidos = false;
+
+function formatarMoedaPedido(valor) {
+  return Number(
+    valor || 0
+  ).toLocaleString(
+    'pt-BR',
+    {
+      style: 'currency',
+      currency: 'BRL',
+    }
+  );
+}
+
+function escaparHtml(valor) {
+  return String(valor || '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll(
+      "'",
+      '&#039;'
+    );
+}
+
+function formatarDataPedido(data) {
+  if (!data) {
+    return '-';
+  }
+
+  return new Date(
+    data
+  ).toLocaleString('pt-BR');
+}
+
+function atualizarBadgePedidos() {
+  if (!ordersBadge) {
+    return;
+  }
+
+  if (
+    quantidadeNaoVisualizada <= 0
+  ) {
+    ordersBadge.hidden = true;
+    ordersBadge.textContent = '0';
+    return;
+  }
+
+  ordersBadge.hidden = false;
+
+  ordersBadge.textContent =
+    quantidadeNaoVisualizada > 99
+      ? '99+'
+      : String(
+          quantidadeNaoVisualizada
+        );
+}
+
+function tocarSomNovoPedido() {
+  if (!podeReceberNotificacoes) {
+    return;
+  }
+
+  try {
+    const AudioContexto =
+      window.AudioContext ||
+      window.webkitAudioContext;
+
+    if (!AudioContexto) {
+      return;
+    }
+
+    const contexto =
+      new AudioContexto();
+
+    const oscilador =
+      contexto.createOscillator();
+
+    const ganho =
+      contexto.createGain();
+
+    oscilador.type = 'sine';
+    oscilador.frequency.value = 880;
+
+    ganho.gain.setValueAtTime(
+      0.08,
+      contexto.currentTime
+    );
+
+    ganho.gain.exponentialRampToValueAtTime(
+      0.001,
+      contexto.currentTime + 0.35
+    );
+
+    oscilador.connect(ganho);
+    ganho.connect(
+      contexto.destination
+    );
+
+    oscilador.start();
+    oscilador.stop(
+      contexto.currentTime + 0.35
+    );
+  } catch (error) {
+    console.log(
+      'Som de notificação indisponível.'
+    );
+  }
+}
+
+function mostrarToastPedido(pedido) {
+  const toastContainer =
+    obterToastContainer();
+
+  if (!toastContainer) {
+    return;
+  }
+
+  const toast =
+    document.createElement('div');
+
+  toast.className =
+    'order-toast';
+
+  toast.innerHTML = `
+    <div class="order-toast-icon">
+      ${escaparHtml(
+        pedido.origem.icone
+      )}
+    </div>
+
+    <div class="order-toast-text">
+      <strong>
+        Novo pedido #${escaparHtml(
+          pedido.numero
+        )}
+      </strong>
+
+      <span>
+        ${escaparHtml(
+          pedido.origem.texto
+        )}
+        •
+        ${formatarMoedaPedido(
+          pedido.total
+        )}
+      </span>
+    </div>
+
+    <button
+      type="button"
+      class="order-toast-close"
+      aria-label="Fechar"
+    >
+      ×
+    </button>
+  `;
+
+  toast
+    .querySelector(
+      '.order-toast-close'
+    )
+    .addEventListener(
+      'click',
+      () => {
+        toast.remove();
+      }
+    );
+
+  toast.addEventListener(
+    'click',
+    event => {
+      if (
+        event.target.closest(
+          '.order-toast-close'
+        )
+      ) {
+        return;
+      }
+
+      window.location.hash =
+        'pedidos';
+
+      quantidadeNaoVisualizada = 0;
+      atualizarBadgePedidos();
+
+      toast.remove();
+    }
+  );
+
+  toastContainer.prepend(toast);
+
+  setTimeout(() => {
+    toast.remove();
+  }, 9000);
+}
+
+function criarHtmlItensPedido(
+  itens
+) {
+  if (
+    !Array.isArray(itens) ||
+    !itens.length
+  ) {
+    return `
+      <div class="empty">
+        O pedido não possui itens.
+      </div>
+    `;
+  }
+
+  return itens
+    .map(item => {
+      const subtotal =
+        Number(item.subtotal) ||
+        Number(item.preco || 0) *
+        Number(
+          item.quantidade || 0
+        );
+
+      return `
+        <div class="order-item">
+          <div class="order-item-quantity">
+            ${Number(
+              item.quantidade || 0
+            )}x
+          </div>
+
+          <div>
+            <div class="order-item-name">
+              ${escaparHtml(
+                item.nome
+              )}
+            </div>
+
+            ${
+              item.observacao
+                ? `
+                  <span class="order-item-note">
+                    Observação:
+                    ${escaparHtml(
+                      item.observacao
+                    )}
+                  </span>
+                `
+                : ''
+            }
+          </div>
+
+          <div class="order-item-price">
+            ${formatarMoedaPedido(
+              subtotal
+            )}
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+}
+
+function criarCardPedido(
+  pedido
+) {
+  const artigo =
+    document.createElement(
+      'article'
+    );
+
+  artigo.className =
+    'order-card new-order-card';
+
+  artigo.dataset.orderId =
+    pedido.id;
+
+  artigo.dataset.orderDate =
+    pedido.createdAt || '';
+
+  artigo.dataset.orderChannel =
+    pedido.canal === 'balcao'
+      ? 'retirada'
+      : (pedido.canal || 'retirada');
+
+  artigo.dataset.orderStatus =
+    pedido.status || 'novo';
+
+  artigo.innerHTML = `
+    <div class="order-card-header">
+      <div class="order-number">
+        <div class="order-icon">
+          ${escaparHtml(
+            pedido.origem.icone
+          )}
+        </div>
+
+        <div>
+          <h3>
+            Pedido #${escaparHtml(
+              pedido.numero
+            )}
+          </h3>
+
+          <p>
+            ${formatarDataPedido(
+              pedido.createdAt
+            )}
+          </p>
+
+          <span
+            class="order-origin ${escaparHtml(
+              pedido.origem.tipo
+            )}"
+          >
+            ${escaparHtml(
+              pedido.origem.icone
+            )}
+
+            ${escaparHtml(
+              pedido.origem.texto
+            )}
+          </span>
+        </div>
+      </div>
+
+      <div>
+        <span
+          class="status ${escaparHtml(
+            pedido.status
+          )}"
+        >
+          ${escaparHtml(
+            pedido.status
+          ).replaceAll('_', ' ')}
+        </span>
+
+        <span
+          class="status ${escaparHtml(
+            pedido.pagamentoStatus
+          )}"
+        >
+          ${escaparHtml(
+            pedido.pagamentoStatus
+          ).replaceAll('_', ' ')}
+        </span>
+      </div>
+    </div>
+
+    <div style="margin-top:14px;">
+      <strong>Cliente:</strong>
+
+      ${escaparHtml(
+        pedido.cliente
+      )}
+    </div>
+
+    ${
+      pedido.telefone
+        ? `
+          <div style="margin-top:7px;">
+            <strong>WhatsApp:</strong>
+            ${escaparHtml(
+              pedido.telefone
+            )}
+          </div>
+        `
+        : ''
+    }
+
+    ${
+      pedido.canal === 'delivery' &&
+      pedido.endereco
+        ? `
+          <div style="margin-top:7px;">
+            <strong>Endereço:</strong>
+            ${escaparHtml(
+              pedido.endereco
+            )}
+          </div>
+        `
+        : ''
+    }
+
+    <div class="order-items">
+      ${criarHtmlItensPedido(
+        pedido.itens
+      )}
+    </div>
+
+    ${
+      pedido.observacao
+        ? `
+          <div class="order-observation">
+            <strong>
+              Observação geral:
+            </strong>
+
+            ${escaparHtml(
+              pedido.observacao
+            )}
+          </div>
+        `
+        : ''
+    }
+
+    <div class="order-footer">
+      <div class="order-total">
+        <span>Total do pedido</span>
+
+        <strong>
+          ${formatarMoedaPedido(
+            pedido.total
+          )}
+        </strong>
+      </div>
+
+      <div class="order-actions">
+        <form
+          action="/admin/pedidos/${encodeURIComponent(
+            pedido.id
+          )}/status"
+          method="POST"
+          class="order-status-form"
+        >
+          <select name="status">
+            <option value="novo">
+              Novo
+            </option>
+
+            <option value="preparo">
+              Em preparo
+            </option>
+
+            <option value="pronto">
+              Pronto
+            </option>
+
+            <option value="entregue">
+              Entregue
+            </option>
+
+            <option value="finalizado">
+              Finalizado
+            </option>
+
+            <option value="cancelado">
+              Cancelado
+            </option>
+          </select>
+
+          <button
+            type="submit"
+            class="mini-button edit"
+          >
+            Atualizar
+          </button>
+        </form>
+
+        ${
+          podeImprimirPedidos
+            ? `
+              <button
+                type="button"
+                class="print-order-button"
+                data-print-order="${escaparHtml(pedido.id)}"
+              >
+                🖨 Imprimir pedido
+              </button>
+            `
+            : ''
+        }
+      </div>
+    </div>
+  `;
+
+  return artigo;
+}
+
+async function verificarPrintAgent() {
+  const status =
+    document.querySelector(
+      '#printAgentStatus'
+    );
+
+  try {
+    const response = await fetch(
+      `${printAgentUrl}/status`,
+      {
+        signal:
+          AbortSignal.timeout(1800)
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        'Agente indisponível'
+      );
+    }
+
+    const result = await response.json();
+    if (!result.online) throw new Error('Agente desconectado');
+    if (status) {
+      status.textContent = result.agente?.nomeComputador
+        ? `Agente conectado — ${result.agente.nomeComputador}`
+        : 'Agente conectado';
+      status.classList.add('online');
+    }
+    return true;
+  } catch (error) {
+    if (status) {
+      status.textContent =
+        'Agente desconectado';
+      status.classList.remove('online');
+    }
+
+    return false;
+  }
+}
+
+async function carregarPedidoImpressao(
+  pedidoId
+) {
+  const response = await fetch(
+    `/admin/api/pedidos/${encodeURIComponent(
+      pedidoId
+    )}/impressao`
+  );
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      result.message ||
+      'Não foi possível carregar o pedido.'
+    );
+  }
+
+  return result;
+}
+
+function atualizarPainelConexao(card) {
+  const tipo =
+    card.querySelector(
+      '[data-connection-type]:checked'
+    )?.value || 'usb';
+
+  card
+    .querySelectorAll(
+      '[data-connection-panel]'
+    )
+    .forEach(panel => {
+      panel.classList.toggle(
+        'active',
+        panel.dataset.connectionPanel === tipo
+      );
+    });
+}
+
+document
+  .querySelectorAll('[data-printer-card]')
+  .forEach(card => {
+    atualizarPainelConexao(card);
+
+    card
+      .querySelectorAll(
+        '[data-connection-type]'
+      )
+      .forEach(radio => {
+        radio.addEventListener(
+          'change',
+          () => atualizarPainelConexao(card)
+        );
+      });
+  });
+
+async function listarImpressorasUsb(card) {
+  const resultBox =
+    card.querySelector(
+      '[data-printer-result]'
+    );
+
+  try {
+    const response = await fetch(
+      `${printAgentUrl}/impressoras`
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.message ||
+        'Não foi possível listar as impressoras.'
+      );
+    }
+
+    const select =
+      card.querySelector(
+        '[data-usb-printer-select]'
+      );
+
+    const valorAtual =
+      select.value;
+
+    select.innerHTML = [
+      '<option value="">Selecione uma impressora</option>',
+      ...result.printers.map(
+        printer => `
+          <option
+            value="${escaparHtml(printer.name)}"
+            ${
+              printer.name === valorAtual
+                ? 'selected'
+                : ''
+            }
+          >
+            ${escaparHtml(printer.name)}
+            ${printer.isDefault
+              ? ' — padrão'
+              : ''
+            }
+          </option>
+        `
+      )
+    ].join('');
+
+    resultBox.textContent =
+      `${result.printers.length} impressora(s) encontrada(s) no Windows.`;
+    resultBox.classList.add('visible');
+  } catch (error) {
+    resultBox.textContent = error.message;
+    resultBox.classList.add('visible');
+  }
+}
+
+function dadosImpressoraDoCard(card) {
+  const campo = nome =>
+    card.querySelector(
+      `[name$="[${nome}]"]`
+    );
+
+  return {
+    nome:
+      campo('nome')?.value ||
+      'Impressora',
+    tipoConexao:
+      card.querySelector(
+        '[data-connection-type]:checked'
+      )?.value || 'usb',
+    deviceName:
+      campo('deviceName')?.value || '',
+    ip:
+      campo('ip')?.value || '',
+    porta:
+      Number(
+        campo('porta')?.value || 9100
+      ),
+    papel:
+      campo('papel')?.value || '80mm',
+    modo: 'manual',
+    copias:
+      Number(
+        campo('copias')?.value || 1
+      ),
+    fontePx:
+      Number(
+        campo('fontePx')?.value || 13
+      ),
+    espacamentoLinhaPx:
+      Number(
+        campo('espacamentoLinhaPx')?.value ||
+        4
+      ),
+    espacamentoLetrasPx:
+      Number(
+        campo('espacamentoLetrasPx')?.value ||
+        0
+      ),
+    margemSuperiorMm:
+      Number(
+        campo('margemSuperiorMm')?.value ||
+        2
+      ),
+    margemInferiorMm:
+      Number(
+        campo('margemInferiorMm')?.value ||
+        5
+      ),
+    margemEsquerdaMm:
+      Number(
+        campo('margemEsquerdaMm')?.value ||
+        2
+      ),
+    margemDireitaMm:
+      Number(
+        campo('margemDireitaMm')?.value ||
+        2
+      ),
+    alturaMaximaMm:
+      Number(
+        campo('alturaMaximaMm')?.value ||
+        500
+      ),
+    imprimirLogo:
+      campo('imprimirLogo')?.checked ?? true,
+    imprimirValores:
+      campo('imprimirValores')?.checked ?? true,
+    imprimirEndereco:
+      campo('imprimirEndereco')?.checked ?? true,
+    imprimirObservacoes:
+      campo('imprimirObservacoes')?.checked ?? true,
+    corteAutomatico:
+      campo('corteAutomatico')?.checked ?? true
+  };
+}
+
+document.addEventListener(
+  'click',
+  async event => {
+    const refreshButton =
+      event.target.closest(
+        '[data-refresh-usb]'
+      );
+
+    if (refreshButton) {
+      const card =
+        refreshButton.closest(
+          '[data-printer-card]'
+        );
+
+      await listarImpressorasUsb(card);
+      return;
+    }
+
+    const scanButton =
+      event.target.closest(
+        '[data-scan-network]'
+      );
+
+    if (scanButton) {
+      const card =
+        scanButton.closest(
+          '[data-printer-card]'
+        );
+
+      const resultBox =
+        card.querySelector(
+          '[data-printer-result]'
+        );
+
+      resultBox.textContent =
+        'Procurando impressoras na rede local...';
+      resultBox.classList.add('visible');
+
+      try {
+        const response = await fetch(
+          `${printAgentUrl}/network/scan`
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.message ||
+            'A busca na rede falhou.'
+          );
+        }
+
+        if (!result.devices.length) {
+          resultBox.textContent =
+            'Nenhuma impressora foi encontrada automaticamente. Você ainda pode informar o IP manualmente.';
+          return;
+        }
+
+        resultBox.innerHTML =
+          result.devices.map(device => `
+            <button
+              type="button"
+              class="printer-tool-button"
+              data-use-network-ip="${escaparHtml(device.ip)}"
+            >
+              Usar ${escaparHtml(device.ip)}:${device.port}
+            </button>
+          `).join('');
+      } catch (error) {
+        resultBox.textContent = error.message;
+      }
+
+      return;
+    }
+
+    const useIpButton =
+      event.target.closest(
+        '[data-use-network-ip]'
+      );
+
+    if (useIpButton) {
+      const card =
+        useIpButton.closest(
+          '[data-printer-card]'
+        );
+
+      const ipInput =
+        card.querySelector(
+          '[name$="[ip]"]'
+        );
+
+      ipInput.value =
+        useIpButton.dataset.useNetworkIp;
+      return;
+    }
+
+    const testButton =
+      event.target.closest(
+        '[data-test-printer]'
+      );
+
+    if (testButton) {
+      const card =
+        testButton.closest(
+          '[data-printer-card]'
+        );
+
+      const resultBox =
+        card.querySelector(
+          '[data-printer-result]'
+        );
+
+      testButton.disabled = true;
+      resultBox.textContent =
+        'Enviando impressão de teste...';
+      resultBox.classList.add('visible');
+
+      try {
+        const response = await fetch(
+          `${printAgentUrl}/teste`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type':
+                'application/json'
+            },
+            body: JSON.stringify({
+              impressora:
+                dadosImpressoraDoCard(card)
+            })
+          }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.message ||
+            'O teste falhou.'
+          );
+        }
+
+        resultBox.textContent =
+          'Teste enviado com sucesso.';
+      } catch (error) {
+        resultBox.textContent = error.message;
+      } finally {
+        testButton.disabled = false;
+      }
+    }
+  }
+);
+
+
+async function imprimirPedido(
+  pedidoId,
+  modo = 'manual'
+) {
+  const online =
+    await document.querySelector('#generateAgentCode')?.addEventListener('click', async () => {
+  const response = await fetch('/admin/agente/codigo', { method: 'POST' });
+  const result = await response.json();
+  if (!response.ok) return alert(result.message || 'Não foi possível gerar o código.');
+  document.querySelector('#agentPairCode').textContent = `Código: ${result.codigo}`;
+  alert(`Digite o código ${result.codigo} no Print Agent. Ele vale por 15 minutos.`);
+});
+
+verificarPrintAgent();
+
+
+
+
+  if (!online) {
+    throw new Error(
+      'Abra o ComandaMix Print Agent no computador da impressora.'
+    );
+  }
+
+  const response = await fetch(`/admin/agente/pedidos/${encodeURIComponent(pedidoId)}/imprimir`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ modo })
+  });
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      result.message ||
+      'O agente não conseguiu imprimir.'
+    );
+  }
+
+  return result;
+}
+
+document.addEventListener(
+  'click',
+  async event => {
+    const button = event.target.closest(
+      '[data-print-order]'
+    );
+
+    if (!button) {
+      return;
+    }
+
+    const original =
+      button.textContent;
+
+    button.disabled = true;
+    button.textContent =
+      'Imprimindo...';
+
+    try {
+      const result =
+        await imprimirPedido(
+          button.dataset.printOrder,
+          'manual'
+        );
+
+      alert(
+        `${result.impressoes || 0} impressão(ões) enviada(s).`
+      );
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+);
+
+async function imprimirPedidoAutomaticamente(
+  pedido
+) {
+  if (!podeImprimirPedidos) {
+    return;
+  }
+
+  const possuiAutomatica =
+    impressorasConfiguradas.some(
+      impressora =>
+        impressora.modo ===
+          'automatica' ||
+        impressora.modo ===
+          'manual_automatica'
+    );
+
+  if (!possuiAutomatica) {
+    return;
+  }
+
+  try {
+    await imprimirPedido(
+      pedido.id,
+      'automatica'
+    );
+  } catch (error) {
+    console.error(
+      'Impressão automática falhou:',
+      error
+    );
+  }
+}
+
+verificarPrintAgent();
+
+async function verificarNovosPedidos() {
+  if (
+    verificandoPedidos ||
+    document.hidden
+  ) {
+    return;
+  }
+
+  verificandoPedidos = true;
+
+  try {
+    const url =
+      `/admin/api/pedidos/novos?de=${encodeURIComponent(
+        ultimaVerificacaoPedidos
+      )}`;
+
+    const response =
+      await fetch(url, {
+        headers: {
+          Accept:
+            'application/json',
+        },
+      });
+
+    if (!response.ok) {
+      return;
+    }
+
+    const result =
+      await response.json();
+
+    if (!result.success) {
+      return;
+    }
+
+    ultimaVerificacaoPedidos =
+      result.agora ||
+      new Date().toISOString();
+
+    result.pedidos.forEach(
+      pedido => {
+        if (
+          pedidosConhecidos.has(
+            pedido.id
+          )
+        ) {
+          return;
+        }
+
+        pedidosConhecidos.add(
+          pedido.id
+        );
+
+        if (ordersEmptyState) {
+          ordersEmptyState.remove();
+        }
+
+        if (ordersGrid) {
+          const card =
+            criarCardPedido(
+              pedido
+            );
+
+          ordersGrid.prepend(card);
+
+      applyOrdersFilters();
+        }
+
+        quantidadeNaoVisualizada += 1;
+
+        mostrarToastPedido(
+          pedido
+        );
+
+        tocarSomNovoPedido();
+
+        imprimirPedidoAutomaticamente(
+          pedido
+        );
+      }
+    );
+
+    atualizarBadgePedidos();
+  } catch (error) {
+    console.error(
+      'Erro ao verificar pedidos:',
+      error
+    );
+  } finally {
+    verificandoPedidos = false;
+  }
+}
+
+if (menuPedidos) {
+  menuPedidos.addEventListener(
+    'click',
+    () => {
+      quantidadeNaoVisualizada = 0;
+      atualizarBadgePedidos();
+    }
+  );
+}
+
+if (podeReceberNotificacoes) {
+  verificarNovosPedidos();
+
+  setInterval(
+    verificarNovosPedidos,
+    5000
+  );
+}
+  
+    function criarLinhaAdicional() {
+      const row = document.createElement('div');
+      row.className = 'additional-row';
+
+      row.innerHTML = `
+        <input
+          name="adicionaisNome[]"
+          placeholder="Nome do adicional"
+          required
+        >
+
+        <input
+          type="number"
+          name="adicionaisPreco[]"
+          min="0"
+          step="0.01"
+          placeholder="Preço"
+          required
+        >
+
+        <button
+          type="button"
+          class="remove-additional"
+          title="Remover adicional"
+        >
+          ×
+        </button>
+      `;
+
+      return row;
+    }
+
+    document
+      .querySelectorAll('[data-add-additional]')
+      .forEach(button => {
+        button.addEventListener('click', () => {
+          const form = button.closest('form');
+          const list = form.querySelector(
+            '[data-additional-list]'
+          );
+
+          list.appendChild(
+            criarLinhaAdicional()
+          );
+        });
+      });
+
+    document.addEventListener(
+      'click',
+      event => {
+        const button = event.target.closest(
+          '.remove-additional'
+        );
+
+        if (button) {
+          button.closest(
+            '.additional-row'
+          )?.remove();
+        }
+      }
+    );
+
+  </script>
+
+</body>
+</html>

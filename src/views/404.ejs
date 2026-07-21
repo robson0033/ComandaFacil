@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Página não encontrada</title>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            min-height: 100vh;
+            font-family: Arial, Helvetica, sans-serif;
+            background:
+                radial-gradient(
+                    circle at top left,
+                    rgba(255, 126, 95, 0.25),
+                    transparent 35%
+                ),
+                radial-gradient(
+                    circle at bottom right,
+                    rgba(91, 20, 95, 0.35),
+                    transparent 40%
+                ),
+                linear-gradient(135deg, #160c1d, #32153a, #5b145f);
+
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            overflow: hidden;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 900px;
+            min-height: 520px;
+
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            align-items: center;
+            gap: 50px;
+
+            padding: 50px;
+
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 30px;
+
+            backdrop-filter: blur(18px);
+            box-shadow:
+                0 30px 80px rgba(0, 0, 0, 0.35),
+                inset 0 1px 0 rgba(255, 255, 255, 0.12);
+        }
+
+        .content {
+            position: relative;
+            z-index: 2;
+        }
+
+        .tag {
+            display: inline-block;
+            margin-bottom: 18px;
+            padding: 8px 14px;
+
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 999px;
+
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .content h1 {
+            font-size: 88px;
+            line-height: 1;
+            margin-bottom: 8px;
+
+            background: linear-gradient(
+                90deg,
+                #ffffff,
+                #ffb199,
+                #ff7e5f
+            );
+
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .content h2 {
+            font-size: 30px;
+            margin-bottom: 16px;
+        }
+
+        .content p {
+            max-width: 430px;
+            margin-bottom: 30px;
+
+            color: rgba(255, 255, 255, 0.76);
+            line-height: 1.7;
+            font-size: 16px;
+        }
+
+        .buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+
+            min-height: 48px;
+            padding: 0 22px;
+
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 700;
+            transition: 0.25s ease;
+        }
+
+        .button-primary {
+            color: #32153a;
+            background: #ffffff;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .button-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 18px 35px rgba(0, 0, 0, 0.28);
+        }
+
+        .button-secondary {
+            color: #ffffff;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+
+        .button-secondary:hover {
+            background: rgba(255, 255, 255, 0.14);
+            transform: translateY(-3px);
+        }
+
+        .illustration {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 350px;
+        }
+
+        .plate {
+            position: relative;
+            width: 290px;
+            height: 290px;
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            border-radius: 50%;
+            background:
+                linear-gradient(
+                    145deg,
+                    rgba(255, 255, 255, 0.2),
+                    rgba(255, 255, 255, 0.04)
+                );
+
+            border: 1px solid rgba(255, 255, 255, 0.2);
+
+            box-shadow:
+                0 35px 60px rgba(0, 0, 0, 0.28),
+                inset 0 0 35px rgba(255, 255, 255, 0.1);
+
+            animation: float 4s ease-in-out infinite;
+        }
+
+        .plate::before {
+            content: "";
+            position: absolute;
+            width: 220px;
+            height: 220px;
+
+            border-radius: 50%;
+            border: 3px dashed rgba(255, 255, 255, 0.18);
+
+            animation: rotate 18s linear infinite;
+        }
+
+        .food-icon {
+            position: relative;
+            z-index: 2;
+            font-size: 115px;
+            filter: drop-shadow(0 18px 20px rgba(0, 0, 0, 0.3));
+        }
+
+        .mini-icon {
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            width: 58px;
+            height: 58px;
+
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            backdrop-filter: blur(10px);
+
+            font-size: 26px;
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .icon-one {
+            top: 10px;
+            right: 5px;
+            animation: float 3.5s ease-in-out infinite;
+        }
+
+        .icon-two {
+            bottom: 15px;
+            left: 5px;
+            animation: float 4.5s ease-in-out infinite;
+        }
+
+        .icon-three {
+            top: 60px;
+            left: -20px;
+            animation: float 3.8s ease-in-out infinite;
+        }
+
+        .shadow {
+            position: absolute;
+            bottom: 8px;
+
+            width: 230px;
+            height: 34px;
+
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.28);
+            filter: blur(14px);
+        }
+
+        @keyframes float {
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-14px);
+            }
+        }
+
+        @keyframes rotate {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        @media (max-width: 780px) {
+            .container {
+                grid-template-columns: 1fr;
+                text-align: center;
+                padding: 38px 24px;
+                gap: 20px;
+            }
+
+            .content {
+                order: 2;
+            }
+
+            .illustration {
+                order: 1;
+                min-height: 260px;
+            }
+
+            .plate {
+                width: 220px;
+                height: 220px;
+            }
+
+            .plate::before {
+                width: 165px;
+                height: 165px;
+            }
+
+            .food-icon {
+                font-size: 85px;
+            }
+
+            .content h1 {
+                font-size: 70px;
+            }
+
+            .content h2 {
+                font-size: 24px;
+            }
+
+            .content p {
+                margin-left: auto;
+                margin-right: auto;
+            }
+
+            .buttons {
+                justify-content: center;
+            }
+
+            .mini-icon {
+                width: 48px;
+                height: 48px;
+                font-size: 22px;
+            }
+        }
+
+        @media (max-width: 430px) {
+            body {
+                padding: 14px;
+            }
+
+            .container {
+                padding: 30px 18px;
+                border-radius: 22px;
+            }
+
+            .content h1 {
+                font-size: 58px;
+            }
+
+            .content h2 {
+                font-size: 21px;
+            }
+
+            .button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main class="container">
+        <section class="content">
+            <span class="tag">Erro de navegação</span>
+
+            <h1>404</h1>
+
+            <h2>Ops! Essa página saiu do cardápio.</h2>
+
+            <p>
+                A página que você está procurando não existe, foi removida
+                ou o endereço informado está incorreto.
+            </p>
+
+            <div class="buttons">
+                <a href="/" class="button button-primary">
+                    Voltar ao início
+                </a>
+
+                <a
+                    href="javascript:history.back()"
+                    class="button button-secondary"
+                >
+                    Página anterior
+                </a>
+            </div>
+        </section>
+
+        <section class="illustration">
+            <div class="shadow"></div>
+
+            <div class="plate">
+                <span class="food-icon">🍔</span>
+
+                <span class="mini-icon icon-one">🍕</span>
+                <span class="mini-icon icon-two">🍟</span>
+                <span class="mini-icon icon-three">🥤</span>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

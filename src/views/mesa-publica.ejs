@@ -1,0 +1,2485 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>
+    <%= configuracao?.nomeEstabelecimento || 'Cardápio' %>
+    | Mesa <%= mesa.numero %>
+  </title>
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --red-900: #65160e;
+      --red-800: #871e10;
+      --red-700: #ad2a13;
+      --orange-600: #e94f13;
+      --orange-500: #f56c16;
+      --orange-400: #ff8c24;
+      --amber-500: #f5a30b;
+      --green-600: #238b4f;
+      --cream: #fffaf6;
+      --surface: #ffffff;
+      --background: #f8f4f0;
+      --text: #221a17;
+      --muted: #756a65;
+      --border: #eadfd8;
+      --shadow: 0 18px 50px rgba(68, 27, 10, .11);
+      --shadow-hover: 0 24px 60px rgba(68, 27, 10, .18);
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      min-height: 100vh;
+      overflow-x: hidden;
+      background:
+        radial-gradient(circle at 10% 30%, rgba(245,108,22,.07), transparent 23%),
+        var(--background);
+      color: var(--text);
+      font-family: Inter, Arial, Helvetica, sans-serif;
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      cursor: pointer;
+    }
+
+    img {
+      display: block;
+      max-width: 100%;
+    }
+
+    .hero {
+      position: relative;
+      min-height: 345px;
+      overflow: hidden;
+      color: white;
+      background:
+        linear-gradient(
+          90deg,
+          rgba(73, 12, 6, .98) 0%,
+          rgba(112, 22, 8, .93) 40%,
+          rgba(167, 48, 8, .55) 66%,
+          rgba(56, 14, 7, .38) 100%
+        ),
+        url("<%= produtos.find(produto => produto.imagem)?.imagem || '' %>")
+        center 38% / cover no-repeat,
+        linear-gradient(135deg, #68150c, #e85c0e);
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      opacity: .18;
+      background-image:
+        radial-gradient(circle at 20% 25%, #fff 0 1px, transparent 2px),
+        radial-gradient(circle at 75% 30%, #ffb545 0 1px, transparent 2px);
+      background-size: 90px 90px, 120px 120px;
+    }
+
+    .hero-inner {
+      position: relative;
+      z-index: 2;
+      width: min(1370px, calc(100% - 36px));
+      min-height: 345px;
+      margin: auto;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 28px;
+      padding: 34px 0 72px;
+    }
+
+    .brand-logo {
+      width: 154px;
+      height: 154px;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+      border: 7px solid rgba(255,255,255,.92);
+      border-radius: 50%;
+      background: #fff8f0;
+      color: var(--red-800);
+      box-shadow: 0 24px 55px rgba(0,0,0,.3);
+      font-size: 62px;
+    }
+
+    .brand-logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .brand-copy h1 {
+      max-width: 720px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(40px, 5vw, 66px);
+      line-height: .98;
+      letter-spacing: -2px;
+    }
+
+    .brand-copy > p {
+      margin-top: 11px;
+      color: rgba(255,255,255,.83);
+      font-size: 18px;
+    }
+
+    .table-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin-top: 20px;
+      padding: 11px 18px;
+      border: 1px solid rgba(255,255,255,.24);
+      border-radius: 999px;
+      background: rgba(255,125,25,.18);
+      backdrop-filter: blur(12px);
+      font-weight: 900;
+    }
+
+    .brand-message {
+      margin-top: 18px;
+      color: #ffd6ac;
+      font-family: Georgia, serif;
+      font-style: italic;
+    }
+
+    .service-badges {
+      display: grid;
+      gap: 10px;
+      min-width: 260px;
+    }
+
+    .service-badge {
+      display: grid;
+      grid-template-columns: 42px 1fr;
+      gap: 12px;
+      align-items: center;
+      padding: 13px 15px;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 15px;
+      background: rgba(25, 9, 5, .52);
+      backdrop-filter: blur(12px);
+    }
+
+    .service-badge-icon {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: rgba(245,163,11,.16);
+      color: #ffbd43;
+      font-size: 20px;
+    }
+
+    .service-badge strong,
+    .service-badge span {
+      display: block;
+    }
+
+    .service-badge strong {
+      font-size: 13px;
+    }
+
+    .service-badge span {
+      margin-top: 3px;
+      color: rgba(255,255,255,.72);
+      font-size: 12px;
+    }
+
+    .page {
+      position: relative;
+      z-index: 5;
+      width: min(1370px, calc(100% - 28px));
+      margin: -45px auto 90px;
+    }
+
+    .toolbar {
+      position: sticky;
+      top: 12px;
+      z-index: 80;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 13px;
+      padding: 14px;
+      border: 1px solid rgba(234,223,216,.9);
+      border-radius: 22px;
+      background: rgba(255,255,255,.94);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    .search-wrap {
+      position: relative;
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 17px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      pointer-events: none;
+    }
+
+    .search {
+      width: 100%;
+      min-height: 54px;
+      padding: 12px 18px 12px 48px;
+      border: 1px solid #ded6d1;
+      border-radius: 15px;
+      background: #fff;
+      outline: none;
+      font-size: 15px;
+    }
+
+    .search:focus {
+      border-color: var(--orange-500);
+      box-shadow: 0 0 0 4px rgba(245,108,22,.11);
+    }
+
+    .cart-button {
+      min-width: 230px;
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 11px 19px;
+      border-radius: 15px;
+      background: linear-gradient(135deg, var(--red-700), var(--orange-600));
+      color: white;
+      box-shadow: 0 12px 25px rgba(216,61,16,.24);
+      font-weight: 900;
+    }
+
+    .cart-badge {
+      min-width: 27px;
+      height: 27px;
+      display: grid;
+      place-items: center;
+      padding: 0 7px;
+      border-radius: 999px;
+      background: white;
+      color: var(--red-700);
+      font-size: 12px;
+    }
+
+    .categories {
+      display: flex;
+      gap: 10px;
+      margin: 18px 0 24px;
+      overflow-x: auto;
+      padding: 3px 2px 8px;
+      scrollbar-width: none;
+    }
+
+    .categories::-webkit-scrollbar {
+      display: none;
+    }
+
+    .category-button {
+      flex: 0 0 auto;
+      min-height: 43px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 16px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: white;
+      color: #5e504a;
+      font-weight: 850;
+      transition: .2s;
+    }
+
+    .category-button:hover {
+      transform: translateY(-2px);
+      border-color: var(--orange-500);
+    }
+
+    .category-button.active {
+      border-color: transparent;
+      background: linear-gradient(135deg, var(--red-700), var(--orange-500));
+      color: white;
+      box-shadow: 0 9px 22px rgba(221,66,17,.22);
+    }
+
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 16px;
+    }
+
+    .section-head h2 {
+      font-size: clamp(24px, 3vw, 34px);
+      letter-spacing: -.8px;
+    }
+
+    .section-head p {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .products {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 20px;
+    }
+
+    .product {
+      position: relative;
+      overflow: hidden;
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      background: white;
+      box-shadow: var(--shadow);
+      transition: .25s ease;
+    }
+
+    .product:hover {
+      transform: translateY(-5px);
+      box-shadow: var(--shadow-hover);
+    }
+
+    .product-image {
+      position: relative;
+      height: 245px;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #fff1e4, #f5dfcf);
+      font-size: 72px;
+    }
+
+    .product-image::after {
+      content: "";
+      position: absolute;
+      inset: auto 0 0;
+      height: 35%;
+      background: linear-gradient(transparent, rgba(0,0,0,.26));
+      pointer-events: none;
+    }
+
+    .product-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: transform .45s ease;
+    }
+
+    .product:hover .product-image img {
+      transform: scale(1.055);
+    }
+
+    .product-badge {
+      position: absolute;
+      top: 13px;
+      left: 13px;
+      z-index: 2;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #f5a30b, #f66a13);
+      color: white;
+      font-size: 11px;
+      font-weight: 900;
+      box-shadow: 0 8px 18px rgba(0,0,0,.18);
+    }
+
+    .product-body {
+      padding: 18px;
+    }
+
+    .product-category {
+      color: var(--orange-600);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .45px;
+      text-transform: uppercase;
+    }
+
+    .product h3 {
+      margin-top: 7px;
+      font-size: 21px;
+      letter-spacing: -.35px;
+    }
+
+    .product-description {
+      min-height: 44px;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .rating-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 13px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .rating-star {
+      color: var(--amber-500);
+      font-size: 16px;
+    }
+
+    .product-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 13px;
+      margin-top: 16px;
+      padding-top: 15px;
+      border-top: 1px solid #f0e9e4;
+    }
+
+    .price {
+      color: var(--orange-600);
+      font-size: 21px;
+      font-weight: 950;
+      white-space: nowrap;
+    }
+
+    .add-button {
+      min-height: 42px;
+      padding: 9px 15px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--red-700), var(--orange-600));
+      color: white;
+      box-shadow: 0 9px 19px rgba(220,60,15,.19);
+      font-weight: 900;
+    }
+
+    .benefits {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      margin-top: 23px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 19px;
+      background: var(--border);
+      box-shadow: var(--shadow);
+    }
+
+    .benefit {
+      min-height: 90px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      background: white;
+    }
+
+    .benefit-icon {
+      width: 42px;
+      height: 42px;
+      flex: 0 0 42px;
+      display: grid;
+      place-items: center;
+      border-radius: 13px;
+      background: #fff2e9;
+      color: var(--orange-600);
+      font-size: 20px;
+    }
+
+    .benefit strong,
+    .benefit span {
+      display: block;
+    }
+
+    .benefit strong {
+      font-size: 12px;
+    }
+
+    .benefit span {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .account-card {
+      margin-top: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 18px 20px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: white;
+      box-shadow: var(--shadow);
+    }
+
+    .account-card strong {
+      display: block;
+      margin-top: 4px;
+      color: var(--green-600);
+      font-size: 24px;
+    }
+
+    .account-card p {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .empty {
+      grid-column: 1 / -1;
+      padding: 55px 20px;
+      border: 1px dashed #d7c9c0;
+      border-radius: 20px;
+      background: white;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .cart-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: none;
+      background: rgba(25, 12, 7, .58);
+      backdrop-filter: blur(3px);
+    }
+
+    .cart-overlay.open {
+      display: block;
+    }
+
+    .cart {
+      position: fixed;
+      top: 0;
+      right: 0;
+      z-index: 1001;
+      width: min(455px, 100%);
+      height: 100dvh;
+      overflow-y: auto;
+      padding: 22px;
+      transform: translateX(105%);
+      transition: .28s ease;
+      background: #fff;
+      box-shadow: -25px 0 65px rgba(0,0,0,.24);
+    }
+
+    .cart.open {
+      transform: translateX(0);
+    }
+
+    .cart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 17px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .cart-header p {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .close-cart {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      background: #f4efeb;
+      font-size: 24px;
+    }
+
+    .cart-items {
+      display: grid;
+      gap: 11px;
+      margin: 17px 0;
+    }
+
+    .cart-item {
+      display: grid;
+      grid-template-columns: 62px minmax(0, 1fr);
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 15px;
+    }
+
+    .cart-item-image {
+      width: 62px;
+      height: 62px;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: #fff0e5;
+      font-size: 25px;
+    }
+
+    .cart-item-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .cart-item-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 13px;
+    }
+
+    .quantity {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 9px;
+    }
+
+    .quantity button {
+      width: 29px;
+      height: 29px;
+      border-radius: 8px;
+      background: #f2ece8;
+      font-weight: 900;
+    }
+
+    .item-note,
+    .order-field {
+      width: 100%;
+      margin-top: 9px;
+      padding: 11px 12px;
+      border: 1px solid #ddd3cd;
+      border-radius: 11px;
+      outline: 0;
+    }
+
+    .item-note:focus,
+    .order-field:focus {
+      border-color: var(--orange-500);
+      box-shadow: 0 0 0 3px rgba(245,108,22,.1);
+    }
+
+    .cart-total {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 15px;
+      padding: 17px 0;
+      border-top: 1px solid var(--border);
+      font-size: 21px;
+      font-weight: 950;
+    }
+
+    .finish-button {
+      width: 100%;
+      min-height: 53px;
+      border-radius: 13px;
+      background: linear-gradient(135deg, var(--red-700), var(--orange-600));
+      color: white;
+      box-shadow: 0 12px 25px rgba(221,62,15,.23);
+      font-weight: 950;
+    }
+
+    .rating-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 1500;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      background: rgba(27,13,8,.67);
+      backdrop-filter: blur(4px);
+    }
+
+    .rating-modal.open {
+      display: flex;
+    }
+
+    .rating-card {
+      width: min(590px, 100%);
+      max-height: 90dvh;
+      overflow-y: auto;
+      padding: 22px;
+      border-radius: 22px;
+      background: white;
+      box-shadow: 0 30px 75px rgba(0,0,0,.28);
+    }
+
+    .rating-card-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 15px;
+      margin-bottom: 16px;
+    }
+
+    .rating-card-head p {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .rating-product {
+      padding: 14px;
+      border: 1px solid var(--border);
+      border-radius: 15px;
+    }
+
+    .rating-product + .rating-product {
+      margin-top: 10px;
+    }
+
+    .stars {
+      display: flex;
+      gap: 4px;
+      margin-top: 10px;
+    }
+
+    .star-button {
+      padding: 2px;
+      background: transparent;
+      color: #d8cfca;
+      font-size: 30px;
+      line-height: 1;
+    }
+
+    .star-button.active {
+      color: var(--amber-500);
+    }
+
+    .rating-comment {
+      width: 100%;
+      min-height: 70px;
+      margin-top: 10px;
+      padding: 11px;
+      border: 1px solid #ddd3cd;
+      border-radius: 10px;
+      resize: vertical;
+    }
+
+    .rating-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 17px;
+    }
+
+    .secondary-button {
+      min-height: 47px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: white;
+      color: var(--text);
+      font-weight: 850;
+    }
+
+    .primary-button {
+      min-height: 47px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--red-700), var(--orange-600));
+      color: white;
+      font-weight: 900;
+    }
+
+    .success-toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 1800;
+      max-width: 380px;
+      display: none;
+      padding: 15px 17px;
+      border-radius: 15px;
+      background: #1c7f49;
+      color: white;
+      box-shadow: 0 20px 50px rgba(0,0,0,.22);
+      font-weight: 800;
+    }
+
+    .success-toast.show {
+      display: block;
+      animation: toastIn .25s ease;
+    }
+
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(15px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 1050px) {
+      .hero-inner {
+        grid-template-columns: auto 1fr;
+      }
+
+      .service-badges {
+        display: none;
+      }
+
+      .products {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .benefits {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 700px) {
+      .hero {
+        min-height: 310px;
+      }
+
+      .hero-inner {
+        min-height: 310px;
+        grid-template-columns: 1fr;
+        justify-items: center;
+        text-align: center;
+        padding: 26px 0 68px;
+      }
+
+      .brand-logo {
+        width: 96px;
+        height: 96px;
+        border-width: 4px;
+        font-size: 40px;
+      }
+
+      .brand-copy h1 {
+        font-size: 39px;
+      }
+
+      .brand-copy > p {
+        font-size: 14px;
+      }
+
+      .brand-message {
+        display: none;
+      }
+
+      .toolbar {
+        position: relative;
+        top: auto;
+        grid-template-columns: 1fr;
+      }
+
+      .cart-button {
+        min-width: 0;
+        width: 100%;
+      }
+
+      .products {
+        grid-template-columns: 1fr;
+      }
+
+      .product-image {
+        height: 225px;
+      }
+
+      .benefits {
+        grid-template-columns: 1fr;
+      }
+
+      .account-card {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .rating-actions {
+        grid-template-columns: 1fr;
+      }
+    }
+  
+    /* MELHORIAS EXTRAS PARA CELULAR */
+    @media (max-width: 700px) {
+      body {
+        background: #f7f3ef;
+      }
+
+      .page {
+        width: min(100% - 18px, 100%);
+        margin-top: -34px;
+        margin-bottom: 55px;
+      }
+
+      .hero {
+        min-height: 270px;
+      }
+
+      .hero-inner {
+        min-height: 270px;
+        width: calc(100% - 22px);
+        padding: 20px 0 54px;
+        gap: 12px;
+      }
+
+      .brand-logo {
+        width: 74px;
+        height: 74px;
+        font-size: 30px;
+      }
+
+      .brand-copy h1 {
+        font-size: 31px;
+        line-height: 1.05;
+        letter-spacing: -1px;
+      }
+
+      .brand-copy > p {
+        margin-top: 7px;
+        font-size: 12px;
+      }
+
+      .table-pill {
+        margin-top: 12px;
+        padding: 8px 13px;
+        font-size: 12px;
+      }
+
+      .toolbar {
+        gap: 9px;
+        padding: 10px;
+        border-radius: 17px;
+      }
+
+      .search {
+        min-height: 46px;
+        padding-left: 43px;
+        border-radius: 12px;
+        font-size: 13px;
+      }
+
+      .cart-button {
+        min-height: 46px;
+        padding: 9px 13px;
+        border-radius: 12px;
+        font-size: 13px;
+      }
+
+      .cart-badge {
+        min-width: 24px;
+        height: 24px;
+        font-size: 11px;
+      }
+
+      .categories {
+        gap: 7px;
+        margin: 13px 0 17px;
+        padding-bottom: 4px;
+      }
+
+      .category-button {
+        min-height: 36px;
+        padding: 7px 12px;
+        font-size: 11px;
+      }
+
+      .section-head {
+        margin-bottom: 12px;
+      }
+
+      .section-head h2 {
+        font-size: 21px;
+      }
+
+      .section-head p {
+        margin-top: 4px;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
+      .products {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .product {
+        border-radius: 15px;
+        box-shadow: 0 10px 26px rgba(68, 27, 10, .09);
+      }
+
+      .product:hover {
+        transform: none;
+      }
+
+      .product-image {
+        height: 132px;
+        font-size: 42px;
+      }
+
+      .product-badge {
+        top: 8px;
+        left: 8px;
+        padding: 5px 7px;
+        font-size: 9px;
+      }
+
+      .product-body {
+        padding: 11px;
+      }
+
+      .product-category {
+        font-size: 9px;
+      }
+
+      .product h3 {
+        margin-top: 4px;
+        font-size: 15px;
+        line-height: 1.2;
+      }
+
+      .product-description {
+        min-height: 34px;
+        margin-top: 5px;
+        display: -webkit-box;
+        overflow: hidden;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        font-size: 10px;
+        line-height: 1.4;
+      }
+
+      .rating-row {
+        gap: 4px;
+        margin-top: 8px;
+        font-size: 9px;
+      }
+
+      .rating-star {
+        font-size: 13px;
+      }
+
+      .product-footer {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 10px;
+        padding-top: 10px;
+      }
+
+      .price {
+        font-size: 16px;
+      }
+
+      .add-button {
+        width: 100%;
+        min-height: 35px;
+        padding: 7px 9px;
+        border-radius: 10px;
+        font-size: 11px;
+      }
+
+      .benefits {
+        margin-top: 15px;
+        border-radius: 15px;
+      }
+
+      .benefit {
+        min-height: 72px;
+        gap: 9px;
+        padding: 11px;
+      }
+
+      .benefit-icon {
+        width: 34px;
+        height: 34px;
+        flex-basis: 34px;
+        border-radius: 10px;
+        font-size: 16px;
+      }
+
+      .benefit strong {
+        font-size: 10px;
+      }
+
+      .benefit span {
+        font-size: 9px;
+      }
+
+      .account-card {
+        margin-top: 15px;
+        gap: 8px;
+        padding: 14px;
+        border-radius: 15px;
+      }
+
+      .account-card strong {
+        font-size: 20px;
+      }
+
+      .account-card p {
+        font-size: 11px;
+      }
+
+      .cart {
+        width: 100%;
+        padding: 16px;
+      }
+
+      .cart-header h2 {
+        font-size: 19px;
+      }
+
+      .cart-item {
+        grid-template-columns: 52px minmax(0, 1fr);
+        gap: 9px;
+        padding: 9px;
+      }
+
+      .cart-item-image {
+        width: 52px;
+        height: 52px;
+      }
+
+      .rating-card {
+        padding: 16px;
+        border-radius: 17px;
+      }
+
+      .star-button {
+        font-size: 27px;
+      }
+    }
+
+    @media (max-width: 390px) {
+      .products {
+        gap: 8px;
+      }
+
+      .product-image {
+        height: 112px;
+      }
+
+      .product-body {
+        padding: 9px;
+      }
+
+      .product h3 {
+        font-size: 14px;
+      }
+
+      .product-description {
+        font-size: 9px;
+      }
+
+      .price {
+        font-size: 15px;
+      }
+
+      .add-button {
+        font-size: 10px;
+      }
+    }
+
+  
+
+  
+    .product-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      min-width: 205px;
+    }
+
+    .rate-button {
+      min-height: 42px;
+      padding: 9px 12px;
+      border: 1px solid #f1c9ac;
+      border-radius: 12px;
+      background: #fff7f0;
+      color: var(--orange-600);
+      font-weight: 900;
+    }
+
+    .rate-button:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+
+    .pending-orders {
+      margin-top: 23px;
+      padding: 19px;
+      border: 1px solid var(--border);
+      border-radius: 19px;
+      background: white;
+      box-shadow: var(--shadow);
+    }
+
+    .pending-order-list {
+      display: grid;
+      gap: 9px;
+      margin-top: 14px;
+    }
+
+    .pending-order-item {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid #eee4de;
+      border-radius: 13px;
+      background: #fcfaf8;
+    }
+
+    .pending-order-item small {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+    }
+
+    .addon-options {
+      display: grid;
+      gap: 9px;
+      margin-top: 14px;
+    }
+
+    .addon-option {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #fffaf6;
+    }
+
+    .addon-option label {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-weight: 800;
+    }
+
+    .addon-option input {
+      width: auto;
+    }
+
+    @media (max-width: 700px) {
+      .product-actions {
+        grid-template-columns: 1fr;
+        min-width: 0;
+      }
+
+      .rate-button,
+      .add-button {
+        min-height: 35px;
+        font-size: 10px;
+      }
+
+      .pending-orders {
+        padding: 13px;
+      }
+
+      .pending-order-item {
+        grid-template-columns: auto 1fr;
+      }
+
+      .pending-order-item > strong {
+        grid-column: 2;
+      }
+    }
+
+  </style>
+</head>
+
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="brand-logo">
+        <% if (configuracao?.fotoPerfil) { %>
+          <img
+            src="<%= configuracao.fotoPerfil %>"
+            alt="<%= configuracao.nomeEstabelecimento %>"
+          >
+        <% } else { %>
+          🔥
+        <% } %>
+      </div>
+
+      <div class="brand-copy">
+        <h1>
+          <%= configuracao?.nomeEstabelecimento ||
+              'Nosso cardápio'
+          %>
+        </h1>
+
+        <p>
+          <%= configuracao?.descricao ||
+              'Sabores especiais preparados para a sua mesa.'
+          %>
+        </p>
+
+        <span class="table-pill">
+          🪑 Mesa <%= mesa.numero %>
+        </span>
+
+        <div class="brand-message">
+          Feito com ingredientes selecionados e muito amor.
+        </div>
+      </div>
+
+      <div class="service-badges">
+        <div class="service-badge">
+          <div class="service-badge-icon">⏱</div>
+          <div>
+            <strong>Feito na hora</strong>
+            <span>Fresco e saboroso</span>
+          </div>
+        </div>
+
+        <div class="service-badge">
+          <div class="service-badge-icon">🛎</div>
+          <div>
+            <strong>Atendimento</strong>
+            <span>Direto na sua mesa</span>
+          </div>
+        </div>
+
+        <div class="service-badge">
+          <div class="service-badge-icon">🛡</div>
+          <div>
+            <strong>Pedido seguro</strong>
+            <span>Dados protegidos</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="toolbar">
+      <div class="search-wrap">
+        <span class="search-icon">⌕</span>
+        <input
+          type="search"
+          class="search"
+          id="search"
+          placeholder="Buscar hambúrguer, pizza, bebida..."
+          autocomplete="off"
+        >
+      </div>
+
+      <button class="cart-button" id="openCart">
+        🛒 Meu pedido
+        <span id="cartTotalButton">R$ 0,00</span>
+        <span class="cart-badge" id="cartCount">0</span>
+      </button>
+    </section>
+
+    <div class="categories" id="categories">
+      <button
+        class="category-button active"
+        data-category="todos"
+      >
+        ▦ Todos
+      </button>
+
+      <% const categorias = [
+        ...new Set(
+          produtos
+            .map(produto => produto.categoriaId?.nome)
+            .filter(Boolean)
+        )
+      ]; %>
+
+      <% categorias.forEach(categoria => { %>
+        <button
+          class="category-button"
+          data-category="<%= categoria %>"
+        >
+          🍽 <%= categoria %>
+        </button>
+      <% }) %>
+    </div>
+
+    <div class="section-head">
+      <div>
+        <h2>🔥 Destaques da casa</h2>
+        <p>Escolha seus favoritos e envie o pedido direto para a cozinha.</p>
+      </div>
+    </div>
+
+    <section class="products" id="products">
+      <% if (!produtos.length) { %>
+        <div class="empty">
+          Nenhum produto disponível no momento.
+        </div>
+      <% } %>
+
+      <% produtos.forEach((produto, index) => { %>
+        <% const avaliacao =
+          avaliacoesPorProduto?.[String(produto._id)] ||
+          { media: 0, quantidade: 0 };
+        %>
+
+        <article
+          class="product"
+          data-name="<%= produto.nome.toLowerCase() %>"
+          data-category="<%= produto.categoriaId?.nome || '' %>"
+        >
+          <div class="product-image">
+
+            <% if (index === 0) { %>
+              <span class="product-badge">
+                Mais pedido
+              </span>
+            <% } else if (index === 1) { %>
+              <span class="product-badge">
+                Destaque
+              </span>
+            <% } %>
+
+            <% if (produto.imagem) { %>
+              <img
+                src="<%= produto.imagem %>"
+                alt="<%= produto.nome %>"
+              >
+            <% } else { %>
+              🍽️
+            <% } %>
+          </div>
+
+          <div class="product-body">
+            <span class="product-category">
+              <%= produto.categoriaId?.nome || 'Especial' %>
+            </span>
+
+            <h3><%= produto.nome %></h3>
+
+            <p class="product-description">
+              <%= produto.descricao ||
+                  'Produto preparado especialmente para você.'
+              %>
+            </p>
+
+            <div class="rating-row">
+              <span class="rating-star">★</span>
+
+              <% if (avaliacao.quantidade) { %>
+                <strong>
+                  <%= Number(avaliacao.media).toLocaleString(
+                    'pt-BR',
+                    {
+                      minimumFractionDigits: 1,
+                      maximumFractionDigits: 1
+                    }
+                  ) %>
+                </strong>
+
+                <span>
+                  (<%= avaliacao.quantidade %>
+                  avaliação<%= avaliacao.quantidade === 1 ? '' : 'ões' %>)
+                </span>
+              <% } else { %>
+                <span>Ainda sem avaliações</span>
+              <% } %>
+            </div>
+
+            <div class="product-footer">
+              <strong class="price">
+                <%= Number(produto.preco).toLocaleString(
+                  'pt-BR',
+                  {
+                    style: 'currency',
+                    currency: 'BRL'
+                  }
+                ) %>
+              </strong>
+
+              <div class="product-actions">
+                <button
+                  class="rate-button"
+                  data-rate-product="<%= produto._id %>"
+                  data-rate-name="<%= produto.nome %>"
+                  data-rate-order="<%= pedidoAvaliavelPorProduto?.[String(produto._id)] || '' %>"
+                  <%= pedidoAvaliavelPorProduto?.[String(produto._id)]
+                    ? ''
+                    : 'disabled'
+                  %>
+                  title="<%= pedidoAvaliavelPorProduto?.[String(produto._id)]
+                    ? 'Avaliar produto pedido nesta mesa'
+                    : 'Faça um pedido deste produto para poder avaliar'
+                  %>"
+                >
+                  ★ Avaliar
+                </button>
+
+                <button
+                  class="add-button"
+                  data-id="<%= produto._id %>"
+                  data-name="<%= produto.nome %>"
+                  data-price="<%= produto.preco %>"
+                  data-image="<%= produto.imagem || '' %>"
+                  data-additionals='<%- JSON.stringify(
+                    (produto.adicionais || [])
+                      .filter(adicional => adicional.ativo !== false)
+                      .map(adicional => ({
+                        _id: String(adicional._id),
+                        nome: adicional.nome,
+                        preco: adicional.preco
+                      }))
+                  ) %>'
+                >
+                  + Adicionar
+                </button>
+              </div>
+            </div>
+          </div>
+        </article>
+      <% }) %>
+    </section>
+
+    <section class="pending-orders">
+      <div class="section-head">
+        <div>
+          <h2>Pedidos desta mesa</h2>
+          <p>
+            Estes itens permanecem pendentes até o pagamento da conta.
+          </p>
+        </div>
+      </div>
+
+      <div class="pending-order-list">
+        <% if (!itensPendentesMesa.length) { %>
+          <div class="empty">
+            A mesa não possui pedidos pendentes.
+          </div>
+        <% } %>
+
+        <% itensPendentesMesa.forEach(item => { %>
+          <div class="pending-order-item">
+            <strong><%= item.quantidade %>x</strong>
+
+            <div>
+              <strong><%= item.nome %></strong>
+
+              <% if (item.adicionais?.length) { %>
+                <small>
+                  Adicionais:
+                  <%= item.adicionais
+                    .map(adicional =>
+                      `${adicional.nome} (+${Number(adicional.preco).toLocaleString(
+                        'pt-BR',
+                        {
+                          style: 'currency',
+                          currency: 'BRL'
+                        }
+                      )})`
+                    )
+                    .join(', ')
+                  %>
+                </small>
+              <% } %>
+
+              <small>
+                Status:
+                <%= String(item.status || 'novo').replaceAll('_', ' ') %>
+              </small>
+            </div>
+
+            <strong>
+              <%= Number(item.subtotal || 0).toLocaleString(
+                'pt-BR',
+                {
+                  style: 'currency',
+                  currency: 'BRL'
+                }
+              ) %>
+            </strong>
+          </div>
+        <% }) %>
+      </div>
+    </section>
+
+    <section class="benefits">
+      <div class="benefit">
+        <div class="benefit-icon">🌿</div>
+        <div>
+          <strong>Ingredientes selecionados</strong>
+          <span>Produtos sempre frescos</span>
+        </div>
+      </div>
+
+      <div class="benefit">
+        <div class="benefit-icon">🔥</div>
+        <div>
+          <strong>Feito na hora</strong>
+          <span>Mais sabor para você</span>
+        </div>
+      </div>
+
+      <div class="benefit">
+        <div class="benefit-icon">🛎</div>
+        <div>
+          <strong>Atendimento na mesa</strong>
+          <span>É só fazer o pedido</span>
+        </div>
+      </div>
+
+      <div class="benefit">
+        <div class="benefit-icon">🛡</div>
+        <div>
+          <strong>Ambiente seguro</strong>
+          <span>Seus dados protegidos</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="account-card">
+      <div>
+        <p>Conta atual da mesa</p>
+        <strong>
+          <%= Number(totalConta || 0).toLocaleString(
+            'pt-BR',
+            {
+              style: 'currency',
+              currency: 'BRL'
+            }
+          ) %>
+        </strong>
+      </div>
+
+      <p>
+        <%= pedidosAbertos.length %>
+        pedido(s) em aberto.
+      </p>
+    </section>
+  </main>
+
+  <div class="cart-overlay" id="cartOverlay"></div>
+
+  <aside class="cart" id="cart">
+    <div class="cart-header">
+      <div>
+        <h2>🛒 Meu pedido</h2>
+        <p>Mesa <%= mesa.numero %></p>
+      </div>
+
+      <button class="close-cart" id="closeCart">
+        ×
+      </button>
+    </div>
+
+    <div class="cart-items" id="cartItems"></div>
+
+    <input
+      type="text"
+      class="order-field"
+      id="clientName"
+      placeholder="Seu nome (opcional)"
+      maxlength="100"
+    >
+
+    <textarea
+      class="order-field"
+      id="orderNote"
+      rows="3"
+      placeholder="Observação geral: sem cebola, retirar molho..."
+      maxlength="500"
+    ></textarea>
+
+    <div class="cart-total">
+      <span>Total</span>
+      <span id="cartTotal">R$ 0,00</span>
+    </div>
+
+    <button class="finish-button" id="finishOrder">
+      Finalizar pedido
+    </button>
+  </aside>
+
+  <section class="rating-modal" id="addonModal">
+    <div class="rating-card">
+      <div class="rating-card-head">
+        <div>
+          <h2 id="addonProductName">Escolha os adicionais</h2>
+          <p>Os valores selecionados serão somados ao produto.</p>
+        </div>
+
+        <button
+          type="button"
+          class="close-cart"
+          id="closeAddonModal"
+        >
+          ×
+        </button>
+      </div>
+
+      <div class="addon-options" id="addonOptions"></div>
+
+      <div class="rating-actions">
+        <button
+          type="button"
+          class="secondary-button"
+          id="cancelAddon"
+        >
+          Cancelar
+        </button>
+
+        <button
+          type="button"
+          class="primary-button"
+          id="confirmAddon"
+        >
+          Adicionar ao pedido
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <section class="rating-modal" id="ratingModal">
+    <div class="rating-card">
+      <div class="rating-card-head">
+        <div>
+          <h2>Como foi seu pedido?</h2>
+          <p id="ratingOrderNumber">
+            Avalie os itens para ajudar outros clientes.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          class="close-cart"
+          id="closeRating"
+        >
+          ×
+        </button>
+      </div>
+
+      <div id="ratingProducts"></div>
+
+      <div class="rating-actions">
+        <button
+          type="button"
+          class="secondary-button"
+          id="skipRating"
+        >
+          Avaliar depois
+        </button>
+
+        <button
+          type="button"
+          class="primary-button"
+          id="sendRating"
+        >
+          Enviar avaliação
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <div class="success-toast" id="successToast"></div>
+
+  <script>
+    const cart = [];
+
+    const cartElement =
+      document.querySelector('#cart');
+
+    const cartOverlay =
+      document.querySelector('#cartOverlay');
+
+    const cartItems =
+      document.querySelector('#cartItems');
+
+    const cartCount =
+      document.querySelector('#cartCount');
+
+    const cartTotal =
+      document.querySelector('#cartTotal');
+
+    const cartTotalButton =
+      document.querySelector('#cartTotalButton');
+
+    const ratingModal =
+      document.querySelector('#ratingModal');
+
+    const ratingProducts =
+      document.querySelector('#ratingProducts');
+
+    const ratingOrderNumber =
+      document.querySelector('#ratingOrderNumber');
+
+    let currentPedidoId = null;
+    let currentRatingItems = [];
+
+    function money(value) {
+      return Number(value || 0).toLocaleString(
+        'pt-BR',
+        {
+          style: 'currency',
+          currency: 'BRL'
+        }
+      );
+    }
+
+    function showToast(message) {
+      const toast =
+        document.querySelector('#successToast');
+
+      toast.textContent = message;
+      toast.classList.add('show');
+
+      window.setTimeout(() => {
+        toast.classList.remove('show');
+      }, 3500);
+    }
+
+    function openCart() {
+      cartElement.classList.add('open');
+      cartOverlay.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeCart() {
+      cartElement.classList.remove('open');
+      cartOverlay.classList.remove('open');
+      document.body.style.overflow = '';
+    }
+
+    document
+      .querySelector('#openCart')
+      .addEventListener('click', openCart);
+
+    document
+      .querySelector('#closeCart')
+      .addEventListener('click', closeCart);
+
+    cartOverlay.addEventListener('click', closeCart);
+
+    const addonModal =
+      document.querySelector('#addonModal');
+
+    const addonOptions =
+      document.querySelector('#addonOptions');
+
+    let pendingProductToAdd = null;
+
+    function addProductToCart(product, additionals = []) {
+      const additionsKey =
+        additionals
+          .map(additional => additional._id)
+          .sort()
+          .join(',');
+
+      const existing = cart.find(
+        item =>
+          item.produtoId === product.produtoId &&
+          item.additionsKey === additionsKey
+      );
+
+      if (existing) {
+        existing.quantidade += 1;
+      } else {
+        cart.push({
+          ...product,
+          adicionais: additionals,
+          additionsKey,
+          quantidade: 1,
+          observacao: '',
+        });
+      }
+
+      renderCart();
+      openCart();
+    }
+
+    function closeAddonModal() {
+      addonModal.classList.remove('open');
+      pendingProductToAdd = null;
+      document.body.style.overflow = '';
+    }
+
+    document
+      .querySelectorAll('.add-button')
+      .forEach(button => {
+        button.addEventListener('click', () => {
+          const product = {
+            produtoId: button.dataset.id,
+            nome: button.dataset.name,
+            preco: Number(button.dataset.price),
+            imagem: button.dataset.image,
+          };
+
+          const additionals = JSON.parse(
+            button.dataset.additionals || '[]'
+          );
+
+          if (!additionals.length) {
+            addProductToCart(product, []);
+            return;
+          }
+
+          pendingProductToAdd = {
+            product,
+            additionals,
+          };
+
+          document.querySelector(
+            '#addonProductName'
+          ).textContent =
+            `Adicionais de ${product.nome}`;
+
+          addonOptions.innerHTML =
+            additionals.map(adicional => `
+              <div class="addon-option">
+                <label>
+                  <input
+                    type="checkbox"
+                    value="${adicional._id}"
+                  >
+                  ${adicional.nome}
+                </label>
+
+                <strong>
+                  + ${money(adicional.preco)}
+                </strong>
+              </div>
+            `).join('');
+
+          addonModal.classList.add('open');
+          document.body.style.overflow = 'hidden';
+        });
+      });
+
+    document
+      .querySelector('#closeAddonModal')
+      .addEventListener('click', closeAddonModal);
+
+    document
+      .querySelector('#cancelAddon')
+      .addEventListener('click', closeAddonModal);
+
+    document
+      .querySelector('#confirmAddon')
+      .addEventListener('click', () => {
+        if (!pendingProductToAdd) {
+          return;
+        }
+
+        const selectedIds = Array.from(
+          addonOptions.querySelectorAll(
+            'input:checked'
+          )
+        ).map(input => input.value);
+
+        const selected = pendingProductToAdd
+          .additionals
+          .filter(adicional =>
+            selectedIds.includes(adicional._id)
+          );
+
+        addProductToCart(
+          pendingProductToAdd.product,
+          selected
+        );
+
+        closeAddonModal();
+      });
+
+    function changeQuantity(index, value) {
+      cart[index].quantidade += value;
+
+      if (cart[index].quantidade <= 0) {
+        cart.splice(index, 1);
+      }
+
+      renderCart();
+    }
+
+    function renderCart() {
+      cartItems.innerHTML = '';
+
+      if (!cart.length) {
+        cartItems.innerHTML =
+          '<div class="empty">Seu carrinho está vazio.</div>';
+      }
+
+      cart.forEach((item, index) => {
+        const element =
+          document.createElement('div');
+
+        element.className = 'cart-item';
+
+        element.innerHTML = `
+          <div class="cart-item-image">
+            ${
+              item.imagem
+                ? `<img src="${item.imagem}" alt="${item.nome}">`
+                : '🍽️'
+            }
+          </div>
+
+          <div>
+            <div class="cart-item-top">
+              <div>
+                <strong>${item.nome}</strong>
+                ${
+                  item.adicionais?.length
+                    ? `<small style="display:block;margin-top:4px;color:#756a65;">
+                        ${item.adicionais.map(
+                          adicional =>
+                            `+ ${adicional.nome} (${money(adicional.preco)})`
+                        ).join('<br>')}
+                      </small>`
+                    : ''
+                }
+              </div>
+              <strong>
+                ${money(
+                  (
+                    item.preco +
+                    (item.adicionais || []).reduce(
+                      (sum, adicional) =>
+                        sum + Number(adicional.preco || 0),
+                      0
+                    )
+                  ) *
+                  item.quantidade
+                )}
+              </strong>
+            </div>
+
+            <div class="quantity">
+              <button type="button" data-action="minus">−</button>
+              <span>${item.quantidade}</span>
+              <button type="button" data-action="plus">+</button>
+            </div>
+
+            <input
+              class="item-note"
+              placeholder="Observação deste item"
+              maxlength="250"
+              value="${item.observacao.replaceAll('"', '&quot;')}"
+            >
+          </div>
+        `;
+
+        element
+          .querySelector('[data-action="minus"]')
+          .addEventListener('click', () => {
+            changeQuantity(index, -1);
+          });
+
+        element
+          .querySelector('[data-action="plus"]')
+          .addEventListener('click', () => {
+            changeQuantity(index, 1);
+          });
+
+        element
+          .querySelector('.item-note')
+          .addEventListener(
+            'input',
+            event => {
+              item.observacao =
+                event.target.value;
+            }
+          );
+
+        cartItems.appendChild(element);
+      });
+
+      const total = cart.reduce(
+        (sum, item) =>
+          sum +
+          (
+            item.preco +
+            (item.adicionais || []).reduce(
+              (subtotal, adicional) =>
+                subtotal + Number(adicional.preco || 0),
+              0
+            )
+          ) *
+          item.quantidade,
+        0
+      );
+
+      const count = cart.reduce(
+        (sum, item) =>
+          sum + item.quantidade,
+        0
+      );
+
+      cartCount.textContent = count;
+      cartTotal.textContent = money(total);
+      cartTotalButton.textContent =
+        money(total);
+    }
+
+    document
+      .querySelectorAll('[data-rate-product]')
+      .forEach(button => {
+        button.addEventListener('click', () => {
+          const pedidoId =
+            button.dataset.rateOrder;
+
+          if (!pedidoId) {
+            return;
+          }
+
+          currentPedidoId = pedidoId;
+
+          currentRatingItems = [{
+            produtoId:
+              button.dataset.rateProduct,
+            nome:
+              button.dataset.rateName,
+            nota: 0,
+            comentario: ''
+          }];
+
+          ratingOrderNumber.textContent =
+            `Avalie ${button.dataset.rateName}`;
+
+          renderRatingProducts();
+          ratingModal.classList.add('open');
+          document.body.style.overflow = 'hidden';
+        });
+      });
+
+    function openRating(result) {
+      currentPedidoId = result.pedidoId;
+
+      currentRatingItems =
+        (result.itens || []).map(item => ({
+          produtoId: item.produtoId,
+          nome: item.nome,
+          nota: 0,
+          comentario: ''
+        }));
+
+      ratingOrderNumber.textContent =
+        `Pedido #${result.numeroPedido || ''} enviado. Avalie os itens abaixo.`;
+
+      renderRatingProducts();
+      ratingModal.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeRating() {
+      ratingModal.classList.remove('open');
+      document.body.style.overflow = '';
+      window.location.reload();
+    }
+
+    function renderRatingProducts() {
+      ratingProducts.innerHTML = '';
+
+      currentRatingItems.forEach(
+        (item, itemIndex) => {
+          const wrapper =
+            document.createElement('div');
+
+          wrapper.className =
+            'rating-product';
+
+          wrapper.innerHTML = `
+            <strong>${item.nome}</strong>
+
+            <div class="stars">
+              ${[1,2,3,4,5].map(value => `
+                <button
+                  type="button"
+                  class="star-button ${
+                    value <= item.nota
+                      ? 'active'
+                      : ''
+                  }"
+                  data-value="${value}"
+                >
+                  ★
+                </button>
+              `).join('')}
+            </div>
+
+            <textarea
+              class="rating-comment"
+              placeholder="Conte o que achou (opcional)"
+              maxlength="500"
+            >${item.comentario}</textarea>
+          `;
+
+          wrapper
+            .querySelectorAll('.star-button')
+            .forEach(button => {
+              button.addEventListener(
+                'click',
+                () => {
+                  item.nota = Number(
+                    button.dataset.value
+                  );
+
+                  renderRatingProducts();
+                }
+              );
+            });
+
+          wrapper
+            .querySelector('.rating-comment')
+            .addEventListener(
+              'input',
+              event => {
+                currentRatingItems[
+                  itemIndex
+                ].comentario =
+                  event.target.value;
+              }
+            );
+
+          ratingProducts.appendChild(
+            wrapper
+          );
+        }
+      );
+    }
+
+    document
+      .querySelector('#finishOrder')
+      .addEventListener(
+        'click',
+        async () => {
+          if (!cart.length) {
+            alert(
+              'Adicione produtos ao carrinho.'
+            );
+            return;
+          }
+
+          const button =
+            document.querySelector(
+              '#finishOrder'
+            );
+
+          button.disabled = true;
+          button.textContent =
+            'Enviando pedido...';
+
+          try {
+            const response = await fetch(
+              '/mesa/<%= mesa.token %>/pedidos',
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type':
+                    'application/json',
+                },
+                body: JSON.stringify({
+                  cliente:
+                    document.querySelector(
+                      '#clientName'
+                    ).value,
+                  observacao:
+                    document.querySelector(
+                      '#orderNote'
+                    ).value,
+                  itens: cart,
+                }),
+              }
+            );
+
+            const result =
+              await response.json();
+
+            if (!response.ok) {
+              throw new Error(
+                result.message
+              );
+            }
+
+            cart.splice(0, cart.length);
+            renderCart();
+            closeCart();
+            showToast(result.message);
+            openRating(result);
+          } catch (error) {
+            alert(
+              error.message ||
+              'Não foi possível enviar o pedido.'
+            );
+          } finally {
+            button.disabled = false;
+            button.textContent =
+              'Finalizar pedido';
+          }
+        }
+      );
+
+    document
+      .querySelector('#sendRating')
+      .addEventListener(
+        'click',
+        async () => {
+          const avaliacoes =
+            currentRatingItems.filter(
+              item => item.nota >= 1
+            );
+
+          if (!avaliacoes.length) {
+            alert(
+              'Selecione pelo menos uma nota.'
+            );
+            return;
+          }
+
+          const button =
+            document.querySelector(
+              '#sendRating'
+            );
+
+          button.disabled = true;
+          button.textContent =
+            'Salvando...';
+
+          try {
+            const response = await fetch(
+              `/mesa/<%= mesa.token %>/pedidos/${currentPedidoId}/avaliacoes`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type':
+                    'application/json',
+                },
+                body: JSON.stringify({
+                  avaliacoes
+                }),
+              }
+            );
+
+            const result =
+              await response.json();
+
+            if (!response.ok) {
+              throw new Error(
+                result.message
+              );
+            }
+
+            showToast(result.message);
+            closeRating();
+          } catch (error) {
+            alert(
+              error.message ||
+              'Não foi possível salvar a avaliação.'
+            );
+          } finally {
+            button.disabled = false;
+            button.textContent =
+              'Enviar avaliação';
+          }
+        }
+      );
+
+    document
+      .querySelector('#closeRating')
+      .addEventListener(
+        'click',
+        closeRating
+      );
+
+    document
+      .querySelector('#skipRating')
+      .addEventListener(
+        'click',
+        closeRating
+      );
+
+    const search =
+      document.querySelector('#search');
+
+    let currentCategory = 'todos';
+
+    function filterProducts() {
+      const term =
+        search.value
+          .trim()
+          .toLowerCase();
+
+      document
+        .querySelectorAll('.product')
+        .forEach(product => {
+          const matchName =
+            product.dataset.name
+              .includes(term);
+
+          const matchCategory =
+            currentCategory === 'todos' ||
+            product.dataset.category ===
+              currentCategory;
+
+          product.style.display =
+            matchName &&
+            matchCategory
+              ? ''
+              : 'none';
+        });
+    }
+
+    search.addEventListener(
+      'input',
+      filterProducts
+    );
+
+    document
+      .querySelectorAll(
+        '.category-button'
+      )
+      .forEach(button => {
+        button.addEventListener(
+          'click',
+          () => {
+            document
+              .querySelectorAll(
+                '.category-button'
+              )
+              .forEach(item => {
+                item.classList.remove(
+                  'active'
+                );
+              });
+
+            button.classList.add(
+              'active'
+            );
+
+            currentCategory =
+              button.dataset.category;
+
+            filterProducts();
+          }
+        );
+      });
+
+
+    renderCart();
+  </script>
+</body>
+</html>
