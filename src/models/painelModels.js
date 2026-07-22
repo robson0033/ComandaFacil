@@ -485,7 +485,7 @@ const Pedido = mongoose.model(
 
       canal: {
         type: String,
-        enum: ["mesa", "balcao", "delivery, retirada"],
+        enum: ["mesa", "balcao", "delivery", "retirada"],
         default: "mesa",
       },
 
