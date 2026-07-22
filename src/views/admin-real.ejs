@@ -7976,23 +7976,65 @@ document.addEventListener(
 );
 
 
+const generateAgentCodeButton =
+  document.querySelector('#generateAgentCode');
+
+if (generateAgentCodeButton) {
+  generateAgentCodeButton.addEventListener(
+    'click',
+    async () => {
+      const textoOriginal =
+        generateAgentCodeButton.textContent;
+
+      generateAgentCodeButton.disabled = true;
+      generateAgentCodeButton.textContent =
+        'Gerando código...';
+
+      try {
+        const response = await fetch(
+          '/admin/agente/codigo',
+          { method: 'POST' }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.message ||
+            'Não foi possível gerar o código.'
+          );
+        }
+
+        const codeBox =
+          document.querySelector('#agentPairCode');
+
+        if (codeBox) {
+          codeBox.textContent =
+            `Código: ${result.codigo}`;
+        }
+
+        alert(
+          `Digite o código ${result.codigo} no Print Agent. Ele vale por 15 minutos.`
+        );
+      } catch (error) {
+        alert(error.message);
+      } finally {
+        generateAgentCodeButton.disabled = false;
+        generateAgentCodeButton.textContent =
+          textoOriginal;
+      }
+    }
+  );
+}
+
+verificarPrintAgent();
+
 async function imprimirPedido(
   pedidoId,
   modo = 'manual'
 ) {
   const online =
-    await document.querySelector('#generateAgentCode')?.addEventListener('click', async () => {
-  const response = await fetch('/admin/agente/codigo', { method: 'POST' });
-  const result = await response.json();
-  if (!response.ok) return alert(result.message || 'Não foi possível gerar o código.');
-  document.querySelector('#agentPairCode').textContent = `Código: ${result.codigo}`;
-  alert(`Digite o código ${result.codigo} no Print Agent. Ele vale por 15 minutos.`);
-});
-
-verificarPrintAgent();
-
-
-
+    await verificarPrintAgent();
 
   if (!online) {
     throw new Error(
