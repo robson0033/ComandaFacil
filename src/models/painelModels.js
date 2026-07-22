@@ -603,6 +603,28 @@ const Pedido = mongoose.model(
         default: null,
       },
 
+      pagamentoInformadoEm: {
+        type: Date,
+        default: null,
+      },
+
+      precisaTroco: {
+        type: Boolean,
+        default: false,
+      },
+
+      trocoPara: {
+        type: Number,
+        default: null,
+        min: 0,
+      },
+
+      valorTroco: {
+        type: Number,
+        default: null,
+        min: 0,
+      },
+
       mercadoPagoPaymentId: { type: String, default: "", index: true },
       mercadoPagoStatus: { type: String, default: "" },
       pixCopiaCola: { type: String, default: "" },

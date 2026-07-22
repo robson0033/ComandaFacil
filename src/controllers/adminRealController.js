@@ -2960,6 +2960,18 @@ exports.obterPedidoParaImpressao = async (
         pagamentoStatus:
           pedido.pagamentoStatus ||
           "pendente",
+        formaPagamento:
+          pedido.formaPagamento || "nao_informado",
+        pagamentoInformadoEm:
+          pedido.pagamentoInformadoEm || null,
+        pagoEm:
+          pedido.pagoEm || null,
+        precisaTroco:
+          Boolean(pedido.precisaTroco),
+        trocoPara:
+          pedido.trocoPara ?? null,
+        valorTroco:
+          pedido.valorTroco ?? null,
         createdAt:
           pedido.createdAt,
         itens:
@@ -3410,6 +3422,21 @@ exports.criarPedidoCatalogo = async (
       ? formaPagamentoRecebida
       : 'nao_informado';
 
+    const precisaTroco = formaPagamento === 'dinheiro' &&
+      ['true', '1', 'sim', 'on'].includes(String(req.body.precisaTroco || '').toLowerCase());
+
+    const trocoParaRecebido = Number(
+      String(req.body.trocoPara ?? '')
+        .replace(',', '.')
+    );
+
+    if (precisaTroco && (!Number.isFinite(trocoParaRecebido) || trocoParaRecebido <= 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Informe para quanto o cliente precisa de troco.',
+      });
+    }
+
     if (!cliente) {
       return res.status(400).json({
         success: false,
@@ -3558,6 +3585,13 @@ exports.criarPedidoCatalogo = async (
       });
     }
 
+    if (precisaTroco && trocoParaRecebido < total) {
+      return res.status(400).json({
+        success: false,
+        message: `O valor para troco deve ser igual ou maior que o total de R$ ${total.toFixed(2).replace('.', ',')}.`,
+      });
+    }
+
     const pedido =
       await Pedido.create({
         estabelecimentoId:
@@ -3588,6 +3622,23 @@ exports.criarPedidoCatalogo = async (
           'pendente',
 
         formaPagamento,
+
+        pagamentoInformadoEm:
+          formaPagamento === 'pix'
+            ? null
+            : new Date(),
+
+        precisaTroco,
+
+        trocoPara:
+          precisaTroco
+            ? trocoParaRecebido
+            : null,
+
+        valorTroco:
+          precisaTroco
+            ? Math.max(0, trocoParaRecebido - total)
+            : null,
       });
 
     return res.status(201).json({
@@ -4685,7 +4736,7 @@ exports.imprimirPedidoRemoto = async (req, res) => {
         logoUrl: configuracao?.fotoPerfil || "",
       },
       impressoras: configuracao?.impressoras || [], modo: req.body.modo || "manual",
-      pedido: { id: String(pedido._id), numero: String(pedido._id).slice(-6).toUpperCase(), origem: pedido.canal === "delivery" ? "Delivery" : pedido.canal === "mesa" ? `Mesa ${pedido.mesaId?.numero || ""}` : "Retirada", canal: pedido.canal, cliente: pedido.cliente, telefone: pedido.telefoneCliente || "", endereco: pedido.enderecoEntrega || "", observacao: pedido.observacao || "", total: pedido.total, status: pedido.status, pagamentoStatus: pedido.pagamentoStatus, createdAt: pedido.createdAt, itens: pedido.itens || [] }
+      pedido: { id: String(pedido._id), numero: String(pedido._id).slice(-6).toUpperCase(), origem: pedido.canal === "delivery" ? "Delivery" : pedido.canal === "mesa" ? `Mesa ${pedido.mesaId?.numero || ""}` : "Retirada", canal: pedido.canal, cliente: pedido.cliente, telefone: pedido.telefoneCliente || "", endereco: pedido.enderecoEntrega || "", observacao: pedido.observacao || "", total: pedido.total, status: pedido.status, pagamentoStatus: pedido.pagamentoStatus, formaPagamento: pedido.formaPagamento || "nao_informado", pagamentoInformadoEm: pedido.pagamentoInformadoEm || null, pagoEm: pedido.pagoEm || null, precisaTroco: Boolean(pedido.precisaTroco), trocoPara: pedido.trocoPara ?? null, valorTroco: pedido.valorTroco ?? null, createdAt: pedido.createdAt, itens: pedido.itens || [] }
     };
     const data = await printAgentHub.request(lojaId, "print:job", payload, 30000);
     return res.json({ success: true, ...data });

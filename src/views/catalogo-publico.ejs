@@ -1393,6 +1393,37 @@
           </select>
         </div>
 
+        <div
+          class="form-field full hidden"
+          id="trocoField"
+          style="padding:14px;border:1px solid #eadbd5;border-radius:14px;background:#fff8f5"
+        >
+          <label for="precisaTroco" style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input
+              type="checkbox"
+              id="precisaTroco"
+              name="precisaTroco"
+              value="true"
+              style="width:18px;height:18px"
+            >
+            Precisa de troco?
+          </label>
+
+          <div id="trocoParaField" class="hidden" style="margin-top:12px">
+            <label for="trocoPara">Troco para quanto?</label>
+            <input
+              id="trocoPara"
+              name="trocoPara"
+              type="number"
+              inputmode="decimal"
+              min="0"
+              step="0.01"
+              placeholder="Ex.: 100,00"
+            >
+            <small style="display:block;margin-top:6px;color:#755b52">O valor do troco também aparecerá no comprovante.</small>
+          </div>
+        </div>
+
         <div class="form-field full">
           <label for="observacaoFinal">
             Observações do pedido
@@ -2189,6 +2220,33 @@
       }
     );
 
+    const formaPagamentoSelect = document.querySelector("#formaPagamento");
+    const trocoField = document.querySelector("#trocoField");
+    const precisaTrocoInput = document.querySelector("#precisaTroco");
+    const trocoParaField = document.querySelector("#trocoParaField");
+    const trocoParaInput = document.querySelector("#trocoPara");
+
+    function atualizarCamposTroco() {
+      const pagamentoEmDinheiro = formaPagamentoSelect.value === "dinheiro";
+      trocoField.classList.toggle("hidden", !pagamentoEmDinheiro);
+
+      if (!pagamentoEmDinheiro) {
+        precisaTrocoInput.checked = false;
+        trocoParaInput.value = "";
+      }
+
+      trocoParaField.classList.toggle(
+        "hidden",
+        !pagamentoEmDinheiro || !precisaTrocoInput.checked
+      );
+
+      trocoParaInput.required = pagamentoEmDinheiro && precisaTrocoInput.checked;
+    }
+
+    formaPagamentoSelect.addEventListener("change", atualizarCamposTroco);
+    precisaTrocoInput.addEventListener("change", atualizarCamposTroco);
+    atualizarCamposTroco();
+
     orderForm.addEventListener(
       "submit",
       async event => {
@@ -2247,6 +2305,12 @@
             ).trim(),
 
           formaPagamento: String(formData.get("formaPagamento") || "nao_informado"),
+
+          precisaTroco: formData.get("precisaTroco") === "true",
+
+          trocoPara: formData.get("precisaTroco") === "true"
+            ? Number(formData.get("trocoPara") || 0)
+            : null,
 
           itens: cart.map(item => ({
             produtoId: item.id,
@@ -2326,6 +2390,7 @@
 
           orderForm.reset();
           atualizarEndereco();
+          atualizarCamposTroco();
 
           if (payload.formaPagamento !== "pix") {
             setTimeout(() => {
