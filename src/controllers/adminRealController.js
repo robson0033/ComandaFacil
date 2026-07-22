@@ -247,6 +247,8 @@ function normalizarImpressoras(body = {}) {
         campo("imprimirValores") === "on",
       imprimirEndereco:
         campo("imprimirEndereco") === "on",
+      imprimirCpfCnpj:
+        campo("imprimirCpfCnpj") === "on",
       imprimirObservacoes:
         campo("imprimirObservacoes") === "on",
       corteAutomatico:
@@ -2852,7 +2854,7 @@ exports.obterPedidoParaImpressao = async (
     const idEstabelecimento =
       estabelecimentoId(req);
 
-    const [pedido, configuracao] =
+    const [pedido, configuracao, dono] =
       await Promise.all([
         Pedido.findOne({
           _id: req.params.id,
@@ -2869,6 +2871,10 @@ exports.obterPedidoParaImpressao = async (
           estabelecimentoId:
             idEstabelecimento,
         }).lean(),
+
+        registroModel.findById(
+          idEstabelecimento,
+        ).select("cpfCnpj").lean(),
       ]);
 
     if (!pedido) {
@@ -2917,6 +2923,8 @@ exports.obterPedidoParaImpressao = async (
           configuracao?.telefone || "",
         endereco:
           configuracao?.endereco || "",
+        cpfCnpj:
+          dono?.cpfCnpj || "",
         logoUrl,
       },
       impressoras:
@@ -4422,17 +4430,63 @@ exports.criarPedidoCatalogo =
             ),
           );
 
-        const preco = Number(
+        const precoBase = Number(
           produto.preco || 0,
         );
 
-        const custoUnitario =
-          Number(
-            produto.custo || 0,
+        const adicionaisDisponiveis =
+          new Map(
+            (produto.adicionais || [])
+              .filter(adicional => adicional.ativo !== false)
+              .map(adicional => [
+                String(adicional._id),
+                adicional,
+              ]),
           );
 
-        const subtotal =
-          preco * quantidade;
+        const adicionaisRecebidos =
+          Array.isArray(itemRecebido.adicionais)
+            ? itemRecebido.adicionais
+            : [];
+
+        const adicionais = [];
+        const idsAdicionais = new Set();
+
+        for (const adicionalRecebido of adicionaisRecebidos) {
+          const adicionalId = String(
+            adicionalRecebido?._id ||
+            adicionalRecebido?.id ||
+            adicionalRecebido || "",
+          );
+
+          if (!adicionalId || idsAdicionais.has(adicionalId)) {
+            continue;
+          }
+
+          const adicional = adicionaisDisponiveis.get(adicionalId);
+          if (!adicional) {
+            continue;
+          }
+
+          idsAdicionais.add(adicionalId);
+          adicionais.push({
+            nome: adicional.nome,
+            preco: Number(adicional.preco || 0),
+          });
+        }
+
+        const valorAdicionais = adicionais.reduce(
+          (soma, adicional) => soma + Number(adicional.preco || 0),
+          0,
+        );
+
+        const preco = precoBase + valorAdicionais;
+
+        const custoUnitario = Number(
+          produto.custo || 0,
+        );
+
+        const subtotal = preco * quantidade;
 
         itens.push({
           produtoId: produto._id,
@@ -4440,6 +4494,8 @@ exports.criarPedidoCatalogo =
           quantidade,
           preco,
           subtotal,
+          adicionais,
+          observacao: String(itemRecebido.observacao || "").trim(),
         });
 
         total += subtotal;
@@ -4463,6 +4519,8 @@ exports.criarPedidoCatalogo =
 
           cliente,
           telefoneCliente: telefone,
+          telefoneNormalizado:
+            normalizarTelefonePublico(telefone),
 
           canal,
 
@@ -4525,9 +4583,16 @@ exports.buscarPedidosCatalogo = async (req, res) => {
     if (!configuracao) return res.status(404).json({ success: false, message: "Loja não encontrada." });
     const telefone = normalizarTelefonePublico(req.query.telefone);
     if (telefone.length < 10) return res.status(400).json({ success: false, message: "Informe um telefone válido." });
+    const telefoneRegex = new RegExp(
+      telefone.split("").join("\\D*"),
+    );
+
     const pedidos = await Pedido.find({
       estabelecimentoId: configuracao.estabelecimentoId,
-      telefoneNormalizado: telefone,
+      $or: [
+        { telefoneNormalizado: telefone },
+        { telefoneCliente: telefoneRegex },
+      ],
     }).sort({ createdAt: -1 }).limit(30).lean();
     return res.json({ success: true, pedidos: pedidos.map(p => ({
       id: String(p._id), numero: String(p._id).slice(-6).toUpperCase(), cliente: p.cliente,
@@ -4598,13 +4663,20 @@ exports.imprimirPedidoRemoto = async (req, res) => {
   try {
     const payloadResponse = { req: { ...req, params: { id: req.params.id } } };
     const lojaId = String(estabelecimentoId(req));
-    const [pedido, configuracao] = await Promise.all([
+    const [pedido, configuracao, dono] = await Promise.all([
       Pedido.findOne({ _id: req.params.id, estabelecimentoId: lojaId }).populate("mesaId", "numero setor").lean(),
       Configuracao.findOne({ estabelecimentoId: lojaId }).lean(),
+      registroModel.findById(lojaId).select("cpfCnpj").lean(),
     ]);
     if (!pedido) return res.status(404).json({ success: false, message: "Pedido não encontrado." });
     const payload = {
-      estabelecimento: { nome: configuracao?.nomeEstabelecimento || "ComandaFacil", telefone: configuracao?.telefone || "", endereco: configuracao?.endereco || "", logoUrl: configuracao?.fotoPerfil || "" },
+      estabelecimento: {
+        nome: configuracao?.nomeEstabelecimento || "ComandaFacil",
+        telefone: configuracao?.telefone || "",
+        endereco: configuracao?.endereco || "",
+        cpfCnpj: dono?.cpfCnpj || "",
+        logoUrl: configuracao?.fotoPerfil || "",
+      },
       impressoras: configuracao?.impressoras || [], modo: req.body.modo || "manual",
       pedido: { id: String(pedido._id), numero: String(pedido._id).slice(-6).toUpperCase(), origem: pedido.canal === "delivery" ? "Delivery" : pedido.canal === "mesa" ? `Mesa ${pedido.mesaId?.numero || ""}` : "Retirada", canal: pedido.canal, cliente: pedido.cliente, telefone: pedido.telefoneCliente || "", endereco: pedido.enderecoEntrega || "", observacao: pedido.observacao || "", total: pedido.total, status: pedido.status, pagamentoStatus: pedido.pagamentoStatus, createdAt: pedido.createdAt, itens: pedido.itens || [] }
     };

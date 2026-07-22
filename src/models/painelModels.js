@@ -421,6 +421,11 @@ const Configuracao = mongoose.model(
               default: true,
             },
 
+            imprimirCpfCnpj: {
+              type: Boolean,
+              default: false,
+            },
+
             imprimirObservacoes: {
               type: Boolean,
               default: true,
@@ -480,7 +485,7 @@ const Pedido = mongoose.model(
 
       canal: {
         type: String,
-        enum: ["mesa", "balcao", "delivery"],
+        enum: ["mesa", "balcao", "delivery, retirada"],
         default: "mesa",
       },
 

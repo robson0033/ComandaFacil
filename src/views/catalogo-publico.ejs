@@ -828,6 +828,24 @@
       color: #176e42;
     }
 
+    .addon-modal {
+      position: fixed; inset: 0; z-index: 130; display: none;
+      place-items: center; padding: 18px; background: rgba(22,9,6,.68);
+      backdrop-filter: blur(7px);
+    }
+    .addon-modal.open { display: grid; }
+    .addon-card { width: min(560px,100%); max-height: 90vh; overflow:auto; padding:22px; border-radius:24px; background:#fff; box-shadow:0 28px 80px rgba(0,0,0,.3); }
+    .addon-head { display:flex; justify-content:space-between; gap:14px; align-items:flex-start; margin-bottom:16px; }
+    .addon-head h2 { margin:0; font-size:22px; }
+    .addon-head p { margin:5px 0 0; color:var(--muted); font-size:13px; }
+    .addon-list { display:grid; gap:10px; }
+    .addon-option { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:13px; border:1px solid var(--line); border-radius:14px; background:#fffaf6; }
+    .addon-option label { display:flex; align-items:center; gap:9px; font-weight:800; }
+    .addon-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:17px; }
+    .addon-actions button { min-height:48px; border-radius:13px; font-weight:900; }
+    .addon-cancel { border:1px solid var(--line); background:#fff; }
+    .addon-confirm { border:0; color:#fff; background:linear-gradient(135deg,var(--orange),var(--orange-2)); }
+    .cart-addons { margin-top:5px; color:#f3cdbc; font-size:11px; line-height:1.45; }
     @media (max-width: 1180px) {
       .content-shell {
         grid-template-columns: 1fr;
@@ -1134,6 +1152,15 @@
                 data-product-name="<%= produto.nome %>"
                 data-product-price="<%= Number(produto.preco || 0) %>"
                 data-product-image="<%= produto.imagem || "" %>"
+                data-product-additionals='<%- JSON.stringify(
+                  (produto.adicionais || [])
+                    .filter(adicional => adicional.ativo !== false)
+                    .map(adicional => ({
+                      _id: String(adicional._id),
+                      nome: adicional.nome,
+                      preco: Number(adicional.preco || 0)
+                    }))
+                ) %>'
               >
                 <div class="product-cover">
                   <% if (produto.imagem) { %>
@@ -1385,6 +1412,20 @@
     </div>
   </div>
 
+  <div class="addon-modal" id="addonModal">
+    <div class="addon-card">
+      <div class="addon-head">
+        <div><h2 id="addonTitle">Escolha os adicionais</h2><p>Os valores serão somados ao produto.</p></div>
+        <button type="button" class="modal-close" id="closeAddonModal">×</button>
+      </div>
+      <div class="addon-list" id="addonList"></div>
+      <div class="addon-actions">
+        <button type="button" class="addon-cancel" id="cancelAddon">Cancelar</button>
+        <button type="button" class="addon-confirm" id="confirmAddon">Adicionar ao pedido</button>
+      </div>
+    </div>
+  </div>
+
   <footer class="footer">
     Cardápio digital
   </footer>
@@ -1479,6 +1520,11 @@
 
     const storeStatusText =
       document.querySelector("#storeStatusText");
+
+    const addonModal = document.querySelector("#addonModal");
+    const addonTitle = document.querySelector("#addonTitle");
+    const addonList = document.querySelector("#addonList");
+    let pendingProduct = null;
 
     let selectedCategory = "todos";
     let storeIsOpen = false;
@@ -1608,8 +1654,13 @@
         (total, item) => {
           return (
             total +
-            Number(item.price || 0) *
-            Number(item.quantity || 0)
+            (
+              Number(item.price || 0) +
+              (item.adicionais || []).reduce(
+                (sum, adicional) => sum + Number(adicional.preco || 0),
+                0
+              )
+            ) * Number(item.quantity || 0)
           );
         },
         0
@@ -1646,8 +1697,14 @@
             </h3>
 
             <div class="cart-price">
-              ${currency(item.price)}
+              ${currency(
+                Number(item.price || 0) +
+                (item.adicionais || []).reduce(
+                  (sum, adicional) => sum + Number(adicional.preco || 0), 0
+                )
+              )}
             </div>
+            ${item.adicionais?.length ? `<div class="cart-addons">${item.adicionais.map(a => `+ ${escapeHtml(a.nome)} (${currency(a.preco)})`).join("<br>")}</div>` : ""}
 
             <div class="cart-actions">
               <div class="qty-box">
@@ -1655,7 +1712,7 @@
                   type="button"
                   class="qty-btn"
                   data-action="decrease"
-                  data-id="${escapeHtml(item.id)}"
+                  data-id="${escapeHtml(item.cartId || item.id)}"
                 >
                   −
                 </button>
@@ -1668,7 +1725,7 @@
                   type="button"
                   class="qty-btn"
                   data-action="increase"
-                  data-id="${escapeHtml(item.id)}"
+                  data-id="${escapeHtml(item.cartId || item.id)}"
                 >
                   +
                 </button>
@@ -1678,7 +1735,7 @@
                 type="button"
                 class="remove-btn"
                 data-action="remove"
-                data-id="${escapeHtml(item.id)}"
+                data-id="${escapeHtml(item.cartId || item.id)}"
                 aria-label="Remover"
               >
                 ×
@@ -1708,17 +1765,21 @@
       atualizarBotoesPedido();
     }
 
-    function addToCart(product) {
-      const existing =
-        cart.find(
-          item => item.id === product.id
-        );
+    function addToCart(product, adicionais = []) {
+      const addonsKey = adicionais
+        .map(adicional => String(adicional._id))
+        .sort()
+        .join(",");
+      const cartId = `${product.id}:${addonsKey}`;
+      const existing = cart.find(item => item.cartId === cartId);
 
       if (existing) {
         existing.quantity += 1;
       } else {
         cart.push({
           ...product,
+          cartId,
+          adicionais,
           quantity: 1
         });
       }
@@ -1733,7 +1794,7 @@
     ) {
       const item =
         cart.find(
-          product => product.id === id
+          product => (product.cartId || product.id) === id
         );
 
       if (!item) {
@@ -1753,7 +1814,7 @@
         item.quantity <= 0
       ) {
         cart = cart.filter(
-          product => product.id !== id
+          product => (product.cartId || product.id) !== id
         );
       }
 
@@ -1780,21 +1841,57 @@
                 ".product-card"
               );
 
-            addToCart({
+            const product = {
               id: card.dataset.id,
-              name:
-                card.dataset.productName,
-              price: Number(
-                card.dataset.productPrice ||
-                0
-              ),
-              image:
-                card.dataset.productImage ||
-                ""
-            });
+              name: card.dataset.productName,
+              price: Number(card.dataset.productPrice || 0),
+              image: card.dataset.productImage || ""
+            };
+
+            let adicionais = [];
+            try {
+              adicionais = JSON.parse(card.dataset.productAdditionals || "[]");
+            } catch {
+              adicionais = [];
+            }
+
+            if (!adicionais.length) {
+              addToCart(product, []);
+              return;
+            }
+
+            pendingProduct = { product, adicionais };
+            addonTitle.textContent = `Adicionais de ${product.name}`;
+            addonList.innerHTML = adicionais.map(adicional => `
+              <div class="addon-option">
+                <label><input type="checkbox" value="${escapeHtml(adicional._id)}"> ${escapeHtml(adicional.nome)}</label>
+                <strong>+ ${currency(adicional.preco)}</strong>
+              </div>
+            `).join("");
+            addonModal.classList.add("open");
+            document.body.classList.add("modal-open");
           }
         );
       });
+
+    function closeAddonModal() {
+      addonModal.classList.remove("open");
+      document.body.classList.remove("modal-open");
+      pendingProduct = null;
+    }
+
+    document.querySelector("#closeAddonModal").addEventListener("click", closeAddonModal);
+    document.querySelector("#cancelAddon").addEventListener("click", closeAddonModal);
+    addonModal.addEventListener("click", event => {
+      if (event.target === addonModal) closeAddonModal();
+    });
+    document.querySelector("#confirmAddon").addEventListener("click", () => {
+      if (!pendingProduct) return;
+      const ids = [...addonList.querySelectorAll("input:checked")].map(input => input.value);
+      const selected = pendingProduct.adicionais.filter(adicional => ids.includes(String(adicional._id)));
+      addToCart(pendingProduct.product, selected);
+      closeAddonModal();
+    });
 
     cartList.addEventListener(
       "click",
@@ -2135,8 +2232,11 @@
 
           itens: cart.map(item => ({
             produtoId: item.id,
-            quantidade:
-              Number(item.quantity)
+            quantidade: Number(item.quantity),
+            adicionais: (item.adicionais || []).map(adicional => ({
+              _id: adicional._id
+            })),
+            observacao: String(item.observacao || "")
           }))
         };
 

@@ -4789,81 +4789,46 @@
 
               <div class="field full">
                 <label for="endereco">
-                  Endereço
+                  Endereço completo do estabelecimento
                 </label>
-
-                <div class="field">
-  <label for="horarioAbertura">
-    Horário de abertura
-  </label>
-
-  <input
-    type="time"
-    id="horarioAbertura"
-    name="horarioAbertura"
-    value="<%= configuracao.horarioAbertura || '08:00' %>"
-    required
-  >
-</div>
-
-<div class="field">
-  <label for="horarioFechamento">
-    Horário de fechamento
-  </label>
-
-  <input
-    type="time"
-    id="horarioFechamento"
-    name="horarioFechamento"
-    value="<%= configuracao.horarioFechamento || '22:00' %>"
-    required
-  >
-</div>
-
-<div class="field full">
-  <label>
-    Dias de funcionamento
-  </label>
-
-  <div class="week-days">
-    <%
-      const diasSelecionados =
-        configuracao.diasFuncionamento ||
-        [0, 1, 2, 3, 4, 5, 6];
-
-      const diasSemana = [
-        { valor: 0, nome: 'Domingo' },
-        { valor: 1, nome: 'Segunda' },
-        { valor: 2, nome: 'Terça' },
-        { valor: 3, nome: 'Quarta' },
-        { valor: 4, nome: 'Quinta' },
-        { valor: 5, nome: 'Sexta' },
-        { valor: 6, nome: 'Sábado' },
-      ];
-    %>
-
-    <% diasSemana.forEach(dia => { %>
-      <label class="week-day">
-        <input
-          type="checkbox"
-          name="diasFuncionamento"
-          value="<%= dia.valor %>"
-          <%= diasSelecionados.includes(dia.valor) ? 'checked' : '' %>
-        >
-
-        <span>
-          <%= dia.nome %>
-        </span>
-      </label>
-    <% }) %>
-  </div>
-</div>
 
                 <input
                   id="endereco"
                   name="endereco"
                   value="<%= config.endereco || '' %>"
+                  placeholder="Rua, número, bairro, cidade e estado"
                 >
+              </div>
+
+              <div class="field">
+                <label for="horarioAbertura">Horário de abertura</label>
+                <input type="time" id="horarioAbertura" name="horarioAbertura" value="<%= config.horarioAbertura || '08:00' %>" required>
+              </div>
+
+              <div class="field">
+                <label for="horarioFechamento">Horário de fechamento</label>
+                <input type="time" id="horarioFechamento" name="horarioFechamento" value="<%= config.horarioFechamento || '22:00' %>" required>
+              </div>
+
+              <div class="field full">
+                <label>Dias de funcionamento</label>
+                <div class="week-days">
+                  <%
+                    const diasSelecionados = config.diasFuncionamento || [0,1,2,3,4,5,6];
+                    const diasSemana = [
+                      { valor: 0, nome: 'Domingo' }, { valor: 1, nome: 'Segunda' },
+                      { valor: 2, nome: 'Terça' }, { valor: 3, nome: 'Quarta' },
+                      { valor: 4, nome: 'Quinta' }, { valor: 5, nome: 'Sexta' },
+                      { valor: 6, nome: 'Sábado' }
+                    ];
+                  %>
+                  <% diasSemana.forEach(dia => { %>
+                    <label class="week-day">
+                      <input type="checkbox" name="diasFuncionamento" value="<%= dia.valor %>" <%= diasSelecionados.includes(dia.valor) ? 'checked' : '' %>>
+                      <span><%= dia.nome %></span>
+                    </label>
+                  <% }) %>
+                </div>
               </div>
 
               <div class="field full">
@@ -4938,6 +4903,7 @@
                     imprimirLogo: true,
                     imprimirValores: true,
                     imprimirEndereco: true,
+                    imprimirCpfCnpj: false,
                     imprimirObservacoes: true,
                     corteAutomatico: true
                   };
@@ -5214,7 +5180,8 @@
                     <% [
                       ['imprimirLogo', 'Imprimir logo (USB)'],
                       ['imprimirValores', 'Imprimir valores'],
-                      ['imprimirEndereco', 'Imprimir endereço do delivery'],
+                      ['imprimirEndereco', 'Imprimir endereço do estabelecimento e do delivery'],
+                      ['imprimirCpfCnpj', 'Imprimir CPF/CNPJ cadastrado'],
                       ['imprimirObservacoes', 'Imprimir observações'],
                       ['corteAutomatico', 'Corte automático']
                     ].forEach(item => { %>
@@ -7303,7 +7270,7 @@ function mostrarToastPedido(pedido) {
 
   setTimeout(() => {
     toast.remove();
-  }, 9000);
+  }, 4000);
 }
 
 function criarHtmlItensPedido(
@@ -7815,6 +7782,8 @@ function dadosImpressoraDoCard(card) {
       campo('imprimirValores')?.checked ?? true,
     imprimirEndereco:
       campo('imprimirEndereco')?.checked ?? true,
+    imprimirCpfCnpj:
+      campo('imprimirCpfCnpj')?.checked ?? false,
     imprimirObservacoes:
       campo('imprimirObservacoes')?.checked ?? true,
     corteAutomatico:
