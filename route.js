@@ -170,6 +170,10 @@ route.get(
   pagamento.retorno
 );
 
+route.get('/admin/mercado-pago/conectar', loginRequired, pagamento.conectarMercadoPago);
+route.get('/admin/mercado-pago/callback', loginRequired, pagamento.callbackMercadoPago);
+route.post('/admin/mercado-pago/desconectar', loginRequired, pagamento.desconectarMercadoPago);
+
 route.post(
   '/webhook/mercado-pago',
   pagamento.webhook
@@ -424,6 +428,8 @@ route.get(
 );
 
 route.post('/catalogo/:slug/pedidos', admin.criarPedidoCatalogo);
+route.post('/catalogo/:slug/pedidos/:pedidoId/pix', pagamento.gerarPixPedido);
+route.get('/catalogo/:slug/pedidos/:pedidoId/pagamento-status', pagamento.statusPagamentoPedido);
 route.get('/catalogo/:slug/meus-pedidos', admin.buscarPedidosCatalogo);
 route.post('/catalogo/:slug/produtos/:produtoId/avaliacoes', admin.avaliarProdutoCatalogo);
 

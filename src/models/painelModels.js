@@ -456,6 +456,17 @@ const Configuracao = mongoose.model(
         type: [Number],
         default: [0, 1, 2, 3, 4, 5, 6],
       },
+
+      mercadoPago: {
+        conectado: { type: Boolean, default: false },
+        userId: { type: String, default: "", trim: true },
+        publicKey: { type: String, default: "", trim: true },
+        accessTokenCriptografado: { type: String, default: "", select: false },
+        refreshTokenCriptografado: { type: String, default: "", select: false },
+        tokenExpiraEm: { type: Date, default: null },
+        conectadoEm: { type: Date, default: null },
+      },
+
     },
     opts,
   ),
@@ -591,6 +602,13 @@ const Pedido = mongoose.model(
         type: Date,
         default: null,
       },
+
+      mercadoPagoPaymentId: { type: String, default: "", index: true },
+      mercadoPagoStatus: { type: String, default: "" },
+      pixCopiaCola: { type: String, default: "" },
+      pixQrCodeBase64: { type: String, default: "" },
+      pixExpiraEm: { type: Date, default: null },
+
     },
     opts,
   ),

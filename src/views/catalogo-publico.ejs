@@ -1385,6 +1385,15 @@
         </div>
 
         <div class="form-field full">
+          <label for="formaPagamento">Forma de pagamento</label>
+          <select id="formaPagamento" name="formaPagamento" required>
+            <option value="pix" <%= configuracao.mercadoPago && configuracao.mercadoPago.conectado ? '' : 'disabled' %>>Pix online <%= configuracao.mercadoPago && configuracao.mercadoPago.conectado ? '' : '(indisponível)' %></option>
+            <option value="dinheiro">Dinheiro na entrega/retirada</option>
+            <option value="cartao">Cartão na entrega/retirada</option>
+          </select>
+        </div>
+
+        <div class="form-field full">
           <label for="observacaoFinal">
             Observações do pedido
           </label>
@@ -1409,6 +1418,13 @@
           Enviar pedido
         </button>
       </form>
+      <section id="pixPaymentBox" class="hidden" style="margin-top:18px;padding:18px;border:1px solid #ddd;border-radius:18px;text-align:center;background:#fff">
+        <h3 style="margin-top:0">Pague com Pix</h3>
+        <img id="pixQrImage" alt="QR Code Pix" style="width:240px;max-width:100%;margin:12px auto">
+        <textarea id="pixCopyCode" readonly style="width:100%;min-height:90px;padding:10px;border:1px solid #ddd;border-radius:10px"></textarea>
+        <button type="button" class="send-order-btn" id="copyPixButton" style="margin-top:10px">Copiar código Pix</button>
+        <p id="pixPaymentStatus">Aguardando pagamento...</p>
+      </section>
     </div>
   </div>
 
@@ -2230,6 +2246,8 @@
               ) || ""
             ).trim(),
 
+          formaPagamento: String(formData.get("formaPagamento") || "nao_informado"),
+
           itens: cart.map(item => ({
             produtoId: item.id,
             quantidade: Number(item.quantity),
@@ -2273,6 +2291,35 @@
           formMessage.textContent =
             `Pedido #${result.numeroPedido} enviado. Acompanhe pelo WhatsApp informado.`;
 
+          if (payload.formaPagamento === "pix") {
+            const pixResponse = await fetch(
+              `/catalogo/${encodeURIComponent(storeSlug)}/pedidos/${encodeURIComponent(result.pedidoId)}/pix`,
+              { method: "POST", headers: { "Content-Type": "application/json" } }
+            );
+            const pixResult = await pixResponse.json();
+            if (!pixResponse.ok) throw new Error(pixResult.message || "Não foi possível gerar o Pix.");
+
+            const pixBox = document.querySelector("#pixPaymentBox");
+            const qr = document.querySelector("#pixQrImage");
+            const code = document.querySelector("#pixCopyCode");
+            pixBox.classList.remove("hidden");
+            qr.src = `data:image/png;base64,${pixResult.qrCodeBase64}`;
+            code.value = pixResult.copiaCola || "";
+            document.querySelector("#copyPixButton").onclick = async () => {
+              await navigator.clipboard.writeText(code.value);
+              document.querySelector("#copyPixButton").textContent = "Código copiado";
+            };
+
+            const interval = setInterval(async () => {
+              const statusResponse = await fetch(`/catalogo/${encodeURIComponent(storeSlug)}/pedidos/${encodeURIComponent(result.pedidoId)}/pagamento-status`);
+              const statusResult = await statusResponse.json();
+              if (statusResult.pagamentoStatus === "pago") {
+                clearInterval(interval);
+                document.querySelector("#pixPaymentStatus").textContent = "✅ Pagamento aprovado. Pedido confirmado!";
+              }
+            }, 5000);
+          }
+
           cart = [];
           saveCart();
           renderCart();
@@ -2280,9 +2327,11 @@
           orderForm.reset();
           atualizarEndereco();
 
-          setTimeout(() => {
-            closeModal();
-          }, 2500);
+          if (payload.formaPagamento !== "pix") {
+            setTimeout(() => {
+              closeModal();
+            }, 2500);
+          }
         } catch (error) {
           formMessage.className =
             "form-message error";

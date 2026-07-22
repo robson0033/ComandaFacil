@@ -3405,6 +3405,11 @@ exports.criarPedidoCatalogo = async (
       req.body.observacao || ''
     ).trim();
 
+    const formaPagamentoRecebida = String(req.body.formaPagamento || 'nao_informado');
+    const formaPagamento = ['dinheiro', 'pix', 'cartao'].includes(formaPagamentoRecebida)
+      ? formaPagamentoRecebida
+      : 'nao_informado';
+
     if (!cliente) {
       return res.status(400).json({
         success: false,
@@ -3581,6 +3586,8 @@ exports.criarPedidoCatalogo = async (
 
         pagamentoStatus:
           'pendente',
+
+        formaPagamento,
       });
 
     return res.status(201).json({

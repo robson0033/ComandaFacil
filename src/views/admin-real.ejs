@@ -4861,6 +4861,24 @@
             </form>
           </section>
 
+          <section class="panel">
+            <div class="panel-header">
+              <div class="panel-title">
+                <h2>Recebimentos pelo Mercado Pago</h2>
+                <p>Conecte sua própria conta para receber Pix diretamente nela.</p>
+              </div>
+            </div>
+            <% if (config.mercadoPago && config.mercadoPago.conectado) { %>
+              <div class="link-box" style="margin-bottom:14px">✅ Conta conectada — Pix automático disponível no catálogo.</div>
+              <form action="/admin/mercado-pago/desconectar" method="POST" onsubmit="return confirm('Desconectar a conta Mercado Pago?')">
+                <button type="submit" class="button" style="background:#777">Desconectar Mercado Pago</button>
+              </form>
+            <% } else { %>
+              <div class="link-box" style="margin-bottom:14px">Conta ainda não conectada.</div>
+              <a href="/admin/mercado-pago/conectar" class="button" style="display:inline-flex;text-decoration:none">Conectar minha conta Mercado Pago</a>
+            <% } %>
+          </section>
+
           <% if (pode('configurar_impressoras')) { %>
           <section class="panel">
             <div class="panel-header">
