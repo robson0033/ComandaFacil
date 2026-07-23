@@ -7152,57 +7152,197 @@ function atualizarBadgePedidos() {
         );
 }
 
+let contextoAudioNotificacao = null;
+let tituloOriginalPagina = document.title;
+let intervaloTituloNotificacao = null;
+
+function obterContextoAudioNotificacao() {
+  const AudioContexto =
+    window.AudioContext ||
+    window.webkitAudioContext;
+
+  if (!AudioContexto) {
+    return null;
+  }
+
+  if (!contextoAudioNotificacao) {
+    contextoAudioNotificacao =
+      new AudioContexto();
+  }
+
+  return contextoAudioNotificacao;
+}
+
+async function desbloquearNotificacoes() {
+  if (!podeReceberNotificacoes) {
+    return;
+  }
+
+  try {
+    const contexto =
+      obterContextoAudioNotificacao();
+
+    if (
+      contexto &&
+      contexto.state === 'suspended'
+    ) {
+      await contexto.resume();
+    }
+  } catch (error) {
+    console.log(
+      'Não foi possível liberar o áudio.'
+    );
+  }
+
+  if (
+    'Notification' in window &&
+    Notification.permission === 'default'
+  ) {
+    try {
+      await Notification.requestPermission();
+    } catch (error) {
+      console.log(
+        'Permissão de notificação não concedida.'
+      );
+    }
+  }
+}
+
 function tocarSomNovoPedido() {
   if (!podeReceberNotificacoes) {
     return;
   }
 
   try {
-    const AudioContexto =
-      window.AudioContext ||
-      window.webkitAudioContext;
+    const contexto =
+      obterContextoAudioNotificacao();
 
-    if (!AudioContexto) {
+    if (!contexto) {
       return;
     }
 
-    const contexto =
-      new AudioContexto();
+    if (contexto.state === 'suspended') {
+      contexto.resume().catch(() => {});
+    }
 
-    const oscilador =
-      contexto.createOscillator();
+    const inicio = contexto.currentTime;
+    const frequencias = [880, 1175, 880, 1320];
 
-    const ganho =
-      contexto.createGain();
+    frequencias.forEach((frequencia, indice) => {
+      const oscilador =
+        contexto.createOscillator();
+      const ganho =
+        contexto.createGain();
+      const inicioTom =
+        inicio + indice * 0.22;
+      const fimTom =
+        inicioTom + 0.17;
 
-    oscilador.type = 'sine';
-    oscilador.frequency.value = 880;
+      oscilador.type = 'square';
+      oscilador.frequency.setValueAtTime(
+        frequencia,
+        inicioTom
+      );
 
-    ganho.gain.setValueAtTime(
-      0.08,
-      contexto.currentTime
-    );
+      ganho.gain.setValueAtTime(
+        0.0001,
+        inicioTom
+      );
+      ganho.gain.exponentialRampToValueAtTime(
+        0.42,
+        inicioTom + 0.02
+      );
+      ganho.gain.exponentialRampToValueAtTime(
+        0.0001,
+        fimTom
+      );
 
-    ganho.gain.exponentialRampToValueAtTime(
-      0.001,
-      contexto.currentTime + 0.35
-    );
-
-    oscilador.connect(ganho);
-    ganho.connect(
-      contexto.destination
-    );
-
-    oscilador.start();
-    oscilador.stop(
-      contexto.currentTime + 0.35
-    );
+      oscilador.connect(ganho);
+      ganho.connect(contexto.destination);
+      oscilador.start(inicioTom);
+      oscilador.stop(fimTom);
+    });
   } catch (error) {
     console.log(
       'Som de notificação indisponível.'
     );
   }
 }
+
+function mostrarNotificacaoDoSistema(pedido) {
+  if (
+    !podeReceberNotificacoes ||
+    !('Notification' in window) ||
+    Notification.permission !== 'granted'
+  ) {
+    return;
+  }
+
+  try {
+    const notificacao = new Notification(
+      `Novo pedido #${pedido.numero}`,
+      {
+        body: `${pedido.origem.texto} • ${formatarMoedaPedido(pedido.total)}`,
+        icon: '/assets/imgs/comanda.png',
+        badge: '/assets/imgs/comanda.png',
+        tag: `pedido-${pedido.id}`,
+        renotify: true,
+        requireInteraction: true,
+      }
+    );
+
+    notificacao.onclick = () => {
+      window.focus();
+      window.location.hash = 'pedidos';
+      quantidadeNaoVisualizada = 0;
+      atualizarBadgePedidos();
+      notificacao.close();
+    };
+  } catch (error) {
+    console.log(
+      'Notificação do sistema indisponível.'
+    );
+  }
+}
+
+function destacarTituloNovoPedido() {
+  if (intervaloTituloNotificacao) {
+    return;
+  }
+
+  let alternar = false;
+  intervaloTituloNotificacao = setInterval(() => {
+    alternar = !alternar;
+    document.title = alternar
+      ? `🔔 NOVO PEDIDO (${quantidadeNaoVisualizada})`
+      : tituloOriginalPagina;
+  }, 900);
+}
+
+function pararDestaqueTitulo() {
+  if (intervaloTituloNotificacao) {
+    clearInterval(intervaloTituloNotificacao);
+    intervaloTituloNotificacao = null;
+  }
+
+  document.title = tituloOriginalPagina;
+}
+
+document.addEventListener(
+  'pointerdown',
+  desbloquearNotificacoes,
+  { once: true }
+);
+
+document.addEventListener(
+  'keydown',
+  desbloquearNotificacoes,
+  { once: true }
+);
+
+window.addEventListener('focus', () => {
+  pararDestaqueTitulo();
+});
 
 function mostrarToastPedido(pedido) {
   const toastContainer =
@@ -8118,10 +8258,7 @@ async function imprimirPedidoAutomaticamente(
 verificarPrintAgent();
 
 async function verificarNovosPedidos() {
-  if (
-    verificandoPedidos ||
-    document.hidden
-  ) {
+  if (verificandoPedidos) {
     return;
   }
 
@@ -8192,6 +8329,11 @@ async function verificarNovosPedidos() {
         );
 
         tocarSomNovoPedido();
+        mostrarNotificacaoDoSistema(pedido);
+
+        if (document.hidden || !document.hasFocus()) {
+          destacarTituloNovoPedido();
+        }
 
         imprimirPedidoAutomaticamente(
           pedido
@@ -8216,6 +8358,7 @@ if (menuPedidos) {
     () => {
       quantidadeNaoVisualizada = 0;
       atualizarBadgePedidos();
+      pararDestaqueTitulo();
     }
   );
 }
