@@ -4400,6 +4400,64 @@ exports.criarPedidoCatalogo =
         req.body.observacao || "",
       ).trim();
 
+      // A forma de pagamento precisa ser lida nesta função, pois esta é a
+      // implementação final exportada pelo controller. Aceita também nomes
+      // antigos enviados por versões anteriores do catálogo.
+      const formaPagamentoOriginal = String(
+        req.body.formaPagamento ||
+        req.body.metodoPagamento ||
+        req.body.pagamentoMetodo ||
+        "nao_informado",
+      ).trim().toLowerCase();
+
+      const mapaFormaPagamento = {
+        dinheiro: "dinheiro",
+        dinheiro_entrega: "dinheiro",
+        dinheiro_na_entrega: "dinheiro",
+        cash: "dinheiro",
+        pix: "pix",
+        pix_online: "pix",
+        cartao: "cartao",
+        cartão: "cartao",
+        cartao_entrega: "cartao",
+        cartao_na_entrega: "cartao",
+        card: "cartao",
+      };
+
+      const formaPagamento =
+        mapaFormaPagamento[formaPagamentoOriginal] ||
+        "nao_informado";
+
+      const precisaTroco =
+        formaPagamento === "dinheiro" &&
+        ["true", "1", "sim", "on"].includes(
+          String(req.body.precisaTroco || "")
+            .trim()
+            .toLowerCase(),
+        );
+
+      const trocoTexto = String(
+        req.body.trocoPara ?? "",
+      )
+        .replace(/\s/g, "")
+        .replace(/R\$/gi, "")
+        .replace(/\./g, "")
+        .replace(",", ".");
+
+      const trocoParaRecebido = Number(trocoTexto);
+
+      if (
+        precisaTroco &&
+        (!Number.isFinite(trocoParaRecebido) ||
+          trocoParaRecebido <= 0)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Informe para quanto o cliente precisa de troco.",
+        });
+      }
+
       const canaisPermitidos = [
         "delivery",
         "retirada",
@@ -4594,6 +4652,19 @@ exports.criarPedidoCatalogo =
         });
       }
 
+      if (
+        precisaTroco &&
+        trocoParaRecebido < total
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            `O valor para troco deve ser igual ou maior que o total de R$ ${total
+              .toFixed(2)
+              .replace(".", ",")}.`,
+        });
+      }
+
       const pedido =
         await Pedido.create({
           estabelecimentoId:
@@ -4620,6 +4691,28 @@ exports.criarPedidoCatalogo =
 
           pagamentoStatus:
             "pendente",
+
+          formaPagamento,
+
+          pagamentoInformadoEm:
+            formaPagamento === "pix"
+              ? null
+              : new Date(),
+
+          precisaTroco,
+
+          trocoPara:
+            precisaTroco
+              ? trocoParaRecebido
+              : null,
+
+          valorTroco:
+            precisaTroco
+              ? Math.max(
+                  0,
+                  trocoParaRecebido - total,
+                )
+              : null,
         });
 
       return res.status(201).json({
