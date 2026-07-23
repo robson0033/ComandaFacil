@@ -4582,6 +4582,12 @@ exports.criarPedidoCatalogo =
         req.body.observacao || "",
       ).trim();
 
+      const emailCliente = String(
+        req.body.emailCliente || req.body.email || "",
+      )
+        .trim()
+        .toLowerCase();
+
       // A forma de pagamento precisa ser lida nesta função, pois esta é a
       // implementação final exportada pelo controller. Aceita também nomes
       // antigos enviados por versões anteriores do catálogo.
@@ -4609,6 +4615,19 @@ exports.criarPedidoCatalogo =
       const formaPagamento =
         mapaFormaPagamento[formaPagamentoOriginal] ||
         "nao_informado";
+
+      if (formaPagamento === "pix") {
+        const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+          emailCliente,
+        );
+
+        if (!emailValido) {
+          return res.status(400).json({
+            success: false,
+            message: "Informe um e-mail válido para gerar o pagamento Pix.",
+          });
+        }
+      }
 
       const precisaTroco =
         formaPagamento === "dinheiro" &&
@@ -4853,6 +4872,10 @@ exports.criarPedidoCatalogo =
             configuracao.estabelecimentoId,
 
           cliente,
+          emailCliente:
+            formaPagamento === "pix"
+              ? emailCliente
+              : "",
           telefoneCliente: telefone,
           telefoneNormalizado:
             normalizarTelefonePublico(telefone),
