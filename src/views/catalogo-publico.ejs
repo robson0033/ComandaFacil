@@ -1430,16 +1430,28 @@
           Enviar pedido
         </button>
       </form>
-      <section id="pixPaymentBox" class="hidden" style="margin-top:18px;padding:18px;border:1px solid #ddd;border-radius:18px;text-align:center;background:#fff">
+    </div>
+  </div>
+
+  <div class="order-modal" id="pixPaymentModal">
+    <div class="order-modal-card" style="max-width:520px">
+      <div class="modal-head">
+        <div>
+          <h2>Pagamento Pix</h2>
+          <p>Escaneie o QR Code ou copie o código Pix.</p>
+        </div>
+        <button type="button" class="modal-close" id="closePixPaymentModal" aria-label="Fechar">×</button>
+      </div>
+
+      <section id="pixPaymentBox" style="padding:8px 0;text-align:center;background:#fff">
         <h3 style="margin-top:0">Pague com Pix</h3>
-        <img id="pixQrImage" alt="QR Code Pix" style="width:240px;max-width:100%;margin:12px auto">
+        <img id="pixQrImage" alt="QR Code Pix" style="display:block;width:240px;max-width:100%;margin:12px auto">
         <textarea id="pixCopyCode" readonly style="width:100%;min-height:90px;padding:10px;border:1px solid #ddd;border-radius:10px"></textarea>
         <button type="button" class="send-order-btn" id="copyPixButton" style="margin-top:10px">Copiar código Pix</button>
         <p id="pixPaymentStatus">Aguardando pagamento...</p>
       </section>
     </div>
   </div>
-
 
   <div class="order-modal" id="trocoModal">
     <div class="order-modal-card" style="max-width:520px">
@@ -1595,6 +1607,12 @@
 
     const closeOrderModal =
       document.querySelector("#closeOrderModal");
+
+    const pixPaymentModal =
+      document.querySelector("#pixPaymentModal");
+
+    const closePixPaymentModal =
+      document.querySelector("#closePixPaymentModal");
 
     const orderForm =
       document.querySelector("#orderForm");
@@ -2198,13 +2216,22 @@
     }
 
     function closeModal() {
-      orderModal.classList.remove(
-        "open"
-      );
+      orderModal.classList.remove("open");
 
-      document.body.classList.remove(
-        "modal-open"
-      );
+      if (!pixPaymentModal.classList.contains("open")) {
+        document.body.classList.remove("modal-open");
+      }
+    }
+
+    function openPixPaymentModal() {
+      orderModal.classList.remove("open");
+      pixPaymentModal.classList.add("open");
+      document.body.classList.add("modal-open");
+    }
+
+    function closePixModal() {
+      pixPaymentModal.classList.remove("open");
+      document.body.classList.remove("modal-open");
     }
 
     function atualizarEndereco() {
@@ -2234,6 +2261,11 @@
       "click",
       closeModal
     );
+
+    closePixPaymentModal.addEventListener("click", closePixModal);
+    pixPaymentModal.addEventListener("click", event => {
+      if (event.target === pixPaymentModal) closePixModal();
+    });
 
     orderModal.addEventListener(
       "click",
@@ -2376,12 +2408,14 @@
             throw new Error(pixResult.message || "Não foi possível gerar o Pix.");
           }
 
-          const pixBox = document.querySelector("#pixPaymentBox");
           const qr = document.querySelector("#pixQrImage");
           const code = document.querySelector("#pixCopyCode");
-          pixBox.classList.remove("hidden");
           qr.src = `data:image/png;base64,${pixResult.qrCodeBase64}`;
           code.value = pixResult.copiaCola || "";
+          document.querySelector("#pixPaymentStatus").textContent = "Aguardando pagamento...";
+          document.querySelector("#copyPixButton").textContent = "Copiar código Pix";
+          openPixPaymentModal();
+
           document.querySelector("#copyPixButton").onclick = async () => {
             await navigator.clipboard.writeText(code.value);
             document.querySelector("#copyPixButton").textContent = "Código copiado";
@@ -2520,17 +2554,251 @@
     );
   </script>
 
-<button type="button" id="openMyOrders" style="position:fixed;right:18px;bottom:18px;z-index:50;padding:14px 18px;border:0;border-radius:999px;background:#5a1e14;color:white;font-weight:800">📦 Meus pedidos</button>
-<dialog id="myOrdersDialog" style="width:min(720px,94vw);border:0;border-radius:18px;padding:22px">
-  <button type="button" id="closeMyOrders" style="float:right">✕</button><h2>Meus pedidos</h2>
-  <form id="myOrdersForm"><input id="ordersPhone" required placeholder="Seu telefone/WhatsApp" style="width:100%;padding:12px"><button type="submit" style="margin-top:10px;padding:12px">Consultar</button></form>
-  <div id="myOrdersResult" style="margin-top:16px"></div>
+<style>
+  #openMyOrders {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 50;
+    padding: 14px 18px;
+    border: 0;
+    border-radius: 999px;
+    background: #5a1e14;
+    color: #fff;
+    font-weight: 800;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .24);
+  }
+
+  #myOrdersDialog {
+    width: min(720px, 94vw);
+    max-height: min(86vh, 760px);
+    border: 0;
+    border-radius: 20px;
+    padding: 0;
+    overflow: hidden;
+    background: #fff;
+    color: #241915;
+  }
+
+  #myOrdersDialog::backdrop {
+    background: rgba(20, 10, 6, .72);
+    backdrop-filter: blur(5px);
+  }
+
+  .my-orders-shell { display: flex; flex-direction: column; max-height: min(86vh, 760px); }
+  .my-orders-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 20px; border-bottom:1px solid #eadfd9; }
+  .my-orders-header h2 { margin:0; font-size:1.45rem; }
+  .my-orders-close { width:40px; height:40px; border:0; border-radius:50%; font-size:1.2rem; cursor:pointer; }
+  .my-orders-body { padding:18px 20px 22px; overflow:auto; }
+  .my-orders-form { display:grid; grid-template-columns:1fr auto; gap:10px; }
+  .my-orders-form input { min-width:0; width:100%; padding:13px 14px; border:1px solid #d9cdc7; border-radius:12px; font-size:16px; }
+  .my-orders-form button { border:0; border-radius:12px; padding:0 18px; background:#ee6b18; color:#fff; font-weight:800; cursor:pointer; }
+  .my-orders-result { margin-top:16px; display:grid; gap:12px; }
+  .customer-order-card { border:1px solid #eadfd9; border-radius:16px; padding:15px; background:#fffaf7; box-shadow:0 5px 18px rgba(60,25,10,.07); overflow:hidden; }
+  .customer-order-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:10px; }
+  .customer-order-number { font-size:1.05rem; font-weight:900; }
+  .customer-order-date { font-size:.78rem; color:#7d6b63; margin-top:2px; }
+  .customer-order-badges { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
+  .customer-order-badge { padding:5px 8px; border-radius:999px; font-size:.72rem; font-weight:800; background:#efe7e2; }
+  .customer-order-badge.pending { background:#fff0bf; color:#785300; }
+  .customer-order-badge.paid { background:#dff6e6; color:#126330; }
+  .customer-order-items { margin:10px 0; border-top:1px dashed #d9c9c0; border-bottom:1px dashed #d9c9c0; padding:8px 0; }
+  .customer-order-item { display:grid; grid-template-columns:auto 1fr auto; gap:8px; padding:5px 0; align-items:start; }
+  .customer-order-item strong { overflow-wrap:anywhere; }
+  .customer-order-item small { display:block; color:#74645d; margin-top:2px; }
+  .customer-order-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:10px; }
+  .customer-order-total { font-size:1.08rem; font-weight:900; color:#11833a; }
+  .finish-pix-button { border:0; border-radius:11px; padding:11px 14px; background:#1769e0; color:white; font-weight:800; cursor:pointer; }
+  .finish-pix-button:disabled { opacity:.6; cursor:wait; }
+  .orders-empty, .orders-loading, .orders-error { padding:18px; text-align:center; border-radius:13px; background:#f7f1ed; }
+  .orders-error { background:#ffe2e2; color:#a11d1d; }
+
+  @media (max-width: 560px) {
+    #openMyOrders { right:12px; bottom:12px; padding:12px 15px; }
+    #myOrdersDialog { width:calc(100vw - 20px); max-height:calc(100dvh - 20px); border-radius:16px; }
+    .my-orders-shell { max-height:calc(100dvh - 20px); }
+    .my-orders-header { padding:14px 15px; }
+    .my-orders-body { padding:14px 12px 18px; }
+    .my-orders-form { grid-template-columns:1fr; }
+    .my-orders-form button { min-height:46px; }
+    .customer-order-head, .customer-order-footer { align-items:stretch; flex-direction:column; }
+    .customer-order-badges { justify-content:flex-start; }
+    .finish-pix-button { width:100%; min-height:46px; }
+    .customer-order-item { grid-template-columns:auto minmax(0, 1fr); }
+    .customer-order-item-price { grid-column:2; }
+  }
+</style>
+
+<button type="button" id="openMyOrders">📦 Meus pedidos</button>
+
+<dialog id="myOrdersDialog">
+  <div class="my-orders-shell">
+    <header class="my-orders-header">
+      <h2>Meus pedidos</h2>
+      <button type="button" id="closeMyOrders" class="my-orders-close" aria-label="Fechar">✕</button>
+    </header>
+    <div class="my-orders-body">
+      <form id="myOrdersForm" class="my-orders-form">
+        <input id="ordersPhone" required inputmode="tel" autocomplete="tel" placeholder="Seu telefone/WhatsApp">
+        <button type="submit">Consultar</button>
+      </form>
+      <div id="myOrdersResult" class="my-orders-result"></div>
+    </div>
+  </div>
 </dialog>
+
 <script>
-(() => { const slug=<%- JSON.stringify(configuracao.slug) %>; const dialog=document.querySelector('#myOrdersDialog');
- document.querySelector('#openMyOrders').onclick=()=>dialog.showModal(); document.querySelector('#closeMyOrders').onclick=()=>dialog.close();
- document.addEventListener('click', async e=>{ const b=e.target.closest('[data-rate-product]'); if(!b)return; const telefone=prompt('Informe o telefone usado no pedido:'); if(!telefone)return; const nota=Number(prompt('Nota de 1 a 5:')); if(!Number.isInteger(nota)||nota<1||nota>5)return alert('Nota inválida.'); const comentario=prompt('Comentário (opcional):')||''; const r=await fetch(`/catalogo/${encodeURIComponent(slug)}/produtos/${encodeURIComponent(b.dataset.productId)}/avaliacoes`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telefone,nota,comentario})}); const d=await r.json(); alert(d.message|| (r.ok?'Avaliação salva.':'Falha ao avaliar.')); if(r.ok)location.reload(); });
- document.querySelector('#myOrdersForm').onsubmit=async e=>{e.preventDefault(); const box=document.querySelector('#myOrdersResult'); box.textContent='Consultando...'; const r=await fetch(`/catalogo/${encodeURIComponent(slug)}/meus-pedidos?telefone=${encodeURIComponent(document.querySelector('#ordersPhone').value)}`); const d=await r.json(); if(!r.ok){box.textContent=d.message;return;} box.innerHTML=d.pedidos.length?d.pedidos.map(p=>`<article style="padding:12px;border:1px solid #ddd;border-radius:12px;margin:8px 0"><strong>Pedido #${p.numero}</strong><div>Pagamento: ${p.pagamentoStatus}</div><div>Status: ${p.status}</div><div>Total: R$ ${Number(p.total||0).toFixed(2).replace('.',',')}</div></article>`).join(''):'Nenhum pedido encontrado.'; };
+(() => {
+  const slug = <%- JSON.stringify(configuracao.slug) %>;
+  const dialog = document.querySelector('#myOrdersDialog');
+  const resultBox = document.querySelector('#myOrdersResult');
+  const phoneInput = document.querySelector('#ordersPhone');
+
+  const money = value => `R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`;
+  const escapeHtml = value => String(value ?? '')
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+
+  const statusText = status => ({
+    novo: 'Novo', preparo: 'Em preparo', em_preparo: 'Em preparo', pronto: 'Pronto',
+    entregue: 'Entregue', finalizado: 'Finalizado', cancelado: 'Cancelado'
+  }[status] || status || 'Não informado');
+
+  const paymentText = status => ({ pendente: 'Pendente', pago: 'Pago', cancelado: 'Cancelado' }[status] || status || 'Pendente');
+
+  function openPixFromOrder(pix, pedidoId) {
+    const orderModal = document.querySelector('#orderModal');
+    const pixModal = document.querySelector('#pixPaymentModal');
+    const qr = document.querySelector('#pixQrImage');
+    const code = document.querySelector('#pixCopyCode');
+    const status = document.querySelector('#pixPaymentStatus');
+    const copyButton = document.querySelector('#copyPixButton');
+
+    if (!pixModal || !qr || !code) throw new Error('Tela do Pix não foi encontrada.');
+    if (orderModal) orderModal.classList.remove('open');
+    dialog.close();
+    qr.src = `data:image/png;base64,${pix.qrCodeBase64 || ''}`;
+    code.value = pix.copiaCola || '';
+    status.textContent = 'Aguardando pagamento...';
+    copyButton.textContent = 'Copiar código Pix';
+    copyButton.onclick = async () => {
+      await navigator.clipboard.writeText(code.value);
+      copyButton.textContent = 'Código copiado';
+    };
+    pixModal.classList.add('open');
+    document.body.classList.add('modal-open');
+
+    const interval = setInterval(async () => {
+      try {
+        const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/pedidos/${encodeURIComponent(pedidoId)}/pagamento-status`);
+        const data = await response.json();
+        if (data.pagamentoStatus === 'pago') {
+          clearInterval(interval);
+          status.textContent = '✅ Pagamento aprovado. Pedido confirmado!';
+        }
+      } catch (_) {}
+    }, 5000);
+  }
+
+  async function finishPendingPix(button) {
+    const pedidoId = button.dataset.orderId;
+    button.disabled = true;
+    const oldText = button.textContent;
+    button.textContent = 'Gerando Pix...';
+    try {
+      const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/pedidos/${encodeURIComponent(pedidoId)}/pix`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Não foi possível gerar o Pix.');
+      if (data.aprovado) {
+        alert('Este pedido já está pago.');
+        return;
+      }
+      openPixFromOrder(data, pedidoId);
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      button.disabled = false;
+      button.textContent = oldText;
+    }
+  }
+
+  function renderOrders(orders) {
+    if (!orders.length) {
+      resultBox.innerHTML = '<div class="orders-empty">Nenhum pedido encontrado para este telefone.</div>';
+      return;
+    }
+
+    resultBox.innerHTML = orders.map(order => {
+      const pendingPix = order.formaPagamento === 'pix' && order.pagamentoStatus === 'pendente';
+      const items = (order.itens || []).map(item => {
+        const extras = (item.adicionais || []).map(extra => escapeHtml(extra.nome)).join(', ');
+        return `<div class="customer-order-item">
+          <span>${Number(item.quantidade || 1)}x</span>
+          <div><strong>${escapeHtml(item.nome || 'Item')}</strong>${extras ? `<small>Adicionais: ${extras}</small>` : ''}${item.observacao ? `<small>Observação: ${escapeHtml(item.observacao)}</small>` : ''}</div>
+          <strong class="customer-order-item-price">${money(item.subtotal || (Number(item.preco || 0) * Number(item.quantidade || 1)))}</strong>
+        </div>`;
+      }).join('');
+
+      return `<article class="customer-order-card">
+        <div class="customer-order-head">
+          <div><div class="customer-order-number">Pedido #${escapeHtml(order.numero)}</div><div class="customer-order-date">${new Date(order.createdAt).toLocaleString('pt-BR')}</div></div>
+          <div class="customer-order-badges">
+            <span class="customer-order-badge">${escapeHtml(statusText(order.status))}</span>
+            <span class="customer-order-badge ${order.pagamentoStatus === 'pago' ? 'paid' : 'pending'}">Pagamento: ${escapeHtml(paymentText(order.pagamentoStatus))}</span>
+          </div>
+        </div>
+        <div><strong>Forma de pagamento:</strong> ${order.formaPagamento === 'pix' ? 'Pix online' : escapeHtml(order.formaPagamento || 'Não informada')}</div>
+        ${order.observacao ? `<div><strong>Observação do pedido:</strong> ${escapeHtml(order.observacao)}</div>` : ''}
+        <div class="customer-order-items">${items || '<div>Itens não informados.</div>'}</div>
+        <div class="customer-order-footer">
+          <div class="customer-order-total">Total: ${money(order.total)}</div>
+          ${pendingPix ? `<button type="button" class="finish-pix-button" data-finish-pix data-order-id="${escapeHtml(order.id)}">Concluir pagamento Pix</button>` : ''}
+        </div>
+      </article>`;
+    }).join('');
+  }
+
+  document.querySelector('#openMyOrders').onclick = () => dialog.showModal();
+  document.querySelector('#closeMyOrders').onclick = () => dialog.close();
+  dialog.addEventListener('click', event => {
+    if (event.target === dialog) dialog.close();
+  });
+
+  resultBox.addEventListener('click', event => {
+    const button = event.target.closest('[data-finish-pix]');
+    if (button) finishPendingPix(button);
+  });
+
+  document.addEventListener('click', async event => {
+    const button = event.target.closest('[data-rate-product]');
+    if (!button) return;
+    const telefone = prompt('Informe o telefone usado no pedido:');
+    if (!telefone) return;
+    const nota = Number(prompt('Nota de 1 a 5:'));
+    if (!Number.isInteger(nota) || nota < 1 || nota > 5) return alert('Nota inválida.');
+    const comentario = prompt('Comentário (opcional):') || '';
+    const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/produtos/${encodeURIComponent(button.dataset.productId)}/avaliacoes`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ telefone, nota, comentario })
+    });
+    const data = await response.json();
+    alert(data.message || (response.ok ? 'Avaliação salva.' : 'Falha ao avaliar.'));
+    if (response.ok) location.reload();
+  });
+
+  document.querySelector('#myOrdersForm').onsubmit = async event => {
+    event.preventDefault();
+    resultBox.innerHTML = '<div class="orders-loading">Consultando pedidos...</div>';
+    try {
+      const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/meus-pedidos?telefone=${encodeURIComponent(phoneInput.value)}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Não foi possível consultar os pedidos.');
+      renderOrders(data.pedidos || []);
+    } catch (error) {
+      resultBox.innerHTML = `<div class="orders-error">${escapeHtml(error.message)}</div>`;
+    }
+  };
 })();
 </script>
 </body>

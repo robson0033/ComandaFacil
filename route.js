@@ -211,6 +211,15 @@ route.post(
   admin.atualizarStatusPedido
 );
 
+route.post(
+  '/admin/pedidos/:id/excluir',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissao('pedidos'),
+  admin.excluirPedido
+);
+
 route.get(
   '/admin/api/pedidos/novos',
   loginRequired,

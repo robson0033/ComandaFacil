@@ -3291,6 +3291,56 @@ exports.atualizarStatusPedido =
     }
   };
 
+exports.excluirPedido = async (req, res) => {
+  try {
+    const idEstabelecimento = estabelecimentoId(req);
+    const pedido = await Pedido.findOne({
+      _id: req.params.id,
+      estabelecimentoId: idEstabelecimento,
+    });
+
+    if (!pedido) {
+      return res.status(404).json({
+        success: false,
+        message: "Pedido não encontrado.",
+      });
+    }
+
+    const mesaId = pedido.mesaId;
+    await Pedido.deleteOne({
+      _id: pedido._id,
+      estabelecimentoId: idEstabelecimento,
+    });
+
+    if (mesaId) {
+      const possuiOutroPedidoAberto = await Pedido.exists({
+        estabelecimentoId: idEstabelecimento,
+        mesaId,
+        pagamentoStatus: "pendente",
+        status: { $nin: ["finalizado", "cancelado"] },
+      });
+
+      if (!possuiOutroPedidoAberto) {
+        await Mesa.updateOne(
+          { _id: mesaId, estabelecimentoId: idEstabelecimento },
+          { $set: { status: "livre" } },
+        );
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: "Pedido excluído definitivamente.",
+    });
+  } catch (error) {
+    console.error("Erro ao excluir pedido:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Não foi possível excluir o pedido.",
+    });
+  }
+};
+
   exports.buscarNovosPedidos = async (
   req,
   res
@@ -4975,9 +5025,17 @@ exports.buscarPedidosCatalogo = async (req, res) => {
       ],
     }).sort({ createdAt: -1 }).limit(30).lean();
     return res.json({ success: true, pedidos: pedidos.map(p => ({
-      id: String(p._id), numero: String(p._id).slice(-6).toUpperCase(), cliente: p.cliente,
-      canal: p.canal, itens: p.itens, total: p.total, status: p.status,
-      pagamentoStatus: p.pagamentoStatus, formaPagamento: p.formaPagamento, createdAt: p.createdAt,
+      id: String(p._id),
+      numero: String(p._id).slice(-6).toUpperCase(),
+      cliente: p.cliente,
+      canal: p.canal,
+      itens: p.itens || [],
+      observacao: p.observacao || "",
+      total: p.total,
+      status: p.status,
+      pagamentoStatus: p.pagamentoStatus,
+      formaPagamento: p.formaPagamento,
+      createdAt: p.createdAt,
     })) });
   } catch (error) {
     console.error("Erro ao consultar pedidos do catálogo:", error);

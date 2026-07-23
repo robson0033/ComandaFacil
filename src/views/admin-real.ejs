@@ -56,16 +56,12 @@
 
 .orders-quick-filters {
   display: flex;
-  align-items: center;
-  justify-content: center;
   flex-wrap: wrap;
   gap: 9px;
   margin-bottom: 14px;
 }
 
 .order-quick-filter {
-  display: flex;
-  align-items: center;
   min-height: 39px;
   padding: 0 14px;
   border: 1px solid var(--cinza-200);
@@ -159,9 +155,6 @@
 }
 
 .orders-clear-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   min-height: 43px;
   padding: 0 15px;
   border: 1px solid var(--cinza-200);
@@ -2497,6 +2490,31 @@
       filter: brightness(.95);
     }
 
+    .delete-order-button {
+      min-height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 9px 14px;
+      border: 0;
+      border-radius: 10px;
+      background: #dc2f2f;
+      color: #fff;
+      font-weight: 800;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .delete-order-button:hover { filter: brightness(.92); }
+    .delete-order-button:disabled { opacity: .6; cursor: wait; }
+
+    @media (max-width: 700px) {
+      .whatsapp-order-button,
+      .print-order-button,
+      .delete-order-button { width: 100%; }
+    }
+
     .print-order-button:disabled {
       opacity: .55;
       cursor: wait;
@@ -3648,6 +3666,14 @@
                   💬 Falar no WhatsApp
                 </a>
               <% } %>
+
+              <button
+                type="button"
+                class="delete-order-button"
+                data-delete-order="<%= pedido._id %>"
+              >
+                🗑 Excluir pedido
+              </button>
 
               <% if (pode('imprimir_pedidos')) { %>
                 <button
@@ -7400,6 +7426,14 @@ function criarCardPedido(
           </a>
         ` : ''}
 
+        <button
+          type="button"
+          class="delete-order-button"
+          data-delete-order="${escaparHtml(pedido.id)}"
+        >
+          🗑 Excluir pedido
+        </button>
+
         ${
           podeImprimirPedidos
             ? `
@@ -7894,6 +7928,42 @@ async function imprimirPedido(
 
   return result;
 }
+
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-delete-order]');
+  if (!button) return;
+
+  const pedidoId = button.dataset.deleteOrder;
+  const confirmou = window.confirm(
+    'Excluir este pedido definitivamente? Ele também será apagado do banco de dados.'
+  );
+  if (!confirmou) return;
+
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Excluindo...';
+
+  try {
+    const response = await fetch(`/admin/pedidos/${encodeURIComponent(pedidoId)}/excluir`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.message || 'Não foi possível excluir o pedido.');
+
+    const card = button.closest('.order-card');
+    if (card) card.remove();
+
+    const cardsRestantes = document.querySelectorAll('#ordersList .order-card:not(.order-filter-hidden)').length;
+    const contador = document.querySelector('#ordersResultCount');
+    if (contador) contador.textContent = `Exibindo ${cardsRestantes} pedido(s)`;
+    alert(result.message || 'Pedido excluído.');
+  } catch (error) {
+    alert(error.message);
+    button.disabled = false;
+    button.textContent = original;
+  }
+});
 
 document.addEventListener(
   'click',
