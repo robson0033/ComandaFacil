@@ -492,6 +492,7 @@ const Pedido = mongoose.model(
 
       telefoneCliente: { type: String, default: "", trim: true },
       telefoneNormalizado: { type: String, default: "", trim: true, index: true },
+      emailCliente: { type: String, default: "", trim: true, lowercase: true },
       enderecoEntrega: { type: String, default: "", trim: true },
 
       canal: {

@@ -3405,6 +3405,10 @@ exports.criarPedidoCatalogo = async (
       req.body.telefone || ''
     ).trim();
 
+    const emailCliente = String(
+      req.body.emailCliente || req.body.email || ''
+    ).trim().toLowerCase();
+
     const canal = String(
       req.body.canal || ''
     ).trim();
@@ -3445,6 +3449,16 @@ exports.criarPedidoCatalogo = async (
     };
 
     const formaPagamento = aliasesPagamento[formaPagamentoBruta] || 'nao_informado';
+
+    if (formaPagamento === 'pix') {
+      const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente);
+      if (!emailValido) {
+        return res.status(400).json({
+          success: false,
+          message: 'Informe um e-mail válido para gerar o pagamento Pix.',
+        });
+      }
+    }
 
     const precisaTroco = formaPagamento === 'dinheiro' &&
       ['true', '1', 'sim', 'on'].includes(String(req.body.precisaTroco || '').toLowerCase());
@@ -3625,6 +3639,7 @@ exports.criarPedidoCatalogo = async (
 
         telefoneCliente: telefone,
         telefoneNormalizado: normalizarTelefonePublico(telefone),
+        emailCliente: formaPagamento === 'pix' ? emailCliente : '',
 
         canal,
 

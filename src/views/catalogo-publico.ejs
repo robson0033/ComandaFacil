@@ -1393,6 +1393,18 @@
           </select>
         </div>
 
+        <div class="form-field full hidden" id="emailPixField">
+          <label for="emailPix">E-mail para o pagamento Pix</label>
+          <input
+            type="email"
+            id="emailPix"
+            name="emailPix"
+            placeholder="cliente@email.com"
+            autocomplete="email"
+          >
+          <small style="display:block;margin-top:6px;color:#786b66">O Mercado Pago exige um e-mail válido para gerar o Pix.</small>
+        </div>
+
         <div class="form-field full">
           <label for="observacaoFinal">
             Observações do pedido
@@ -2264,6 +2276,19 @@
     );
 
     const formaPagamentoSelect = document.querySelector("#formaPagamento");
+    const emailPixField = document.querySelector("#emailPixField");
+    const emailPixInput = document.querySelector("#emailPix");
+
+    function atualizarCampoEmailPix() {
+      const pixSelecionado = formaPagamentoSelect.value === "pix";
+      emailPixField.classList.toggle("hidden", !pixSelecionado);
+      emailPixInput.required = pixSelecionado;
+      if (!pixSelecionado) emailPixInput.value = "";
+    }
+
+    formaPagamentoSelect.addEventListener("change", atualizarCampoEmailPix);
+    atualizarCampoEmailPix();
+
     const trocoModal = document.querySelector("#trocoModal");
     const closeTrocoModalBtn = document.querySelector("#closeTrocoModal");
     const semTrocoBtn = document.querySelector("#semTrocoBtn");
@@ -2452,6 +2477,7 @@
         enderecoEntrega: String(formData.get("enderecoEntrega") || "").trim(),
         observacao: String(formData.get("observacao") || "").trim(),
         formaPagamento: String(formData.get("formaPagamento") || "nao_informado"),
+        emailCliente: String(formData.get("emailPix") || "").trim().toLowerCase(),
         precisaTroco: false,
         trocoPara: null,
         itens: cart.map(item => ({
@@ -2463,6 +2489,16 @@
           observacao: String(item.observacao || "")
         }))
       };
+
+      if (payload.formaPagamento === "pix") {
+        const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.emailCliente);
+        if (!emailValido) {
+          formMessage.className = "form-message error";
+          formMessage.textContent = "Informe um e-mail válido para gerar o pagamento Pix.";
+          emailPixInput.focus();
+          return;
+        }
+      }
 
       if (payload.formaPagamento === "dinheiro") {
         abrirModalTroco(payload);

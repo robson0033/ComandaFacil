@@ -281,7 +281,16 @@ exports.gerarPixPedido = async (req, res) => {
     }
 
     const { accessToken } = await configuracaoComToken(cfgPublica.estabelecimentoId);
-    const emailFallback = `cliente.${String(pedido._id)}@email.invalid`;
+    const emailCliente = String(pedido.emailCliente || "").trim().toLowerCase();
+    const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente);
+
+    if (!emailValido) {
+      return res.status(400).json({
+        success: false,
+        message: "Informe um e-mail válido para gerar o pagamento Pix.",
+      });
+    }
+
     const data = await mp("/v1/payments", {
       method: "POST",
       headers: { "X-Idempotency-Key": `pedido-${pedido._id}` },
@@ -291,7 +300,7 @@ exports.gerarPixPedido = async (req, res) => {
         payment_method_id: "pix",
         external_reference: `pedido:${pedido._id}`,
         notification_url: `${baseUrl(req)}/webhook/mercado-pago`,
-        payer: { email: emailFallback, first_name: pedido.cliente || "Cliente" },
+        payer: { email: emailCliente, first_name: pedido.cliente || "Cliente" },
       }),
     }, accessToken);
 
