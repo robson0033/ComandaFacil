@@ -56,6 +56,8 @@
 
 .orders-quick-filters {
   display: flex;
+  align-items: center;
+  justify-content: center;
   flex-wrap: wrap;
   gap: 9px;
   margin-bottom: 14px;
@@ -155,6 +157,9 @@
 }
 
 .orders-clear-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-height: 43px;
   padding: 0 15px;
   border: 1px solid var(--cinza-200);
@@ -3609,7 +3614,7 @@
 
                   <option
                     value="pronto"
-                    <%= pedido.status === 'pronto'
+                    <%= pedido.status === 'Saiu Para Entrega'
                       ? 'selected'
                       : ''
                     %>
