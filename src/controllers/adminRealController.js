@@ -2961,7 +2961,7 @@ exports.obterPedidoParaImpressao = async (
           pedido.pagamentoStatus ||
           "pendente",
         formaPagamento:
-          pedido.formaPagamento || "nao_informado",
+          pedido.formaPagamento || pedido.metodoPagamento || pedido.pagamentoMetodo || "nao_informado",
         pagamentoInformadoEm:
           pedido.pagamentoInformadoEm || null,
         pagoEm:
@@ -3417,10 +3417,34 @@ exports.criarPedidoCatalogo = async (
       req.body.observacao || ''
     ).trim();
 
-    const formaPagamentoRecebida = String(req.body.formaPagamento || 'nao_informado');
-    const formaPagamento = ['dinheiro', 'pix', 'cartao'].includes(formaPagamentoRecebida)
-      ? formaPagamentoRecebida
-      : 'nao_informado';
+    const formaPagamentoBruta = String(
+      req.body.formaPagamento ||
+      req.body.metodoPagamento ||
+      req.body.pagamentoMetodo ||
+      'nao_informado'
+    )
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[\s-]+/g, '_');
+
+    const aliasesPagamento = {
+      pix: 'pix',
+      pix_online: 'pix',
+      dinheiro: 'dinheiro',
+      dinheiro_entrega: 'dinheiro',
+      dinheiro_na_entrega: 'dinheiro',
+      cash: 'dinheiro',
+      cartao: 'cartao',
+      cartao_entrega: 'cartao',
+      cartao_na_entrega: 'cartao',
+      credito: 'cartao',
+      debito: 'cartao',
+      card: 'cartao',
+    };
+
+    const formaPagamento = aliasesPagamento[formaPagamentoBruta] || 'nao_informado';
 
     const precisaTroco = formaPagamento === 'dinheiro' &&
       ['true', '1', 'sim', 'on'].includes(String(req.body.precisaTroco || '').toLowerCase());
@@ -4736,7 +4760,7 @@ exports.imprimirPedidoRemoto = async (req, res) => {
         logoUrl: configuracao?.fotoPerfil || "",
       },
       impressoras: configuracao?.impressoras || [], modo: req.body.modo || "manual",
-      pedido: { id: String(pedido._id), numero: String(pedido._id).slice(-6).toUpperCase(), origem: pedido.canal === "delivery" ? "Delivery" : pedido.canal === "mesa" ? `Mesa ${pedido.mesaId?.numero || ""}` : "Retirada", canal: pedido.canal, cliente: pedido.cliente, telefone: pedido.telefoneCliente || "", endereco: pedido.enderecoEntrega || "", observacao: pedido.observacao || "", total: pedido.total, status: pedido.status, pagamentoStatus: pedido.pagamentoStatus, formaPagamento: pedido.formaPagamento || "nao_informado", pagamentoInformadoEm: pedido.pagamentoInformadoEm || null, pagoEm: pedido.pagoEm || null, precisaTroco: Boolean(pedido.precisaTroco), trocoPara: pedido.trocoPara ?? null, valorTroco: pedido.valorTroco ?? null, createdAt: pedido.createdAt, itens: pedido.itens || [] }
+      pedido: { id: String(pedido._id), numero: String(pedido._id).slice(-6).toUpperCase(), origem: pedido.canal === "delivery" ? "Delivery" : pedido.canal === "mesa" ? `Mesa ${pedido.mesaId?.numero || ""}` : "Retirada", canal: pedido.canal, cliente: pedido.cliente, telefone: pedido.telefoneCliente || "", endereco: pedido.enderecoEntrega || "", observacao: pedido.observacao || "", total: pedido.total, status: pedido.status, pagamentoStatus: pedido.pagamentoStatus, formaPagamento: pedido.formaPagamento || pedido.metodoPagamento || pedido.pagamentoMetodo || "nao_informado", pagamentoInformadoEm: pedido.pagamentoInformadoEm || null, pagoEm: pedido.pagoEm || null, precisaTroco: Boolean(pedido.precisaTroco), trocoPara: pedido.trocoPara ?? null, valorTroco: pedido.valorTroco ?? null, createdAt: pedido.createdAt, itens: pedido.itens || [] }
     };
     const data = await printAgentHub.request(lojaId, "print:job", payload, 30000);
     return res.json({ success: true, ...data });

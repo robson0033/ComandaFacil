@@ -1393,37 +1393,6 @@
           </select>
         </div>
 
-        <div
-          class="form-field full hidden"
-          id="trocoField"
-          style="padding:14px;border:1px solid #eadbd5;border-radius:14px;background:#fff8f5"
-        >
-          <label for="precisaTroco" style="display:flex;align-items:center;gap:10px;cursor:pointer">
-            <input
-              type="checkbox"
-              id="precisaTroco"
-              name="precisaTroco"
-              value="true"
-              style="width:18px;height:18px"
-            >
-            Precisa de troco?
-          </label>
-
-          <div id="trocoParaField" class="hidden" style="margin-top:12px">
-            <label for="trocoPara">Troco para quanto?</label>
-            <input
-              id="trocoPara"
-              name="trocoPara"
-              type="number"
-              inputmode="decimal"
-              min="0"
-              step="0.01"
-              placeholder="Ex.: 100,00"
-            >
-            <small style="display:block;margin-top:6px;color:#755b52">O valor do troco também aparecerá no comprovante.</small>
-          </div>
-        </div>
-
         <div class="form-field full">
           <label for="observacaoFinal">
             Observações do pedido
@@ -1456,6 +1425,80 @@
         <button type="button" class="send-order-btn" id="copyPixButton" style="margin-top:10px">Copiar código Pix</button>
         <p id="pixPaymentStatus">Aguardando pagamento...</p>
       </section>
+    </div>
+  </div>
+
+
+  <div class="order-modal" id="trocoModal">
+    <div class="order-modal-card" style="max-width:520px">
+      <div class="modal-head">
+        <div>
+          <h2>Precisa de troco?</h2>
+          <p>Informe se será necessário levar troco para o pagamento em dinheiro.</p>
+        </div>
+
+        <button
+          type="button"
+          class="modal-close"
+          id="closeTrocoModal"
+          aria-label="Fechar"
+        >
+          ×
+        </button>
+      </div>
+
+      <div class="order-form" style="display:block">
+        <div id="trocoPergunta">
+          <button
+            type="button"
+            class="send-order-btn"
+            id="semTrocoBtn"
+            style="margin-bottom:12px;background:#5a1e14"
+          >
+            Não precisa de troco
+          </button>
+
+          <button
+            type="button"
+            class="send-order-btn"
+            id="comTrocoBtn"
+          >
+            Sim, preciso de troco
+          </button>
+        </div>
+
+        <div id="trocoValorArea" class="hidden">
+          <div class="form-field full">
+            <label for="trocoParaModal">Troco para quanto?</label>
+            <input
+              id="trocoParaModal"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              placeholder="Ex.: 50,00"
+            >
+            <small style="display:block;margin-top:7px;color:#755b52">Exemplo: se o cliente vai pagar com R$ 50,00, digite 50,00.</small>
+          </div>
+
+          <div id="trocoMessage" class="form-message"></div>
+
+          <button
+            type="button"
+            class="send-order-btn"
+            id="confirmarTrocoBtn"
+          >
+            Confirmar e enviar pedido
+          </button>
+
+          <button
+            type="button"
+            id="voltarTrocoBtn"
+            style="width:100%;margin-top:10px;padding:12px;border:0;background:transparent;font-weight:700;cursor:pointer"
+          >
+            Voltar
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -2221,197 +2264,213 @@
     );
 
     const formaPagamentoSelect = document.querySelector("#formaPagamento");
-    const trocoField = document.querySelector("#trocoField");
-    const precisaTrocoInput = document.querySelector("#precisaTroco");
-    const trocoParaField = document.querySelector("#trocoParaField");
-    const trocoParaInput = document.querySelector("#trocoPara");
+    const trocoModal = document.querySelector("#trocoModal");
+    const closeTrocoModalBtn = document.querySelector("#closeTrocoModal");
+    const semTrocoBtn = document.querySelector("#semTrocoBtn");
+    const comTrocoBtn = document.querySelector("#comTrocoBtn");
+    const trocoPergunta = document.querySelector("#trocoPergunta");
+    const trocoValorArea = document.querySelector("#trocoValorArea");
+    const trocoParaModal = document.querySelector("#trocoParaModal");
+    const trocoMessage = document.querySelector("#trocoMessage");
+    const confirmarTrocoBtn = document.querySelector("#confirmarTrocoBtn");
+    const voltarTrocoBtn = document.querySelector("#voltarTrocoBtn");
 
-    function atualizarCamposTroco() {
-      const pagamentoEmDinheiro = formaPagamentoSelect.value === "dinheiro";
-      trocoField.classList.toggle("hidden", !pagamentoEmDinheiro);
+    let pedidoPendente = null;
 
-      if (!pagamentoEmDinheiro) {
-        precisaTrocoInput.checked = false;
-        trocoParaInput.value = "";
-      }
-
-      trocoParaField.classList.toggle(
-        "hidden",
-        !pagamentoEmDinheiro || !precisaTrocoInput.checked
-      );
-
-      trocoParaInput.required = pagamentoEmDinheiro && precisaTrocoInput.checked;
+    function abrirModalTroco(payload) {
+      pedidoPendente = payload;
+      trocoPergunta.classList.remove("hidden");
+      trocoValorArea.classList.add("hidden");
+      trocoParaModal.value = "";
+      trocoMessage.className = "form-message";
+      trocoMessage.textContent = "";
+      trocoModal.classList.add("open");
     }
 
-    formaPagamentoSelect.addEventListener("change", atualizarCamposTroco);
-    precisaTrocoInput.addEventListener("change", atualizarCamposTroco);
-    atualizarCamposTroco();
+    function fecharModalTroco() {
+      trocoModal.classList.remove("open");
+      pedidoPendente = null;
+      trocoParaModal.value = "";
+      trocoMessage.textContent = "";
+    }
 
-    orderForm.addEventListener(
-      "submit",
-      async event => {
-        event.preventDefault();
+    closeTrocoModalBtn.addEventListener("click", fecharModalTroco);
 
-        if (
-          !storeIsOpen ||
-          !cart.length
-        ) {
-          return;
+    trocoModal.addEventListener("click", event => {
+      if (event.target === trocoModal) fecharModalTroco();
+    });
+
+    comTrocoBtn.addEventListener("click", () => {
+      trocoPergunta.classList.add("hidden");
+      trocoValorArea.classList.remove("hidden");
+      setTimeout(() => trocoParaModal.focus(), 50);
+    });
+
+    voltarTrocoBtn.addEventListener("click", () => {
+      trocoValorArea.classList.add("hidden");
+      trocoPergunta.classList.remove("hidden");
+      trocoParaModal.value = "";
+      trocoMessage.textContent = "";
+    });
+
+    async function enviarPedido(payload) {
+      formMessage.className = "form-message";
+      formMessage.textContent = "";
+      sendOrderBtn.disabled = true;
+      sendOrderBtn.textContent = "Enviando pedido...";
+      confirmarTrocoBtn.disabled = true;
+
+      try {
+        const response = await fetch(
+          `/catalogo/${encodeURIComponent(storeSlug)}/pedidos`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.message || "Não foi possível enviar o pedido.");
         }
 
-        formMessage.className =
-          "form-message";
+        fecharModalTroco();
+        formMessage.className = "form-message success";
+        formMessage.textContent =
+          `Pedido #${result.numeroPedido} enviado. Acompanhe pelo WhatsApp informado.`;
 
-        formMessage.textContent = "";
-
-        sendOrderBtn.disabled = true;
-        sendOrderBtn.textContent =
-          "Enviando pedido...";
-
-        const formData =
-          new FormData(orderForm);
-
-        const payload = {
-          cliente:
-            String(
-              formData.get("cliente") ||
-              ""
-            ).trim(),
-
-          telefone:
-            String(
-              formData.get("telefone") ||
-              ""
-            ).trim(),
-
-          canal:
-            String(
-              formData.get("canal") ||
-              ""
-            ),
-
-          enderecoEntrega:
-            String(
-              formData.get(
-                "enderecoEntrega"
-              ) || ""
-            ).trim(),
-
-          observacao:
-            String(
-              formData.get(
-                "observacao"
-              ) || ""
-            ).trim(),
-
-          formaPagamento: String(formData.get("formaPagamento") || "nao_informado"),
-
-          precisaTroco: formData.get("precisaTroco") === "true",
-
-          trocoPara: formData.get("precisaTroco") === "true"
-            ? Number(formData.get("trocoPara") || 0)
-            : null,
-
-          itens: cart.map(item => ({
-            produtoId: item.id,
-            quantidade: Number(item.quantity),
-            adicionais: (item.adicionais || []).map(adicional => ({
-              _id: adicional._id
-            })),
-            observacao: String(item.observacao || "")
-          }))
-        };
-
-        try {
-          const response =
-            await fetch(
-              `/catalogo/${encodeURIComponent(storeSlug)}/pedidos`,
-              {
-                method: "POST",
-                headers: {
-                  "Content-Type":
-                    "application/json"
-                },
-                body:
-                  JSON.stringify(
-                    payload
-                  )
-              }
-            );
-
-          const result =
-            await response.json();
-
-          if (!response.ok) {
-            throw new Error(
-              result.message ||
-              "Não foi possível enviar o pedido."
-            );
+        if (payload.formaPagamento === "pix") {
+          const pixResponse = await fetch(
+            `/catalogo/${encodeURIComponent(storeSlug)}/pedidos/${encodeURIComponent(result.pedidoId)}/pix`,
+            { method: "POST", headers: { "Content-Type": "application/json" } }
+          );
+          const pixResult = await pixResponse.json();
+          if (!pixResponse.ok) {
+            throw new Error(pixResult.message || "Não foi possível gerar o Pix.");
           }
 
-          formMessage.className =
-            "form-message success";
+          const pixBox = document.querySelector("#pixPaymentBox");
+          const qr = document.querySelector("#pixQrImage");
+          const code = document.querySelector("#pixCopyCode");
+          pixBox.classList.remove("hidden");
+          qr.src = `data:image/png;base64,${pixResult.qrCodeBase64}`;
+          code.value = pixResult.copiaCola || "";
+          document.querySelector("#copyPixButton").onclick = async () => {
+            await navigator.clipboard.writeText(code.value);
+            document.querySelector("#copyPixButton").textContent = "Código copiado";
+          };
 
-          formMessage.textContent =
-            `Pedido #${result.numeroPedido} enviado. Acompanhe pelo WhatsApp informado.`;
-
-          if (payload.formaPagamento === "pix") {
-            const pixResponse = await fetch(
-              `/catalogo/${encodeURIComponent(storeSlug)}/pedidos/${encodeURIComponent(result.pedidoId)}/pix`,
-              { method: "POST", headers: { "Content-Type": "application/json" } }
+          const interval = setInterval(async () => {
+            const statusResponse = await fetch(
+              `/catalogo/${encodeURIComponent(storeSlug)}/pedidos/${encodeURIComponent(result.pedidoId)}/pagamento-status`
             );
-            const pixResult = await pixResponse.json();
-            if (!pixResponse.ok) throw new Error(pixResult.message || "Não foi possível gerar o Pix.");
-
-            const pixBox = document.querySelector("#pixPaymentBox");
-            const qr = document.querySelector("#pixQrImage");
-            const code = document.querySelector("#pixCopyCode");
-            pixBox.classList.remove("hidden");
-            qr.src = `data:image/png;base64,${pixResult.qrCodeBase64}`;
-            code.value = pixResult.copiaCola || "";
-            document.querySelector("#copyPixButton").onclick = async () => {
-              await navigator.clipboard.writeText(code.value);
-              document.querySelector("#copyPixButton").textContent = "Código copiado";
-            };
-
-            const interval = setInterval(async () => {
-              const statusResponse = await fetch(`/catalogo/${encodeURIComponent(storeSlug)}/pedidos/${encodeURIComponent(result.pedidoId)}/pagamento-status`);
-              const statusResult = await statusResponse.json();
-              if (statusResult.pagamentoStatus === "pago") {
-                clearInterval(interval);
-                document.querySelector("#pixPaymentStatus").textContent = "✅ Pagamento aprovado. Pedido confirmado!";
-              }
-            }, 5000);
-          }
-
-          cart = [];
-          saveCart();
-          renderCart();
-
-          orderForm.reset();
-          atualizarEndereco();
-          atualizarCamposTroco();
-
-          if (payload.formaPagamento !== "pix") {
-            setTimeout(() => {
-              closeModal();
-            }, 2500);
-          }
-        } catch (error) {
-          formMessage.className =
-            "form-message error";
-
-          formMessage.textContent =
-            error.message;
-        } finally {
-          sendOrderBtn.disabled =
-            false;
-
-          sendOrderBtn.textContent =
-            "Enviar pedido";
+            const statusResult = await statusResponse.json();
+            if (statusResult.pagamentoStatus === "pago") {
+              clearInterval(interval);
+              document.querySelector("#pixPaymentStatus").textContent =
+                "✅ Pagamento aprovado. Pedido confirmado!";
+            }
+          }, 5000);
         }
+
+        cart = [];
+        saveCart();
+        renderCart();
+        orderForm.reset();
+        atualizarEndereco();
+
+        if (payload.formaPagamento !== "pix") {
+          setTimeout(() => closeModal(), 2500);
+        }
+      } catch (error) {
+        formMessage.className = "form-message error";
+        formMessage.textContent = error.message;
+
+        if (trocoModal.classList.contains("open")) {
+          trocoMessage.className = "form-message error";
+          trocoMessage.textContent = error.message;
+        }
+      } finally {
+        sendOrderBtn.disabled = false;
+        sendOrderBtn.textContent = "Enviar pedido";
+        confirmarTrocoBtn.disabled = false;
+        confirmarTrocoBtn.textContent = "Confirmar e enviar pedido";
       }
-    );
+    }
+
+    semTrocoBtn.addEventListener("click", async () => {
+      if (!pedidoPendente) return;
+      const payload = {
+        ...pedidoPendente,
+        precisaTroco: false,
+        trocoPara: null
+      };
+      await enviarPedido(payload);
+    });
+
+    confirmarTrocoBtn.addEventListener("click", async () => {
+      if (!pedidoPendente) return;
+
+      const valorDigitado = String(trocoParaModal.value || "")
+        .trim()
+        .replace(/\s/g, "")
+        .replace("R$", "")
+        .replace(/\./g, "")
+        .replace(",", ".");
+      const trocoPara = Number(valorDigitado);
+
+      if (!Number.isFinite(trocoPara) || trocoPara <= 0) {
+        trocoMessage.className = "form-message error";
+        trocoMessage.textContent = "Informe um valor válido. Exemplo: 50,00.";
+        trocoParaModal.focus();
+        return;
+      }
+
+      const payload = {
+        ...pedidoPendente,
+        precisaTroco: true,
+        trocoPara
+      };
+
+      confirmarTrocoBtn.disabled = true;
+      confirmarTrocoBtn.textContent = "Enviando pedido...";
+      await enviarPedido(payload);
+    });
+
+    orderForm.addEventListener("submit", async event => {
+      event.preventDefault();
+
+      if (!storeIsOpen || !cart.length) return;
+
+      const formData = new FormData(orderForm);
+      const payload = {
+        cliente: String(formData.get("cliente") || "").trim(),
+        telefone: String(formData.get("telefone") || "").trim(),
+        canal: String(formData.get("canal") || ""),
+        enderecoEntrega: String(formData.get("enderecoEntrega") || "").trim(),
+        observacao: String(formData.get("observacao") || "").trim(),
+        formaPagamento: String(formData.get("formaPagamento") || "nao_informado"),
+        precisaTroco: false,
+        trocoPara: null,
+        itens: cart.map(item => ({
+          produtoId: item.id,
+          quantidade: Number(item.quantity),
+          adicionais: (item.adicionais || []).map(adicional => ({
+            _id: adicional._id
+          })),
+          observacao: String(item.observacao || "")
+        }))
+      };
+
+      if (payload.formaPagamento === "dinheiro") {
+        abrirModalTroco(payload);
+        return;
+      }
+
+      await enviarPedido(payload);
+    });
 
     loadCart();
     renderCart();
