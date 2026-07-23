@@ -3382,7 +3382,7 @@
             ? `55${telefoneWhatsapp}`
             : telefoneWhatsapp;
           const mensagemWhatsapp = encodeURIComponent(
-            `Olá, ${pedido.cliente || 'cliente'}! Estou entrando em contato sobre o pedido #${String(pedido._id).slice(-6).toUpperCase()} feito no ${configuracaoPainel.nomeEstabelecimento || 'estabelecimento'}.`
+            `Olá, ${pedido.cliente || 'cliente'}! Estou entrando em contato sobre o pedido #${String(pedido._id).slice(-6).toUpperCase()} feito no ${(configuracao && configuracao.nomeEstabelecimento) || 'estabelecimento'}.`
           );
           const nomesPagamento = {
             pix: 'Pix online',
