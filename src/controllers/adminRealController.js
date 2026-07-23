@@ -1025,6 +1025,47 @@ exports.admin = async (req, res) => {
         idEstabelecimento,
       );
 
+    const pedidosFiltrosPermitidos = ["hoje", "semana", "mes", "personalizado"];
+    const pedidoPeriodoSolicitado = pedidosFiltrosPermitidos.includes(req.query.pedidoPeriodo)
+      ? req.query.pedidoPeriodo
+      : "hoje";
+    const pedidoDataInicio = String(req.query.pedidoDataInicio || "").trim();
+    const pedidoDataFim = String(req.query.pedidoDataFim || "").trim();
+    const pedidoPeriodo = obterPeriodoRelatorio(
+      pedidoPeriodoSolicitado,
+      pedidoDataInicio,
+      pedidoDataFim,
+    );
+
+    const dashboardPeriodoConsulta = obterPeriodoRelatorio(
+      ["hoje", "semana", "mes", "ano", "todos", "personalizado"].includes(req.query.dashboardFiltro)
+        ? req.query.dashboardFiltro
+        : "hoje",
+      String(req.query.dashboardDataInicio || "").trim(),
+      String(req.query.dashboardDataFim || "").trim(),
+    );
+
+    const relatorioPeriodoConsulta = obterPeriodoRelatorio(
+      ["hoje", "semana", "mes", "ano", "todos", "personalizado"].includes(req.query.filtro)
+        ? req.query.filtro
+        : "hoje",
+      String(req.query.dataInicio || "").trim(),
+      String(req.query.dataFim || "").trim(),
+    );
+
+    const periodosConsulta = [pedidoPeriodo, dashboardPeriodoConsulta, relatorioPeriodoConsulta];
+    const consultaSemLimiteDeData = periodosConsulta.some(periodoConsulta => !periodoConsulta.inicio || !periodoConsulta.fim);
+    const filtroDataPedidos = {};
+
+    if (!consultaSemLimiteDeData) {
+      const inicios = periodosConsulta.map(periodoConsulta => periodoConsulta.inicio.getTime());
+      const fins = periodosConsulta.map(periodoConsulta => periodoConsulta.fim.getTime());
+      filtroDataPedidos.createdAt = {
+        $gte: new Date(Math.min(...inicios)),
+        $lte: new Date(Math.max(...fins)),
+      };
+    }
+
     const [
       categorias,
       estoque,
@@ -1080,6 +1121,7 @@ exports.admin = async (req, res) => {
       Pedido.find({
         estabelecimentoId:
           idEstabelecimento,
+        ...filtroDataPedidos,
       })
         .populate(
           "mesaId",
@@ -1456,6 +1498,40 @@ exports.admin = async (req, res) => {
         ),
     };
 
+    const pedidoCanalAtual = ["todos", "delivery", "mesa", "retirada"].includes(req.query.pedidoCanal)
+      ? req.query.pedidoCanal
+      : "todos";
+    const pedidoStatusAtual = ["todos", "novo", "preparo", "em_preparo", "pronto", "entregue", "finalizado", "cancelado"].includes(req.query.pedidoStatus)
+      ? req.query.pedidoStatus
+      : "todos";
+
+    const listaPedidos = pedidos.filter(pedido => {
+      if (!pedido.createdAt) return false;
+      const dataPedido = new Date(pedido.createdAt);
+      if (pedidoPeriodo.inicio && dataPedido < pedidoPeriodo.inicio) return false;
+      if (pedidoPeriodo.fim && dataPedido > pedidoPeriodo.fim) return false;
+
+      const canalPedido = pedido.canal === "balcao" ? "retirada" : (pedido.canal || "retirada");
+      if (pedidoCanalAtual !== "todos" && canalPedido !== pedidoCanalAtual) return false;
+
+      const statusPedido = pedido.status || "novo";
+      if (pedidoStatusAtual !== "todos") {
+        const preparoEquivalente = ["preparo", "em_preparo"].includes(pedidoStatusAtual)
+          && ["preparo", "em_preparo"].includes(statusPedido);
+        if (!preparoEquivalente && statusPedido !== pedidoStatusAtual) return false;
+      }
+
+      return true;
+    });
+
+    const filtrosPedidos = {
+      periodoAtual: pedidoPeriodo.filtro,
+      dataInicio: pedidoDataInicio,
+      dataFim: pedidoDataFim,
+      canalAtual: pedidoCanalAtual,
+      statusAtual: pedidoStatusAtual,
+    };
+
     return res.render(
       "admin-real",
       {
@@ -1484,7 +1560,8 @@ exports.admin = async (req, res) => {
           funcionarios,
 
         pedidos,
-        listaPedidos: pedidos,
+        pedidosFiltradosPainel: listaPedidos,
+        filtrosPedidos,
 
         errors:
           req.flash("errors"),
@@ -1942,12 +2019,45 @@ exports.criarMesa = async (
   res,
 ) => {
   try {
+    const idEstabelecimento =
+      estabelecimentoId(req);
+
+    const numero = Number(
+      req.body.numero,
+    );
+
+    if (
+      !Number.isInteger(numero) ||
+      numero < 1
+    ) {
+      return erroERedirecionar(
+        req,
+        res,
+        "mesas",
+        "Informe um número de mesa válido.",
+      );
+    }
+
+    const mesaExistente =
+      await Mesa.exists({
+        estabelecimentoId:
+          idEstabelecimento,
+        numero,
+      });
+
+    if (mesaExistente) {
+      return erroERedirecionar(
+        req,
+        res,
+        "mesas",
+        `A mesa ${numero} já está cadastrada.`,
+      );
+    }
+
     await Mesa.create({
       estabelecimentoId:
-        estabelecimentoId(req),
-      numero: Number(
-        req.body.numero,
-      ),
+        idEstabelecimento,
+      numero,
       capacidade: Math.max(
         1,
         Number(
@@ -2002,9 +2112,40 @@ exports.editarMesa = async (
       );
     }
 
-    mesa.numero = Number(
+    const novoNumero = Number(
       req.body.numero ?? mesa.numero,
     );
+
+    if (
+      !Number.isInteger(novoNumero) ||
+      novoNumero < 1
+    ) {
+      return erroERedirecionar(
+        req,
+        res,
+        "mesas",
+        "Informe um número de mesa válido.",
+      );
+    }
+
+    const outraMesaComMesmoNumero =
+      await Mesa.exists({
+        _id: { $ne: mesa._id },
+        estabelecimentoId:
+          estabelecimentoId(req),
+        numero: novoNumero,
+      });
+
+    if (outraMesaComMesmoNumero) {
+      return erroERedirecionar(
+        req,
+        res,
+        "mesas",
+        `A mesa ${novoNumero} já está cadastrada.`,
+      );
+    }
+
+    mesa.numero = novoNumero;
 
     mesa.capacidade = Math.max(
       1,
@@ -3246,6 +3387,32 @@ exports.atualizarStatusPedido =
             pedido.telefoneCliente ||
             '',
 
+          email:
+            pedido.emailCliente ||
+            '',
+
+          formaPagamento:
+            pedido.formaPagamento ||
+            'nao_informado',
+
+          pagoEm:
+            pedido.pagoEm ||
+            pedido.pagamentoInformadoEm ||
+            null,
+
+          precisaTroco:
+            Boolean(pedido.precisaTroco),
+
+          trocoPara:
+            pedido.trocoPara != null
+              ? Number(pedido.trocoPara)
+              : null,
+
+          valorTroco:
+            pedido.valorTroco != null
+              ? Number(pedido.valorTroco)
+              : null,
+
           endereco:
             pedido.enderecoEntrega ||
             '',
@@ -4401,10 +4568,6 @@ exports.criarPedidoCatalogo =
         req.body.telefone || "",
       ).trim();
 
-      const emailCliente = String(
-        req.body.emailCliente || req.body.email || "",
-      ).trim().toLowerCase();
-
       const canal = String(
         req.body.canal || "",
       ).trim();
@@ -4446,17 +4609,6 @@ exports.criarPedidoCatalogo =
       const formaPagamento =
         mapaFormaPagamento[formaPagamentoOriginal] ||
         "nao_informado";
-
-      if (formaPagamento === "pix") {
-        const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente);
-
-        if (!emailValido) {
-          return res.status(400).json({
-            success: false,
-            message: "Informe um e-mail válido para gerar o pagamento Pix.",
-          });
-        }
-      }
 
       const precisaTroco =
         formaPagamento === "dinheiro" &&
@@ -4704,10 +4856,6 @@ exports.criarPedidoCatalogo =
           telefoneCliente: telefone,
           telefoneNormalizado:
             normalizarTelefonePublico(telefone),
-          emailCliente:
-            formaPagamento === "pix"
-              ? emailCliente
-              : "",
 
           canal,
 

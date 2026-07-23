@@ -2469,6 +2469,27 @@
       cursor: pointer;
     }
 
+    .whatsapp-order-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 40px;
+      padding: 9px 14px;
+      border-radius: 10px;
+      background: #1fa855;
+      color: #fff;
+      font-weight: 800;
+      text-decoration: none;
+      white-space: nowrap;
+      transition: transform .2s ease, filter .2s ease;
+    }
+
+    .whatsapp-order-button:hover {
+      transform: translateY(-1px);
+      filter: brightness(.95);
+    }
+
     .print-order-button:disabled {
       opacity: .55;
       cursor: wait;
@@ -2735,9 +2756,20 @@
       : [];
 
   const listaPedidos =
-    typeof pedidos !== 'undefined' && Array.isArray(pedidos)
-      ? pedidos
+    typeof pedidosFiltradosPainel !== 'undefined' && Array.isArray(pedidosFiltradosPainel)
+      ? pedidosFiltradosPainel
       : [];
+
+  const painelFiltrosPedidos =
+    typeof filtrosPedidos !== 'undefined' && filtrosPedidos
+      ? filtrosPedidos
+      : {
+          periodoAtual: 'hoje',
+          dataInicio: '',
+          dataFim: '',
+          canalAtual: 'todos',
+          statusAtual: 'todos'
+        };
 
   const listaCategoriasEstoque =
     typeof categoriasEstoque !== 'undefined' &&
@@ -3226,160 +3258,81 @@
     </div>
 
     <div class="orders-filter-panel">
-  <div class="orders-quick-filters">
-    <button
-      type="button"
-      class="order-quick-filter active"
-      data-orders-period="todos"
-    >
-      Todos
-    </button>
+      <div class="orders-quick-filters">
+        <a
+          href="/admin?pedidoPeriodo=hoje&pedidoCanal=<%= painelFiltrosPedidos.canalAtual %>&pedidoStatus=<%= painelFiltrosPedidos.statusAtual %>#pedidos"
+          class="order-quick-filter <%= painelFiltrosPedidos.periodoAtual === 'hoje' ? 'active' : '' %>"
+        >Hoje</a>
 
-    <button
-      type="button"
-      class="order-quick-filter"
-      data-orders-period="hoje"
-    >
-      Hoje
-    </button>
+        <a
+          href="/admin?pedidoPeriodo=semana&pedidoCanal=<%= painelFiltrosPedidos.canalAtual %>&pedidoStatus=<%= painelFiltrosPedidos.statusAtual %>#pedidos"
+          class="order-quick-filter <%= painelFiltrosPedidos.periodoAtual === 'semana' ? 'active' : '' %>"
+        >Esta semana</a>
 
-    <button
-      type="button"
-      class="order-quick-filter"
-      data-orders-period="7dias"
-    >
-      Últimos 7 dias
-    </button>
+        <a
+          href="/admin?pedidoPeriodo=mes&pedidoCanal=<%= painelFiltrosPedidos.canalAtual %>&pedidoStatus=<%= painelFiltrosPedidos.statusAtual %>#pedidos"
+          class="order-quick-filter <%= painelFiltrosPedidos.periodoAtual === 'mes' ? 'active' : '' %>"
+        >Este mês</a>
 
-    <button
-      type="button"
-      class="order-quick-filter"
-      data-orders-period="mes"
-    >
-      Este mês
-    </button>
-  </div>
+        <button
+          type="button"
+          class="order-quick-filter <%= painelFiltrosPedidos.periodoAtual === 'personalizado' ? 'active' : '' %>"
+          id="showCustomOrdersFilter"
+        >Personalizado</button>
+      </div>
 
-  <div class="orders-filter-form">
-    <div class="orders-filter-field">
-      <label for="ordersDateStart">
-        Data inicial
-      </label>
+      <form class="orders-filter-form" method="GET" action="/admin#pedidos" id="ordersServerFilterForm">
+        <input type="hidden" name="pedidoPeriodo" id="pedidoPeriodoInput" value="<%= painelFiltrosPedidos.periodoAtual %>">
 
-      <input
-        type="date"
-        id="ordersDateStart"
-      >
+        <div class="orders-filter-field custom-orders-date <%= painelFiltrosPedidos.periodoAtual === 'personalizado' ? '' : 'order-filter-hidden' %>">
+          <label for="ordersDateStart">Data inicial</label>
+          <input type="date" id="ordersDateStart" name="pedidoDataInicio" value="<%= painelFiltrosPedidos.dataInicio || '' %>">
+        </div>
+
+        <div class="orders-filter-field custom-orders-date <%= painelFiltrosPedidos.periodoAtual === 'personalizado' ? '' : 'order-filter-hidden' %>">
+          <label for="ordersDateEnd">Data final</label>
+          <input type="date" id="ordersDateEnd" name="pedidoDataFim" value="<%= painelFiltrosPedidos.dataFim || '' %>">
+        </div>
+
+        <div class="orders-filter-field">
+          <label for="ordersChannelFilter">Tipo do pedido</label>
+          <select id="ordersChannelFilter" name="pedidoCanal">
+            <option value="todos" <%= painelFiltrosPedidos.canalAtual === 'todos' ? 'selected' : '' %>>Todos</option>
+            <option value="delivery" <%= painelFiltrosPedidos.canalAtual === 'delivery' ? 'selected' : '' %>>Delivery</option>
+            <option value="retirada" <%= painelFiltrosPedidos.canalAtual === 'retirada' ? 'selected' : '' %>>Retirada no local</option>
+            <option value="mesa" <%= painelFiltrosPedidos.canalAtual === 'mesa' ? 'selected' : '' %>>Mesa</option>
+          </select>
+        </div>
+
+        <div class="orders-filter-field">
+          <label for="ordersStatusFilter">Status</label>
+          <select id="ordersStatusFilter" name="pedidoStatus">
+            <option value="todos" <%= painelFiltrosPedidos.statusAtual === 'todos' ? 'selected' : '' %>>Todos</option>
+            <option value="novo" <%= painelFiltrosPedidos.statusAtual === 'novo' ? 'selected' : '' %>>Novo</option>
+            <option value="preparo" <%= ['preparo','em_preparo'].includes(painelFiltrosPedidos.statusAtual) ? 'selected' : '' %>>Em preparo</option>
+            <option value="pronto" <%= painelFiltrosPedidos.statusAtual === 'pronto' ? 'selected' : '' %>>Pronto</option>
+            <option value="entregue" <%= painelFiltrosPedidos.statusAtual === 'entregue' ? 'selected' : '' %>>Entregue</option>
+            <option value="finalizado" <%= painelFiltrosPedidos.statusAtual === 'finalizado' ? 'selected' : '' %>>Finalizado</option>
+            <option value="cancelado" <%= painelFiltrosPedidos.statusAtual === 'cancelado' ? 'selected' : '' %>>Cancelado</option>
+          </select>
+        </div>
+
+        <div class="orders-filter-actions">
+          <button type="submit" class="orders-filter-button">Filtrar</button>
+          <a href="/admin?pedidoPeriodo=hoje#pedidos" class="orders-clear-button">Limpar</a>
+        </div>
+      </form>
+
+      <div class="orders-filter-result">
+        <span>Exibindo <strong><%= listaPedidos.length %></strong> pedido(s)</span>
+        <span>
+          <%= painelFiltrosPedidos.periodoAtual === 'hoje' ? 'Pedidos de hoje' : '' %>
+          <%= painelFiltrosPedidos.periodoAtual === 'semana' ? 'Pedidos desta semana' : '' %>
+          <%= painelFiltrosPedidos.periodoAtual === 'mes' ? 'Pedidos deste mês' : '' %>
+          <%= painelFiltrosPedidos.periodoAtual === 'personalizado' ? 'Período personalizado' : '' %>
+        </span>
+      </div>
     </div>
-
-    <div class="orders-filter-field">
-      <label for="ordersDateEnd">
-        Data final
-      </label>
-
-      <input
-        type="date"
-        id="ordersDateEnd"
-      >
-    </div>
-
-    <div class="orders-filter-field">
-      <label for="ordersChannelFilter">
-        Tipo do pedido
-      </label>
-
-      <select id="ordersChannelFilter">
-        <option value="todos">
-          Todos
-        </option>
-
-        <option value="delivery">
-          Delivery
-        </option>
-
-        <option value="retirada">
-          Retirada no local
-        </option>
-
-        <option value="mesa">
-          Mesa
-        </option>
-      </select>
-    </div>
-
-    <div class="orders-filter-field">
-      <label for="ordersStatusFilter">
-        Status
-      </label>
-
-      <select id="ordersStatusFilter">
-        <option value="todos">
-          Todos
-        </option>
-
-        <option value="novo">
-          Novo
-        </option>
-
-        <option value="preparo">
-          Em preparo
-        </option>
-
-        <option value="em_preparo">
-          Em preparo
-        </option>
-
-        <option value="pronto">
-          Pronto
-        </option>
-
-        <option value="entregue">
-          Entregue
-        </option>
-
-        <option value="finalizado">
-          Finalizado
-        </option>
-
-        <option value="cancelado">
-          Cancelado
-        </option>
-      </select>
-    </div>
-
-    <div class="orders-filter-actions">
-      <button
-        type="button"
-        class="orders-filter-button"
-        id="applyOrdersFilter"
-      >
-        Filtrar
-      </button>
-
-      <button
-        type="button"
-        class="orders-clear-button"
-        id="clearOrdersFilter"
-      >
-        Limpar
-      </button>
-    </div>
-  </div>
-
-  <div class="orders-filter-result">
-    <span>
-      Exibindo
-      <strong id="visibleOrdersCount">
-        0
-      </strong>
-      pedido(s)
-    </span>
-
-    <span id="ordersPeriodDescription">
-      Todos os períodos
-    </span>
-  </div>
-</div>
 
     <div
   class="orders-grid"
@@ -3423,6 +3376,22 @@
             origemClasse = 'retirada';
             origemIcone = '🏪';
           }
+
+          const telefoneWhatsapp = String(pedido.telefoneCliente || '').replace(/\D/g, '');
+          const telefoneWhatsappBrasil = telefoneWhatsapp && !telefoneWhatsapp.startsWith('55')
+            ? `55${telefoneWhatsapp}`
+            : telefoneWhatsapp;
+          const mensagemWhatsapp = encodeURIComponent(
+            `Olá, ${pedido.cliente || 'cliente'}! Estou entrando em contato sobre o pedido #${String(pedido._id).slice(-6).toUpperCase()} feito no ${configuracaoPainel.nomeEstabelecimento || 'estabelecimento'}.`
+          );
+          const nomesPagamento = {
+            pix: 'Pix online',
+            dinheiro: 'Dinheiro na entrega/retirada',
+            cartao: 'Cartão na entrega/retirada',
+            nao_informado: 'Não informado'
+          };
+          const formaPagamentoTexto = nomesPagamento[pedido.formaPagamento] || pedido.formaPagamento || 'Não informado';
+          const dataPagamentoPedido = pedido.pagoEm || pedido.pagamentoInformadoEm;
         %>
 
         <article
@@ -3486,10 +3455,40 @@
               <%= pedido.cliente || 'Cliente não informado' %>
             </div>
 
+            <div>
+              <strong>E-mail:</strong>
+              <%= pedido.emailCliente || 'Não informado' %>
+            </div>
+
             <% if (pedido.telefoneCliente) { %>
               <div>
                 <strong>WhatsApp:</strong>
                 <%= pedido.telefoneCliente %>
+              </div>
+            <% } %>
+
+            <div>
+              <strong>Forma de pagamento:</strong>
+              <%= formaPagamentoTexto %>
+            </div>
+
+            <div>
+              <strong>Status do pagamento:</strong>
+              <%= String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ') %>
+            </div>
+
+            <div>
+              <strong>Data/hora do pagamento:</strong>
+              <%= dataPagamentoPedido ? new Date(dataPagamentoPedido).toLocaleString('pt-BR') : 'Ainda não confirmado' %>
+            </div>
+
+            <% if (pedido.formaPagamento === 'dinheiro') { %>
+              <div>
+                <strong>Troco:</strong>
+                <%= pedido.precisaTroco
+                  ? `Troco para ${formatarMoeda(pedido.trocoPara || 0)}${pedido.valorTroco != null ? ` — devolver ${formatarMoeda(pedido.valorTroco)}` : ''}`
+                  : 'Não precisa de troco'
+                %>
               </div>
             <% } %>
 
@@ -3631,6 +3630,17 @@
                   Atualizar
                 </button>
               </form>
+
+              <% if (telefoneWhatsappBrasil) { %>
+                <a
+                  href="https://wa.me/<%= telefoneWhatsappBrasil %>?text=<%= mensagemWhatsapp %>"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="whatsapp-order-button"
+                >
+                  💬 Falar no WhatsApp
+                </a>
+              <% } %>
 
               <% if (pode('imprimir_pedidos')) { %>
                 <button
@@ -6680,365 +6690,23 @@ if (telefoneEdicao) {
 
 /*
 |--------------------------------------------------------------------------
-| FILTROS DA ABA PEDIDOS
+| FILTRO PERSONALIZADO DA ABA PEDIDOS
 |--------------------------------------------------------------------------
 */
 
-const ordersDateStart =
-  document.querySelector('#ordersDateStart');
-
-const ordersDateEnd =
-  document.querySelector('#ordersDateEnd');
-
-const ordersChannelFilter =
-  document.querySelector('#ordersChannelFilter');
-
-const ordersStatusFilter =
-  document.querySelector('#ordersStatusFilter');
-
-const applyOrdersFilterButton =
-  document.querySelector('#applyOrdersFilter');
-
-const clearOrdersFilterButton =
-  document.querySelector('#clearOrdersFilter');
-
-const visibleOrdersCount =
-  document.querySelector('#visibleOrdersCount');
-
-const ordersPeriodDescription =
-  document.querySelector('#ordersPeriodDescription');
-
-const ordersNoResults =
-  document.querySelector('#ordersNoResults');
-
-const orderQuickFilters =
-  document.querySelectorAll('[data-orders-period]');
-
-let activeOrdersPeriod = 'todos';
-
-function startOfDay(date) {
-  const result = new Date(date);
-  result.setHours(0, 0, 0, 0);
-  return result;
-}
-
-function endOfDay(date) {
-  const result = new Date(date);
-  result.setHours(23, 59, 59, 999);
-  return result;
-}
-
-function formatDateInput(date) {
-  const year = date.getFullYear();
-  const month = String(
-    date.getMonth() + 1
-  ).padStart(2, '0');
-  const day = String(
-    date.getDate()
-  ).padStart(2, '0');
-
-  return `${year}-${month}-${day}`;
-}
-
-function getSelectedOrderDates() {
-  const startValue =
-    ordersDateStart?.value || '';
-
-  const endValue =
-    ordersDateEnd?.value || '';
-
-  const startDate = startValue
-    ? startOfDay(
-        new Date(`${startValue}T00:00:00`)
-      )
-    : null;
-
-  const endDate = endValue
-    ? endOfDay(
-        new Date(`${endValue}T00:00:00`)
-      )
-    : null;
-
-  return {
-    startValue,
-    endValue,
-    startDate,
-    endDate
-  };
-}
-
-function updateQuickFilterActive(period) {
-  orderQuickFilters.forEach(button => {
-    button.classList.toggle(
-      'active',
-      button.dataset.ordersPeriod === period
-    );
-  });
-}
-
-function setQuickOrderPeriod(period) {
-  const today = new Date();
-  let startDate = null;
-  let endDate = null;
-
-  activeOrdersPeriod = period;
-
-  if (period === 'hoje') {
-    startDate = today;
-    endDate = today;
-  }
-
-  if (period === '7dias') {
-    startDate = new Date(today);
-    startDate.setDate(
-      today.getDate() - 6
-    );
-    endDate = today;
-  }
-
-  if (period === 'mes') {
-    startDate = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      1
-    );
-
-    endDate = today;
-  }
-
-  if (ordersDateStart) {
-    ordersDateStart.value = startDate
-      ? formatDateInput(startDate)
-      : '';
-  }
-
-  if (ordersDateEnd) {
-    ordersDateEnd.value = endDate
-      ? formatDateInput(endDate)
-      : '';
-  }
-
-  updateQuickFilterActive(period);
-  applyOrdersFilters();
-}
-
-function getOrderPeriodDescription(
-  startValue,
-  endValue
-) {
-  if (!startValue && !endValue) {
-    return 'Todos os períodos';
-  }
-
-  const format = value => {
-    if (!value) {
-      return '';
-    }
-
-    return new Date(
-      `${value}T00:00:00`
-    ).toLocaleDateString('pt-BR');
-  };
-
-  if (startValue && endValue) {
-    return `${format(startValue)} até ${format(endValue)}`;
-  }
-
-  if (startValue) {
-    return `A partir de ${format(startValue)}`;
-  }
-
-  return `Até ${format(endValue)}`;
-}
+const showCustomOrdersFilter = document.querySelector('#showCustomOrdersFilter');
+const pedidoPeriodoInput = document.querySelector('#pedidoPeriodoInput');
+const customOrdersDateFields = document.querySelectorAll('.custom-orders-date');
 
 function applyOrdersFilters() {
-  const cards = Array.from(
-    document.querySelectorAll(
-      '#ordersGrid .order-card'
-    )
-  );
-
-  const {
-    startValue,
-    endValue,
-    startDate,
-    endDate
-  } = getSelectedOrderDates();
-
-  const selectedChannel =
-    ordersChannelFilter?.value || 'todos';
-
-  const selectedStatus =
-    ordersStatusFilter?.value || 'todos';
-
-  let visible = 0;
-
-  cards.forEach(card => {
-    const orderDateValue =
-      card.dataset.orderDate || '';
-
-    const orderChannel =
-      card.dataset.orderChannel || 'retirada';
-
-    const orderStatus =
-      card.dataset.orderStatus || 'novo';
-
-    const orderDate = orderDateValue
-      ? new Date(orderDateValue)
-      : null;
-
-    const matchesStart =
-      !startDate ||
-      (
-        orderDate &&
-        orderDate >= startDate
-      );
-
-    const matchesEnd =
-      !endDate ||
-      (
-        orderDate &&
-        orderDate <= endDate
-      );
-
-    const matchesChannel =
-      selectedChannel === 'todos' ||
-      orderChannel === selectedChannel;
-
-    const matchesStatus =
-      selectedStatus === 'todos' ||
-      orderStatus === selectedStatus ||
-      (
-        selectedStatus === 'preparo' &&
-        orderStatus === 'em_preparo'
-      ) ||
-      (
-        selectedStatus === 'em_preparo' &&
-        orderStatus === 'preparo'
-      );
-
-    const show =
-      matchesStart &&
-      matchesEnd &&
-      matchesChannel &&
-      matchesStatus;
-
-    card.classList.toggle(
-      'order-filter-hidden',
-      !show
-    );
-
-    if (show) {
-      visible += 1;
-    }
-  });
-
-  if (visibleOrdersCount) {
-    visibleOrdersCount.textContent =
-      String(visible);
-  }
-
-  if (ordersPeriodDescription) {
-    ordersPeriodDescription.textContent =
-      getOrderPeriodDescription(
-        startValue,
-        endValue
-      );
-  }
-
-  if (ordersNoResults) {
-    ordersNoResults.classList.toggle(
-      'visible',
-      cards.length > 0 &&
-      visible === 0
-    );
-  }
-
-  if (ordersEmptyState) {
-    ordersEmptyState.style.display =
-      cards.length === 0
-        ? ''
-        : 'none';
-  }
+  // Os pedidos já chegam filtrados pelo servidor para evitar carregar todo o histórico.
 }
 
-orderQuickFilters.forEach(button => {
-  button.addEventListener(
-    'click',
-    () => {
-      setQuickOrderPeriod(
-        button.dataset.ordersPeriod
-      );
-    }
-  );
+showCustomOrdersFilter?.addEventListener('click', () => {
+  if (pedidoPeriodoInput) pedidoPeriodoInput.value = 'personalizado';
+  customOrdersDateFields.forEach(field => field.classList.remove('order-filter-hidden'));
+  document.querySelector('#ordersDateStart')?.focus();
 });
-
-applyOrdersFilterButton?.addEventListener(
-  'click',
-  () => {
-    activeOrdersPeriod = 'personalizado';
-    updateQuickFilterActive('');
-    applyOrdersFilters();
-  }
-);
-
-clearOrdersFilterButton?.addEventListener(
-  'click',
-  () => {
-    activeOrdersPeriod = 'todos';
-
-    if (ordersDateStart) {
-      ordersDateStart.value = '';
-    }
-
-    if (ordersDateEnd) {
-      ordersDateEnd.value = '';
-    }
-
-    if (ordersChannelFilter) {
-      ordersChannelFilter.value = 'todos';
-    }
-
-    if (ordersStatusFilter) {
-      ordersStatusFilter.value = 'todos';
-    }
-
-    updateQuickFilterActive('todos');
-    applyOrdersFilters();
-  }
-);
-
-ordersChannelFilter?.addEventListener(
-  'change',
-  applyOrdersFilters
-);
-
-ordersStatusFilter?.addEventListener(
-  'change',
-  applyOrdersFilters
-);
-
-ordersDateStart?.addEventListener(
-  'change',
-  () => {
-    activeOrdersPeriod = 'personalizado';
-    updateQuickFilterActive('');
-  }
-);
-
-ordersDateEnd?.addEventListener(
-  'change',
-  () => {
-    activeOrdersPeriod = 'personalizado';
-    updateQuickFilterActive('');
-  }
-);
-
-document.addEventListener(
-  'DOMContentLoaded',
-  applyOrdersFilters
-);
-
 
 const podeReceberNotificacoes =
   <%- JSON.stringify(menuCompleto); %>;
@@ -7588,6 +7256,11 @@ function criarCardPedido(
       )}
     </div>
 
+    <div style="margin-top:7px;">
+      <strong>E-mail:</strong>
+      ${escaparHtml(pedido.email || 'Não informado')}
+    </div>
+
     ${
       pedido.telefone
         ? `
@@ -7600,6 +7273,25 @@ function criarCardPedido(
         `
         : ''
     }
+
+    <div style="margin-top:7px;">
+      <strong>Forma de pagamento:</strong>
+      ${escaparHtml(({pix:'Pix online', dinheiro:'Dinheiro na entrega/retirada', cartao:'Cartão na entrega/retirada', nao_informado:'Não informado'})[pedido.formaPagamento] || pedido.formaPagamento || 'Não informado')}
+    </div>
+
+    <div style="margin-top:7px;">
+      <strong>Data/hora do pagamento:</strong>
+      ${pedido.pagoEm ? escaparHtml(formatarDataPedido(pedido.pagoEm)) : 'Ainda não confirmado'}
+    </div>
+
+    ${pedido.formaPagamento === 'dinheiro' ? `
+      <div style="margin-top:7px;">
+        <strong>Troco:</strong>
+        ${pedido.precisaTroco
+          ? `Troco para ${formatarMoedaPedido(pedido.trocoPara || 0)}${pedido.valorTroco != null ? ` — devolver ${formatarMoedaPedido(pedido.valorTroco)}` : ''}`
+          : 'Não precisa de troco'}
+      </div>
+    ` : ''}
 
     ${
       pedido.canal === 'delivery' &&
@@ -7689,6 +7381,17 @@ function criarCardPedido(
             Atualizar
           </button>
         </form>
+
+        ${pedido.telefone ? `
+          <a
+            href="https://wa.me/${String(pedido.telefone).replace(/\D/g, '').startsWith('55') ? String(pedido.telefone).replace(/\D/g, '') : `55${String(pedido.telefone).replace(/\D/g, '')}`}?text=${encodeURIComponent(`Olá, ${pedido.cliente || 'cliente'}! Estou entrando em contato sobre o pedido #${pedido.numero}.`)}"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="whatsapp-order-button"
+          >
+            💬 Falar no WhatsApp
+          </a>
+        ` : ''}
 
         ${
           podeImprimirPedidos
