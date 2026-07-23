@@ -4401,6 +4401,10 @@ exports.criarPedidoCatalogo =
         req.body.telefone || "",
       ).trim();
 
+      const emailCliente = String(
+        req.body.emailCliente || req.body.email || "",
+      ).trim().toLowerCase();
+
       const canal = String(
         req.body.canal || "",
       ).trim();
@@ -4442,6 +4446,17 @@ exports.criarPedidoCatalogo =
       const formaPagamento =
         mapaFormaPagamento[formaPagamentoOriginal] ||
         "nao_informado";
+
+      if (formaPagamento === "pix") {
+        const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente);
+
+        if (!emailValido) {
+          return res.status(400).json({
+            success: false,
+            message: "Informe um e-mail válido para gerar o pagamento Pix.",
+          });
+        }
+      }
 
       const precisaTroco =
         formaPagamento === "dinheiro" &&
@@ -4689,6 +4704,10 @@ exports.criarPedidoCatalogo =
           telefoneCliente: telefone,
           telefoneNormalizado:
             normalizarTelefonePublico(telefone),
+          emailCliente:
+            formaPagamento === "pix"
+              ? emailCliente
+              : "",
 
           canal,
 
