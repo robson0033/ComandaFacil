@@ -3410,7 +3410,7 @@
       </form>
 
       <div class="orders-filter-result">
-        <span>Exibindo <strong><%= listaPedidos.length %></strong> pedido(s)</span>
+        <span>Exibindo <strong id="ordersVisibleCount"><%= listaPedidos.length %></strong> pedido(s)</span>
         <span>
           <%= painelFiltrosPedidos.periodoAtual === 'hoje' ? 'Pedidos de hoje' : '' %>
           <%= painelFiltrosPedidos.periodoAtual === 'semana' ? 'Pedidos desta semana' : '' %>
@@ -3424,6 +3424,10 @@
   class="orders-grid"
   id="ordersGrid"
 >
+      <div class="orders-no-results" id="ordersSearchNoResults">
+        Nenhum pedido encontrado com essa pesquisa.
+      </div>
+
       <% if (!listaPedidos.length) { %>
        <div
         class="empty"
@@ -8506,6 +8510,56 @@ if (podeReceberNotificacoes) {
         }
       }
     );
+
+  
+
+    // Pesquisa instantânea dos pedidos por número, cliente, telefone, e-mail ou endereço.
+    const ordersTextSearch = document.querySelector("#ordersTextSearch");
+    const ordersVisibleCount = document.querySelector("#ordersVisibleCount");
+    const ordersSearchNoResults = document.querySelector("#ordersSearchNoResults");
+
+    function normalizeOrderSearch(value = "") {
+      return String(value)
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9@.]+/g, " ")
+        .trim();
+    }
+
+    function filterOrdersByText() {
+      if (!ordersTextSearch) return;
+
+      const query = normalizeOrderSearch(ordersTextSearch.value);
+      const terms = query.split(/\s+/).filter(Boolean);
+      const orderCards = [...document.querySelectorAll("#ordersGrid .order-card")];
+      let visible = 0;
+
+      orderCards.forEach(card => {
+        const searchable = normalizeOrderSearch(card.dataset.orderSearch || "");
+        const matches = terms.every(term => searchable.includes(term));
+
+        card.classList.toggle("order-filter-hidden", !matches);
+        if (matches) visible += 1;
+      });
+
+      if (ordersVisibleCount) {
+        ordersVisibleCount.textContent = String(visible);
+      }
+
+      if (ordersSearchNoResults) {
+        ordersSearchNoResults.classList.toggle(
+          "visible",
+          orderCards.length > 0 && visible === 0
+        );
+      }
+    }
+
+    if (ordersTextSearch) {
+      ordersTextSearch.addEventListener("input", filterOrdersByText);
+      ordersTextSearch.addEventListener("search", filterOrdersByText);
+      filterOrdersByText();
+    }
 
   </script>
 
