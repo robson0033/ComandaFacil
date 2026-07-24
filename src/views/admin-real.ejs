@@ -5292,7 +5292,7 @@
                     </div>
 
                     <div class="field">
-                      <label>Espaçamento entre linhas</label>
+                      <label>Espaçamento extra entre linhas</label>
                       <input
                         type="number"
                         min="0"
@@ -5321,7 +5321,12 @@
                         max="3000"
                         name="impressoras[<%= indice %>][alturaMaximaMm]"
                         value="<%= impressora.alturaMaximaMm || 500 %>"
+                        disabled
+                        title="Em impressoras térmicas RAW, o papel tem altura variável e é cortado ao final do comprovante."
                       >
+                      <small style="color:var(--cinza-500);line-height:1.4;">
+                        Não se aplica à impressão térmica RAW; a bobina usa altura automática.
+                      </small>
                     </div>
 
                     <% [
@@ -5343,7 +5348,7 @@
                     <% }) %>
 
                     <% [
-                      ['imprimirLogo', 'Imprimir logo (USB)'],
+                      ['imprimirLogo', 'Imprimir logo (USB — requer suporte raster ESC/POS)'],
                       ['imprimirValores', 'Imprimir valores'],
                       ['imprimirEndereco', 'Imprimir endereço do estabelecimento e do delivery'],
                       ['imprimirCpfCnpj', 'Imprimir CPF/CNPJ cadastrado'],
