@@ -96,6 +96,19 @@
     rgba(224, 74, 22, 0.2);
 }
 
+
+.orders-search-box {
+  margin-bottom: 14px;
+}
+.orders-search-box input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 14px;
+  border: 1px solid var(--cinza-200);
+  border-radius: 13px;
+  background: #fff;
+}
+
 .orders-filter-form {
   display: grid;
   grid-template-columns:
@@ -2291,6 +2304,31 @@
       );
     }
 
+    .stat-card-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .stat-card-icon {
+      width: 52px;
+      height: 52px;
+      flex: 0 0 52px;
+      display: grid;
+      place-items: center;
+      border-radius: 16px;
+      background: currentColor;
+      color: inherit;
+      opacity: .12;
+    }
+
+    .stat-card-icon svg {
+      width: 25px;
+      height: 25px;
+      fill: currentColor;
+      opacity: 1;
+    }
 
     .order-card {
       padding: 14px;
@@ -3189,69 +3227,49 @@
 
         <div class="stats">
           <article class="stat-card vermelho">
-            <div class="report-card-head">
+            <div class="stat-card-content">
               <div>
                 <div class="stat-label">Vendas no período</div>
-                <div class="stat-value">
-                  <%= formatarMoeda(painelDashboard.vendasHoje) %>
-                </div>
+                <div class="stat-value"><%= formatarMoeda(painelDashboard.vendasHoje) %></div>
               </div>
-
-              <div class="report-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M12 1a11 11 0 1 0 11 11A11 11 0 0 0 12 1Zm1 17.93V20h-2v-1.05A4 4 0 0 1 8 15h2a2 2 0 1 0 2-2 4 4 0 0 1-1-7.87V4h2v1.13A4 4 0 0 1 16 9h-2a2 2 0 1 0-2 2 4 4 0 0 1 1 7.87Z"/>
-                </svg>
+              <div class="stat-card-icon">
+                <svg viewBox="0 0 24 24"><path d="M11 2h2v2.08c2.28.34 4 1.83 4 3.92h-2c0-1.1-1.34-2-3-2s-3 .9-3 2 1.34 2 3 2c2.76 0 5 1.79 5 4 0 2.09-1.72 3.58-4 3.92V20h-2v-2.08C8.72 17.58 7 16.09 7 14h2c0 1.1 1.34 2 3 2s3-.9 3-2-1.34-2-3-2c-2.76 0-5-1.79-5-4 0-2.09 1.72-3.58 4-3.92V2Z"/></svg>
               </div>
             </div>
           </article>
 
           <article class="stat-card laranja">
-            <div class="report-card-head">
+            <div class="stat-card-content">
               <div>
                 <div class="stat-label">Pedidos no período</div>
-                <div class="stat-value">
-                  <%= painelDashboard.pedidosHoje %>
-                </div>
+                <div class="stat-value"><%= painelDashboard.pedidosHoje %></div>
               </div>
-
-              <div class="report-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M7 18c-1.1 0-2 .9-2 2h14a2 2 0 0 0-2-2H7Zm11-2H6a2 2 0 0 1-2-2V4h2v10h12V4h2v10a2 2 0 0 1-2 2ZM8 6h8v2H8V6Zm0 4h8v2H8v-2Z"/>
-                </svg>
+              <div class="stat-card-icon">
+                <svg viewBox="0 0 24 24"><path d="M7 2h10a2 2 0 0 1 2 2v18l-3-2-4 2-4-2-3 2V4a2 2 0 0 1 2-2Zm0 2v14.26l1-.67 4 2 4-2 1 .67V4H7Zm2 3h6v2H9V7Zm0 4h6v2H9v-2Z"/></svg>
               </div>
             </div>
           </article>
 
           <article class="stat-card verde">
-            <div class="report-card-head">
+            <div class="stat-card-content">
               <div>
                 <div class="stat-label">Ticket médio</div>
-                <div class="stat-value">
-                  <%= formatarMoeda(painelDashboard.ticketMedio) %>
-                </div>
+                <div class="stat-value"><%= formatarMoeda(painelDashboard.ticketMedio) %></div>
               </div>
-
-              <div class="report-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="m4 14 4-4 4 4 7-7 1.41 1.41L12 17.24 8 13.24 5.41 15.83 4 14Zm14-9h6v6h-2V8.41l-7.29 7.3-1.42-1.42L20.59 7H18V5Z"/>
-                </svg>
+              <div class="stat-card-icon">
+                <svg viewBox="0 0 24 24"><path d="m4 14 4-4 4 4 7-7 1.41 1.41L12 17.24 8 13.24 5.41 15.83 4 14Zm14-9h6v6h-2V8.41l-7.29 7.3-1.42-1.42L20.59 7H18V5Z"/></svg>
               </div>
             </div>
           </article>
 
           <article class="stat-card azul">
-            <div class="report-card-head">
+            <div class="stat-card-content">
               <div>
                 <div class="stat-label">Mesas ocupadas</div>
-                <div class="stat-value">
-                  <%= painelDashboard.mesasOcupadas %>/<%= painelDashboard.totalMesas %>
-                </div>
+                <div class="stat-value"><%= painelDashboard.mesasOcupadas %>/<%= painelDashboard.totalMesas %></div>
               </div>
-
-              <div class="report-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M4 4h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-1v9a1 1 0 1 1-2 0v-9H7v9a1 1 0 1 1-2 0v-9H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
-                </svg>
+              <div class="stat-card-icon">
+                <svg viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-1v9a1 1 0 1 1-2 0v-9H7v9a1 1 0 1 1-2 0v-9H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/></svg>
               </div>
             </div>
           </article>
@@ -3321,6 +3339,11 @@
     </div>
 
     <div class="orders-filter-panel">
+      <div class="orders-search-box">
+        <label for="ordersTextSearch" style="display:block;margin-bottom:6px;font-size:11px;font-weight:900;text-transform:uppercase;">Pesquisar pedido</label>
+        <input id="ordersTextSearch" type="search" placeholder="Número, cliente, telefone, e-mail ou endereço...">
+      </div>
+
       <div class="orders-quick-filters">
         <a
           href="/admin?pedidoPeriodo=hoje&pedidoCanal=<%= painelFiltrosPedidos.canalAtual %>&pedidoStatus=<%= painelFiltrosPedidos.statusAtual %>#pedidos"
@@ -3469,6 +3492,13 @@
             : (pedido.canal || 'retirada')
           %>"
           data-order-status="<%= pedido.status || 'novo' %>"
+          data-order-search="<%= [
+            String(pedido._id).slice(-6).toUpperCase(),
+            pedido.cliente,
+            pedido.telefoneCliente,
+            pedido.emailCliente,
+            pedido.enderecoEntrega
+          ].filter(Boolean).join(' ').toLowerCase() %>"
         >
           <div class="order-card-header">
             <div class="order-number">
@@ -3647,22 +3677,22 @@
 
                   <option
                     value="pronto"
-                    <%= pedido.status === 'Pronto'
+                    <%= pedido.status === 'Saiu Para Entrega'
                       ? 'selected'
                       : ''
                     %>
                   >
-                    Pronto
+                    Pedido Saiu P/Entrega
                   </option>
 
                   <option
-                    value="saiu_para_entrega"
-                    <%= pedido.status === 'saiu_para_entrega'
+                    value="entregue"
+                    <%= pedido.status === 'entregue'
                       ? 'selected'
                       : ''
                     %>
                   >
-                    Saiu P/Entrega
+                    Entregue
                   </option>
 
                   <option
@@ -4893,6 +4923,11 @@
                   name="telefone"
                   value="<%= config.telefone || '' %>"
                 >
+              </div>
+
+              <div class="field">
+                <label>CPF ou CNPJ cadastrado</label>
+                <input value="<%= usuario.cpfCnpj || '-' %>" readonly>
               </div>
 
               <div class="field full">
