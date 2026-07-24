@@ -1501,7 +1501,7 @@ exports.admin = async (req, res) => {
     const pedidoCanalAtual = ["todos", "delivery", "mesa", "retirada"].includes(req.query.pedidoCanal)
       ? req.query.pedidoCanal
       : "todos";
-    const pedidoStatusAtual = ["todos", "novo", "preparo", "em_preparo", "pronto", "entregue", "finalizado", "cancelado"].includes(req.query.pedidoStatus)
+    const pedidoStatusAtual = ["todos", "novo", "preparo", "em_preparo", "pronto", "saiu_para_entrega", "finalizado", "cancelado"].includes(req.query.pedidoStatus)
       ? req.query.pedidoStatus
       : "todos";
 
@@ -3186,7 +3186,7 @@ exports.atualizarStatusPedido =
         "preparo",
         "em_preparo",
         "pronto",
-        "entregue",
+        "saiu_para_entrega",
         "finalizado",
         "cancelado",
       ];

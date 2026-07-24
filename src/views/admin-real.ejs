@@ -3681,22 +3681,22 @@
 
                   <option
                     value="pronto"
-                    <%= pedido.status === 'Saiu Para Entrega'
+                    <%= pedido.status === 'pronto'
                       ? 'selected'
                       : ''
                     %>
                   >
-                    Pedido Saiu P/Entrega
+                    Pronto
                   </option>
 
                   <option
-                    value="entregue"
-                    <%= pedido.status === 'entregue'
+                    value="saiu_para_entrega"
+                    <%= pedido.status === 'saiu_para_entrega'
                       ? 'selected'
                       : ''
                     %>
                   >
-                    Entregue
+                    Saiu Para Entrega
                   </option>
 
                   <option
