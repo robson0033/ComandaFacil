@@ -34,6 +34,7 @@ const Estoque = mongoose.model(
         required: true,
       },
       quantidade: { type: Number, default: 0, min: 0 },
+      quantidadeInicial: { type: Number, default: 0, min: 0 },
       minimo: { type: Number, default: 0, min: 0 },
       unidade: { type: String, default: "unidade", trim: true },
       custoUnitario: { type: Number, default: 0, min: 0 },
@@ -56,6 +57,26 @@ const Produto = mongoose.model(
       },
       preco: { type: Number, required: true, min: 0 },
       imagem: { type: String, default: "" },
+
+      custo: { type: Number, default: 0, min: 0 },
+
+      fichaTecnica: [
+        {
+          estoqueId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Estoque",
+            required: true,
+          },
+          nome: { type: String, required: true, trim: true },
+          quantidade: { type: Number, required: true, min: 0.0001 },
+          unidade: {
+            type: String,
+            enum: ["g", "kg", "ml", "l", "un"],
+            required: true,
+          },
+          custoCalculado: { type: Number, default: 0, min: 0 },
+        },
+      ],
 
       adicionais: [
         {

@@ -40,13 +40,44 @@ const registroSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+
+  aceiteLegal: {
+    aceitouTermos: {
+      type: Boolean,
+      default: false,
+    },
+    aceitouPrivacidade: {
+      type: Boolean,
+      default: false,
+    },
+    aceitoEm: {
+      type: Date,
+      default: null,
+    },
+    versao: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    ip: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    userAgent: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+  },
 });
 
 const registroModel = mongoose.model("Registro", registroSchema);
 
 class Registro {
-  constructor(body) {
+  constructor(body, metadata = {}) {
     this.body = body;
+    this.metadata = metadata;
     this.errors = [];
     this.user = null;
   }
@@ -55,6 +86,7 @@ class Registro {
     this.cleanUp();
 
     this.validaCampos();
+    this.validaAceiteLegal();
     this.validaCpfCnpj();
     this.validaEmail();
     this.validaSenha();
@@ -67,7 +99,17 @@ class Registro {
 
     this.criptografaSenha();
 
-    this.user = await registroModel.create(this.body);
+    this.user = await registroModel.create({
+      ...this.body,
+      aceiteLegal: {
+        aceitouTermos: true,
+        aceitouPrivacidade: true,
+        aceitoEm: new Date(),
+        versao: String(this.metadata.versaoTermos || ""),
+        ip: String(this.metadata.ipAceite || "").slice(0, 120),
+        userAgent: String(this.metadata.userAgentAceite || "").slice(0, 500),
+      },
+    });
   }
 
   validaCampos() {
@@ -93,6 +135,14 @@ class Registro {
 
     if (!this.body.senha) {
       this.errors.push("Senha é obrigatória.");
+    }
+  }
+
+  validaAceiteLegal() {
+    if (!this.body.aceitarTermos) {
+      this.errors.push(
+        "Para criar a conta, aceite os Termos de Uso e a Política de Privacidade."
+      );
     }
   }
 
@@ -174,7 +224,7 @@ class Registro {
 
     const primeiroDigito = calcularDigito(
       cnpj.slice(0, 12),
-      [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2],
+      [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
     );
 
     if (primeiroDigito !== Number(cnpj[12])) {
@@ -184,7 +234,7 @@ class Registro {
 
     const segundoDigito = calcularDigito(
       cnpj.slice(0, 13),
-      [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2],
+      [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
     );
 
     if (segundoDigito !== Number(cnpj[13])) {
@@ -205,8 +255,8 @@ class Registro {
   validaSenha() {
     if (!this.body.senha) return;
 
-    if (this.body.senha.length < 3 || this.body.senha.length > 15) {
-      this.errors.push("A senha precisa ter entre 3 e 15 caracteres.");
+    if (this.body.senha.length < 6 || this.body.senha.length > 15) {
+      this.errors.push("A senha precisa ter entre 6 e 15 caracteres.");
     }
 
     if (this.body.senha !== this.body.confirmarSenha) {
@@ -238,23 +288,34 @@ class Registro {
     this.body.senha = bcryptjs.hashSync(this.body.senha, salt);
 
     delete this.body.confirmarSenha;
+    delete this.body.aceitarTermos;
   }
 
   cleanUp() {
-    for (const key in this.body) {
-      if (typeof this.body[key] !== "string") {
-        this.body[key] = "";
-      }
+    const body = {};
+
+    for (const key of [
+      "nome",
+      "nomeEstabelecimento",
+      "email",
+      "telefone",
+      "cpfCnpj",
+      "senha",
+      "confirmarSenha",
+      "aceitarTermos",
+    ]) {
+      body[key] = typeof this.body[key] === "string" ? this.body[key] : "";
     }
 
     this.body = {
-      nome: this.body.nome.trim(),
-      nomeEstabelecimento: this.body.nomeEstabelecimento.trim(),
-      email: this.body.email.trim(),
-      telefone: this.body.telefone.trim(),
-      cpfCnpj: this.body.cpfCnpj.replace(/\D+/g, ""),
-      senha: this.body.senha,
-      confirmarSenha: this.body.confirmarSenha,
+      nome: body.nome.trim(),
+      nomeEstabelecimento: body.nomeEstabelecimento.trim(),
+      email: body.email.trim(),
+      telefone: body.telefone.trim(),
+      cpfCnpj: body.cpfCnpj.replace(/\D+/g, ""),
+      senha: body.senha,
+      confirmarSenha: body.confirmarSenha,
+      aceitarTermos: body.aceitarTermos === "on" ? "on" : "",
     };
   }
 }

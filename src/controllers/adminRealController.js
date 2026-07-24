@@ -59,6 +59,77 @@ function imagemParaDataUrl(file) {
 |--------------------------------------------------------------------------
 */
 
+function paraArray(valor) {
+  if (Array.isArray(valor)) return valor;
+  if (valor === undefined || valor === null || valor === "") return [];
+  return [valor];
+}
+
+function unidadeBase(unidade) {
+  const normalizada = String(unidade || "").trim().toLowerCase();
+  if (["kg", "quilo", "quilos"].includes(normalizada)) return "kg";
+  if (["g", "grama", "gramas"].includes(normalizada)) return "g";
+  if (["l", "litro", "litros"].includes(normalizada)) return "l";
+  if (["ml", "mililitro", "mililitros"].includes(normalizada)) return "ml";
+  return "un";
+}
+
+function converterQuantidade(valor, origem, destino) {
+  const quantidade = Number(valor || 0);
+  const de = unidadeBase(origem);
+  const para = unidadeBase(destino);
+  if (de === para) return quantidade;
+  if (de === "g" && para === "kg") return quantidade / 1000;
+  if (de === "kg" && para === "g") return quantidade * 1000;
+  if (de === "ml" && para === "l") return quantidade / 1000;
+  if (de === "l" && para === "ml") return quantidade * 1000;
+  return quantidade;
+}
+
+async function montarFichaTecnica(body, idEstabelecimento) {
+  const ids = paraArray(body.fichaEstoqueId);
+  const quantidades = paraArray(body.fichaQuantidade);
+  const unidades = paraArray(body.fichaUnidade);
+
+  const linhas = ids.map((id, indice) => ({
+    estoqueId: String(id || "").trim(),
+    quantidade: Number(quantidades[indice] || 0),
+    unidade: unidadeBase(unidades[indice]),
+  })).filter(linha => linha.estoqueId && linha.quantidade > 0);
+
+  if (!linhas.length) return { fichaTecnica: [], custo: 0 };
+
+  const itens = await Estoque.find({
+    _id: { $in: linhas.map(linha => linha.estoqueId) },
+    estabelecimentoId: idEstabelecimento,
+  }).lean();
+  const porId = new Map(itens.map(item => [String(item._id), item]));
+
+  const fichaTecnica = linhas.map(linha => {
+    const item = porId.get(linha.estoqueId);
+    if (!item) return null;
+    const quantidadeNaUnidadeDoEstoque = converterQuantidade(
+      linha.quantidade,
+      linha.unidade,
+      item.unidade,
+    );
+    const custoCalculado = quantidadeNaUnidadeDoEstoque * Number(item.custoUnitario || 0);
+    return {
+      estoqueId: item._id,
+      nome: item.nome,
+      quantidade: linha.quantidade,
+      unidade: linha.unidade,
+      custoCalculado: Number(custoCalculado.toFixed(4)),
+    };
+  }).filter(Boolean);
+
+  const custo = fichaTecnica.reduce(
+    (total, ingrediente) => total + Number(ingrediente.custoCalculado || 0),
+    0,
+  );
+  return { fichaTecnica, custo: Number(custo.toFixed(4)) };
+}
+
 function normalizarAdicionais(body = {}) {
   const nomes =
     Array.isArray(body.adicionaisNome)
@@ -1501,7 +1572,7 @@ exports.admin = async (req, res) => {
     const pedidoCanalAtual = ["todos", "delivery", "mesa", "retirada"].includes(req.query.pedidoCanal)
       ? req.query.pedidoCanal
       : "todos";
-    const pedidoStatusAtual = ["todos", "novo", "preparo", "em_preparo", "pronto", "entregue", "finalizado", "cancelado"].includes(req.query.pedidoStatus)
+    const pedidoStatusAtual = ["todos", "novo", "preparo", "em_preparo", "pronto", "saiu_para_entrega", "finalizado", "cancelado"].includes(req.query.pedidoStatus)
       ? req.query.pedidoStatus
       : "todos";
 
@@ -1724,6 +1795,9 @@ exports.criarEstoque = async (
       quantidade: Number(
         req.body.quantidade || 0,
       ),
+      quantidadeInicial: Number(
+        req.body.quantidade || 0,
+      ),
       minimo: Number(
         req.body.minimo || 0,
       ),
@@ -1780,6 +1854,10 @@ exports.editarEstoque = async (
     item.categoriaId =
       req.body.categoriaId ||
       item.categoriaId;
+
+    if (item.quantidadeInicial === undefined || item.quantidadeInicial === null) {
+      item.quantidadeInicial = Number(item.quantidade || 0);
+    }
 
     item.quantidade = Number(
       req.body.quantidade ?? item.quantidade,
@@ -1858,9 +1936,14 @@ exports.criarProduto = async (
   res,
 ) => {
   try {
+    const idEstabelecimento = estabelecimentoId(req);
+    const { fichaTecnica, custo } = await montarFichaTecnica(
+      req.body,
+      idEstabelecimento,
+    );
+
     await Produto.create({
-      estabelecimentoId:
-        estabelecimentoId(req),
+      estabelecimentoId: idEstabelecimento,
       nome: String(
         req.body.nome || "",
       ).trim(),
@@ -1872,9 +1955,8 @@ exports.criarProduto = async (
       preco: Number(
         req.body.preco || 0,
       ),
-      custo: Number(
-        req.body.custo || 0,
-      ),
+      custo,
+      fichaTecnica,
       adicionais:
         normalizarAdicionais(req.body),
       ativo:
@@ -1907,11 +1989,11 @@ exports.editarProduto = async (
   res,
 ) => {
   try {
+    const idEstabelecimento = estabelecimentoId(req);
     const produto =
       await Produto.findOne({
         _id: req.params.id,
-        estabelecimentoId:
-          estabelecimentoId(req),
+        estabelecimentoId: idEstabelecimento,
       });
 
     if (!produto) {
@@ -1942,11 +2024,12 @@ exports.editarProduto = async (
         produto.preco,
     );
 
-    produto.custo = Number(
-      req.body.custo ??
-        produto.custo ??
-        0,
+    const ficha = await montarFichaTecnica(
+      req.body,
+      idEstabelecimento,
     );
+    produto.fichaTecnica = ficha.fichaTecnica;
+    produto.custo = ficha.custo;
 
     produto.adicionais =
       normalizarAdicionais(req.body);
@@ -3178,7 +3261,7 @@ exports.atualizarStatusPedido =
         "preparo",
         "em_preparo",
         "pronto",
-        "entregue",
+        "saiu_para_entrega",
         "finalizado",
         "cancelado",
       ];

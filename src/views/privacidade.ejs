@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Política de Privacidade | Comanda Fácil</title>
+    <link rel="icon" href="/assets/imgs/comanda.png" type="image/png" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        color: #25211f;
+        background: #f8f5f2;
+        font-family: Inter, Arial, Helvetica, sans-serif;
+        line-height: 1.7;
+      }
+      .topo {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        border-bottom: 1px solid #eadfd7;
+        background: rgba(255, 255, 255, 0.94);
+        backdrop-filter: blur(14px);
+      }
+      .topo-conteudo,
+      .pagina {
+        width: min(100% - 32px, 920px);
+        margin: 0 auto;
+      }
+      .topo-conteudo {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        min-height: 74px;
+      }
+      .marca {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: #111;
+        font-size: 19px;
+        font-weight: 900;
+        text-decoration: none;
+      }
+      .marca img {
+        width: 45px;
+        height: 45px;
+        object-fit: contain;
+        border-radius: 12px;
+      }
+      .voltar {
+        padding: 10px 15px;
+        border: 1px solid #dfd4cc;
+        border-radius: 10px;
+        color: #8f1d18;
+        font-weight: 800;
+        text-decoration: none;
+        background: #fff;
+      }
+      .pagina {
+        padding: 52px 0 80px;
+      }
+      .hero {
+        padding: 38px;
+        border-radius: 24px;
+        color: #fff;
+        background: linear-gradient(135deg, #08234b, #ec8a0d);
+        box-shadow: 0 24px 55px rgba(8, 35, 75, 0.17);
+      }
+      .hero h1 {
+        margin: 0;
+        font-size: clamp(32px, 5vw, 48px);
+        line-height: 1.1;
+      }
+      .hero p {
+        margin: 14px 0 0;
+        color: rgba(255, 255, 255, 0.84);
+      }
+      .documento {
+        margin-top: 28px;
+        padding: 36px;
+        border: 1px solid #eadfd7;
+        border-radius: 24px;
+        background: #fff;
+        box-shadow: 0 18px 45px rgba(73, 34, 16, 0.07);
+      }
+      h2 {
+        margin: 34px 0 10px;
+        color: #08234b;
+        font-size: 22px;
+      }
+      h2:first-child {
+        margin-top: 0;
+      }
+      p,
+      li {
+        color: #514b47;
+      }
+      ul {
+        padding-left: 23px;
+      }
+      .quadro {
+        margin: 22px 0;
+        padding: 18px;
+        border-radius: 12px;
+        background: #f1f6fb;
+      }
+      .aviso {
+        margin: 28px 0 0;
+        padding: 18px;
+        border-left: 4px solid #ef8c13;
+        border-radius: 8px;
+        background: #fff4e8;
+      }
+      .rodape {
+        margin-top: 32px;
+        color: #7a716b;
+        font-size: 13px;
+        text-align: center;
+      }
+      @media (max-width: 600px) {
+        .hero,
+        .documento {
+          padding: 25px 20px;
+          border-radius: 18px;
+        }
+        .voltar {
+          font-size: 13px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topo">
+      <div class="topo-conteudo">
+        <a class="marca" href="/"
+          ><img src="/assets/imgs/comanda.png" alt="Comanda Fácil" /><span
+            >Comanda Fácil</span
+          ></a
+        >
+        <a class="voltar" href="/">Voltar ao acesso</a>
+      </div>
+    </header>
+
+    <main class="pagina">
+      <section class="hero">
+        <h1>Política de Privacidade</h1>
+        <p>Última atualização: 24 de julho de 2026 · Versão <%= versao %></p>
+      </section>
+
+      <article class="documento">
+        <h2>1. Objetivo</h2>
+        <p>
+          Esta Política explica como o Comanda Fácil coleta, utiliza, armazena,
+          compartilha e protege dados pessoais durante o cadastro e o uso da
+          plataforma, em conformidade com a legislação brasileira aplicável,
+          especialmente a Lei Geral de Proteção de Dados Pessoais.
+        </p>
+
+        <h2>2. Papéis no tratamento de dados</h2>
+        <div class="quadro">
+          <p>
+            <strong>Dados da conta do estabelecimento:</strong> o Comanda Fácil
+            atua como controlador ao definir como os dados de cadastro,
+            assinatura, segurança e suporte são tratados.
+          </p>
+          <p>
+            <strong>Dados dos clientes do estabelecimento:</strong> em regra, o
+            estabelecimento define as finalidades do tratamento e atua como
+            controlador; o Comanda Fácil processa esses dados para prestar o
+            serviço, atuando como operador conforme as instruções e
+            configurações do estabelecimento.
+          </p>
+        </div>
+
+        <h2>3. Dados que podem ser coletados</h2>
+        <ul>
+          <li>
+            Dados cadastrais: nome, estabelecimento, e-mail, telefone, CPF ou
+            CNPJ e credenciais protegidas.
+          </li>
+          <li>
+            Dados operacionais: produtos, funcionários, mesas, estoque, pedidos,
+            endereço de entrega, observações, forma e status de pagamento.
+          </li>
+          <li>
+            Dados técnicos: endereço IP, navegador, dispositivo, registros de
+            acesso, datas, horários e eventos de segurança.
+          </li>
+          <li>
+            Dados de integração: identificadores e tokens necessários para
+            serviços de pagamento, impressão, hospedagem ou comunicação.
+          </li>
+          <li>
+            Registros de aceite dos Termos e desta Política, incluindo versão,
+            data, IP e navegador.
+          </li>
+        </ul>
+
+        <h2>4. Finalidades</h2>
+        <ul>
+          <li>Criar e administrar contas e autenticar usuários.</li>
+          <li>
+            Executar funcionalidades de pedidos, cardápio, estoque, mesas,
+            relatórios, impressão e pagamentos.
+          </li>
+          <li>
+            Prestar suporte, prevenir fraudes, investigar incidentes e manter a
+            segurança.
+          </li>
+          <li>
+            Cumprir obrigações legais, regulatórias, fiscais e ordens de
+            autoridades competentes.
+          </li>
+          <li>
+            Aprimorar estabilidade, desempenho, usabilidade e recursos do
+            sistema.
+          </li>
+          <li>
+            Enviar comunicações essenciais sobre conta, serviço, cobrança e
+            segurança.
+          </li>
+        </ul>
+
+        <h2>5. Bases legais</h2>
+        <p>
+          O tratamento pode ocorrer para execução de contrato e procedimentos
+          preliminares, cumprimento de obrigação legal ou regulatória, exercício
+          regular de direitos, proteção contra fraudes, legítimo interesse com
+          avaliação de necessidade e impacto e, quando exigido, mediante
+          consentimento.
+        </p>
+
+        <h2>6. Compartilhamento</h2>
+        <p>
+          Dados podem ser compartilhados, no limite necessário, com provedores
+          de hospedagem, banco de dados, pagamentos, notificações, impressão,
+          análise técnica, segurança e suporte. Também poderão ser fornecidos a
+          autoridades quando houver obrigação legal ou ordem válida.
+        </p>
+        <p>Não vendemos dados pessoais a anunciantes.</p>
+
+        <h2>7. Pagamentos</h2>
+        <p>
+          Informações financeiras e pagamentos podem ser tratados diretamente
+          por provedores especializados. O Comanda Fácil poderá receber
+          identificadores, status, datas, valores e informações necessárias à
+          conciliação, sem necessariamente armazenar dados completos de cartão.
+        </p>
+
+        <h2>8. Cookies e armazenamento local</h2>
+        <p>
+          São utilizados cookies de sessão para autenticação e segurança. Quando
+          o usuário marca “Lembrar meu acesso”, a sessão poderá permanecer ativa
+          por mais tempo e o e-mail poderá ser salvo no armazenamento local do
+          navegador. A senha não é salva por essa função.
+        </p>
+
+        <h2>9. Conservação</h2>
+        <p>
+          Os dados são mantidos pelo período necessário para prestar os
+          serviços, cumprir obrigações legais, prevenir fraudes, resolver
+          disputas e exercer direitos. Após o encerramento da conta, dados
+          poderão permanecer bloqueados ou armazenados pelos prazos legais
+          aplicáveis antes da eliminação ou anonimização.
+        </p>
+
+        <h2>10. Segurança</h2>
+        <p>
+          Adotamos medidas técnicas e administrativas razoáveis, incluindo
+          controle de acesso, proteção de senhas, registros de atividade e
+          comunicação criptografada quando disponível. Nenhum ambiente é
+          totalmente livre de riscos, e usuários também devem proteger
+          dispositivos, senhas e permissões.
+        </p>
+
+        <h2>11. Direitos dos titulares</h2>
+        <p>
+          Nos termos da legislação, o titular poderá solicitar confirmação do
+          tratamento, acesso, correção, anonimização, bloqueio ou eliminação
+          quando cabível, portabilidade conforme regulamentação, informação
+          sobre compartilhamentos, revogação do consentimento e revisão de
+          decisões automatizadas quando aplicável.
+        </p>
+        <p>
+          Solicitações relacionadas a dados inseridos por um estabelecimento
+          podem precisar ser direcionadas primeiro ao próprio estabelecimento,
+          que atua como controlador desses dados.
+        </p>
+
+        <h2>12. Crianças e adolescentes</h2>
+        <p>
+          A conta administrativa é destinada a pessoas com capacidade legal para
+          contratar e administrar um estabelecimento. O usuário não deve
+          cadastrar dados de crianças ou adolescentes sem necessidade, base
+          legal e proteção adequada.
+        </p>
+
+        <h2>13. Transferência e infraestrutura</h2>
+        <p>
+          Fornecedores de tecnologia podem processar dados em diferentes
+          localidades. Nesses casos, serão adotadas medidas contratuais e de
+          segurança compatíveis com a legislação aplicável.
+        </p>
+
+        <h2>14. Incidentes</h2>
+        <p>
+          Incidentes relevantes serão avaliados e, quando exigido pela
+          legislação, comunicados aos titulares e à autoridade competente, com
+          informações sobre natureza, riscos e medidas adotadas.
+        </p>
+
+        <h2>15. Contato</h2>
+        <p>
+          Solicitações de privacidade devem ser encaminhadas pelo canal oficial
+          de suporte disponibilizado no Comanda Fácil. Antes da operação
+          comercial definitiva, o responsável pelo sistema deve publicar neste
+          documento sua razão social ou nome, CNPJ ou CPF empresarial quando
+          aplicável, endereço e contato específico de privacidade.
+        </p>
+
+        <h2>16. Atualizações</h2>
+        <p>
+          Esta Política poderá ser atualizada por alterações legais, técnicas ou
+          operacionais. Mudanças relevantes serão comunicadas na plataforma e
+          poderão exigir novo aceite.
+        </p>
+      </article>
+
+      <p class="rodape">Comanda Fácil · Gestão Food Service</p>
+    </main>
+  </body>
+</html>

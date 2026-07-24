@@ -21,7 +21,8 @@
     "multer": "^2.0.2",
     "qrcode": "^1.5.4",
     "socket.io": "^4.8.1",
-    "validator": "^13.15.35"
+    "validator": "^13.15.35",
+    "nodemailer": "^7.0.6"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

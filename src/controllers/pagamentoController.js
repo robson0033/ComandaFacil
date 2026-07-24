@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const { Assinatura, Configuracao, Pedido } = require("../models/painelModels");
+const { baixarEstoqueDoPedido, restaurarEstoqueDoPedido } = require("../services/estoqueService");
 const { registroModel } = require("../models/registroModel");
 
 const MP_API = "https://api.mercadopago.com";
@@ -351,6 +352,12 @@ exports.webhook = async (req, res) => {
           pedidoSalvo.pagamentoStatus = "cancelado";
         }
         await pedidoSalvo.save();
+        if (payment.status === "approved" && !pedidoSalvo.estoqueBaixado) {
+          try { await baixarEstoqueDoPedido(pedidoSalvo._id); } catch (erroEstoque) { console.error("Falha ao baixar estoque do PIX aprovado:", erroEstoque); }
+        }
+        if (["cancelled", "rejected", "refunded", "charged_back"].includes(payment.status) && pedidoSalvo.estoqueBaixado) {
+          try { await restaurarEstoqueDoPedido(pedidoSalvo._id); } catch (erroEstoque) { console.error("Falha ao restaurar estoque:", erroEstoque); }
+        }
         return;
       }
 

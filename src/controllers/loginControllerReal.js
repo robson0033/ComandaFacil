@@ -3,18 +3,38 @@ const validator = require("validator");
 const { registroModel } = require("../models/registroModel");
 const { Funcionario } = require("../models/painelModels");
 
+const TRINTA_DIAS = 1000 * 60 * 60 * 24 * 30;
+
+function configurarDuracaoDaSessao(req) {
+  const lembrar = req.body.lembrar === "on";
+
+  if (lembrar) {
+    req.session.cookie.maxAge = TRINTA_DIAS;
+    return;
+  }
+
+  // Sem "Lembrar meu acesso", o cookie termina ao fechar o navegador.
+  req.session.cookie.maxAge = null;
+  req.session.cookie.expires = false;
+}
+
 exports.login = async (req, res) => {
   try {
     const email = String(req.body.email || "")
       .toLowerCase()
       .trim();
     const senha = String(req.body.senha || "");
+
     if (!validator.isEmail(email) || !senha) {
       req.flash("errors", "E-mail ou senha inválidos.");
       return req.session.save(() => res.redirect("/login/index"));
     }
+
     const dono = await registroModel.findOne({ email });
+
     if (dono && (await bcrypt.compare(senha, dono.senha))) {
+      configurarDuracaoDaSessao(req);
+
       req.session.user = {
         id: dono._id,
         estabelecimentoId: dono._id,
@@ -32,10 +52,21 @@ exports.login = async (req, res) => {
           "configuracoes",
         ],
       };
+
       return req.session.save(() => res.redirect("/admin"));
     }
-    const funcionario = await Funcionario.findOne({ email, ativo: true });
-    if (funcionario && (await bcrypt.compare(senha, funcionario.senha))) {
+
+    const funcionario = await Funcionario.findOne({
+      email,
+      ativo: true,
+    });
+
+    if (
+      funcionario &&
+      (await bcrypt.compare(senha, funcionario.senha))
+    ) {
+      configurarDuracaoDaSessao(req);
+
       req.session.user = {
         id: funcionario._id,
         estabelecimentoId: funcionario.estabelecimentoId,
@@ -45,14 +76,18 @@ exports.login = async (req, res) => {
         funcao: funcionario.funcao,
         permissoes: funcionario.permissoes,
       };
+
       return req.session.save(() => res.redirect("/admin"));
     }
+
     req.flash("errors", "E-mail ou senha inválidos.");
     return req.session.save(() => res.redirect("/login/index"));
   } catch (e) {
     console.error(e);
-    res.status(500).render("404");
+    return res.status(500).render("404");
   }
 };
 
-exports.logout = (req, res) => req.session.destroy(() => res.redirect("/"));
+exports.logout = (req, res) => {
+  req.session.destroy(() => res.redirect("/"));
+};

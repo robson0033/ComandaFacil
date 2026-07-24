@@ -53,6 +53,102 @@
       cursor: pointer;
     }
 
+    .botao-whatsapp {
+      position: fixed;
+      left: 18px;
+      bottom: 18px;
+      z-index: 95;
+      width: 58px;
+      height: 58px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #25d366, #128c4a);
+      color: #fff;
+      text-decoration: none;
+      box-shadow:
+        0 16px 34px rgba(18, 140, 74, 0.34),
+        0 0 0 0 rgba(37, 211, 102, 0.35);
+      transition:
+        transform 0.2s ease,
+        filter 0.2s ease,
+        box-shadow 0.2s ease;
+      animation: whatsappPulse 2.2s infinite;
+    }
+
+    .botao-whatsapp:hover {
+      transform: translateY(-3px) scale(1.04);
+      filter: brightness(0.96);
+      box-shadow:
+        0 20px 40px rgba(18, 140, 74, 0.42),
+        0 0 0 8px rgba(37, 211, 102, 0.12);
+    }
+
+    .botao-whatsapp:focus-visible {
+      outline: 3px solid rgba(37, 211, 102, 0.35);
+      outline-offset: 4px;
+    }
+
+    .botao-whatsapp svg {
+      width: 31px;
+      height: 31px;
+      fill: currentColor;
+    }
+
+    .botao-whatsapp-texto {
+      position: absolute;
+      left: 68px;
+      min-width: max-content;
+      padding: 8px 11px;
+      border-radius: 9px;
+      background: #163d29;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 850;
+      line-height: 1;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(-7px);
+      transition: 0.2s ease;
+      box-shadow: 0 8px 20px rgba(16, 58, 36, 0.22);
+    }
+
+    .botao-whatsapp:hover .botao-whatsapp-texto,
+    .botao-whatsapp:focus-visible .botao-whatsapp-texto {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    @keyframes whatsappPulse {
+      0%,
+      100% {
+        box-shadow:
+          0 16px 34px rgba(18, 140, 74, 0.34),
+          0 0 0 0 rgba(37, 211, 102, 0.28);
+      }
+
+      50% {
+        box-shadow:
+          0 16px 34px rgba(18, 140, 74, 0.34),
+          0 0 0 10px rgba(37, 211, 102, 0);
+      }
+    }
+
+    @media (max-width: 600px) {
+      .botao-whatsapp {
+        left: 13px;
+        bottom: 13px;
+        width: 54px;
+        height: 54px;
+      }
+
+      .botao-whatsapp-texto {
+        display: none;
+      }
+    }
+
     img {
       display: block;
       max-width: 100%;
@@ -1540,6 +1636,30 @@
     </div>
   </div>
 
+  <% if (whatsappLoja) { %>
+    <a
+      class="botao-whatsapp"
+      href="https://wa.me/<%= whatsappLoja %>?text=<%= encodeURIComponent(
+        `Olá! Vim pelo cardápio digital de ${configuracao.nomeEstabelecimento} e gostaria de falar com vocês.`
+      ) %>"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Falar com o estabelecimento pelo WhatsApp"
+      title="Falar no WhatsApp"
+    >
+      <svg
+        viewBox="0 0 32 32"
+        aria-hidden="true"
+      >
+        <path d="M19.11 17.21c-.26-.13-1.53-.76-1.77-.84-.24-.09-.41-.13-.59.13-.17.26-.67.84-.82 1.01-.15.17-.3.2-.56.07-.26-.13-1.09-.4-2.08-1.29-.77-.68-1.29-1.53-1.44-1.79-.15-.26-.02-.4.11-.53.12-.12.26-.3.39-.45.13-.15.17-.26.26-.43.09-.17.04-.32-.02-.45-.07-.13-.59-1.42-.8-1.94-.21-.51-.43-.44-.59-.45h-.5c-.17 0-.45.07-.69.32-.24.26-.91.89-.91 2.17 0 1.27.93 2.51 1.06 2.68.13.17 1.83 2.79 4.43 3.91.62.27 1.1.43 1.48.55.62.2 1.18.17 1.63.1.5-.07 1.53-.63 1.75-1.23.22-.6.22-1.12.15-1.23-.06-.11-.24-.17-.5-.3ZM16.04 4C9.39 4 4 9.37 4 16c0 2.12.56 4.19 1.62 6L4 28l6.17-1.58A12 12 0 1 0 16.04 4Zm0 21.8c-1.84 0-3.64-.5-5.21-1.45l-.37-.22-3.66.94.98-3.56-.24-.37A9.72 9.72 0 1 1 16.04 25.8Z"/>
+      </svg>
+
+      <span class="botao-whatsapp-texto">
+        Falar no WhatsApp
+      </span>
+    </a>
+  <% } %>
+
   <footer class="footer">
     Cardápio digital
   </footer>
@@ -2645,6 +2765,27 @@
       <div id="myOrdersResult" class="my-orders-result"></div>
     </div>
   </div>
+
+  <%
+  const telefoneLimpo = String(user.telefone || '').replace(/\D/g, '');
+
+  const telefoneWhatsApp = telefoneLimpo.startsWith('55')
+    ? telefoneLimpo
+    : `55${telefoneLimpo}`;
+
+  const mensagemWhatsApp = encodeURIComponent(
+    'Olá, gostaria de mais informações.'
+  );
+%>
+
+<a
+  href="https://wa.me/<%= telefoneWhatsApp %>?text=<%= mensagemWhatsApp %>"
+  target="_blank"
+  rel="noopener noreferrer"
+  class="botao-whatsapp"
+>
+  Falar no WhatsApp
+</a>
 </dialog>
 
 <script>

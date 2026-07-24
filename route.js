@@ -15,6 +15,10 @@ const loginController = require(
   './src/controllers/loginControllerReal'
 );
 
+const recuperacaoSenhaController = require(
+  './src/controllers/recuperacaoSenhaController'
+);
+
 const admin = require(
   './src/controllers/adminRealController'
 );
@@ -116,9 +120,49 @@ route.get(
   homeController.index
 );
 
+route.get(
+  '/termos',
+  homeController.termos
+);
+
+route.get(
+  '/privacidade',
+  homeController.privacidade
+);
+
 route.post(
   '/login/admin',
   loginController.login
+);
+
+route.get(
+  '/login/recuperar-senha',
+  recuperacaoSenhaController.paginaSolicitarCodigo
+);
+
+route.post(
+  '/login/recuperar-senha',
+  recuperacaoSenhaController.solicitarCodigo
+);
+
+route.get(
+  '/login/verificar-codigo',
+  recuperacaoSenhaController.paginaVerificarCodigo
+);
+
+route.post(
+  '/login/verificar-codigo',
+  recuperacaoSenhaController.verificarCodigo
+);
+
+route.get(
+  '/login/nova-senha',
+  recuperacaoSenhaController.paginaNovaSenha
+);
+
+route.post(
+  '/login/nova-senha',
+  recuperacaoSenhaController.salvarNovaSenha
 );
 
 route.get(

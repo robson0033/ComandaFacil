@@ -8,7 +8,7 @@
     content="width=device-width, initial-scale=1.0"
   >
 
-  <title>ComandaMix | Painel Administrativo</title>
+  <title>ComandaFacíl | Painel Administrativo</title>
 
   <style>
     * {
@@ -1130,12 +1130,7 @@
       flex: 0 0 52px;
       overflow: hidden;
       border-radius: 16px;
-      background:
-        linear-gradient(
-          135deg,
-          var(--laranja-500),
-          var(--vermelho-600)
-        );
+      background: white;
       box-shadow: 0 12px 28px rgba(198, 40, 40, 0.35);
       font-size: 26px;
     }
@@ -1144,6 +1139,10 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
+    }
+
+    .facil {
+      color: var(--laranja-600);
     }
 
     .brand strong {
@@ -2292,31 +2291,6 @@
       );
     }
 
-    .stat-card-content {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 14px;
-    }
-
-    .stat-card-icon {
-      width: 52px;
-      height: 52px;
-      flex: 0 0 52px;
-      display: grid;
-      place-items: center;
-      border-radius: 16px;
-      background: currentColor;
-      color: inherit;
-      opacity: .12;
-    }
-
-    .stat-card-icon svg {
-      width: 25px;
-      height: 25px;
-      fill: currentColor;
-      opacity: 1;
-    }
 
     .order-card {
       padding: 14px;
@@ -2416,6 +2390,38 @@
     }
 
   
+    .technical-list {
+      display: grid;
+      gap: 9px;
+      margin-top: 9px;
+    }
+
+    .technical-row {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) 130px 110px 42px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .technical-cost-box {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #eefbf3;
+      color: #166534;
+      font-weight: 800;
+    }
+
+    .remove-technical {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      background: #fde2e2;
+      color: #a32121;
+      font-size: 20px;
+      font-weight: 900;
+    }
+
     .additional-list {
       display: grid;
       gap: 9px;
@@ -2456,6 +2462,10 @@
     }
 
     @media (max-width: 600px) {
+      .technical-row {
+        grid-template-columns: 1fr 90px 80px 40px;
+      }
+
       .additional-row {
         grid-template-columns: 1fr 105px 40px;
       }
@@ -2893,7 +2903,7 @@
         </div>
 
         <div>
-          <strong>ComandaMix</strong>
+          <strong>Comanda<span class="facil">Facíl</span></strong>
           <small>Gestão Food Service</small>
         </div>
       </div>
@@ -3062,7 +3072,7 @@
     <main class="main">
       <div class="mobile-topbar">
         <button type="button" id="openMenu">☰</button>
-        <strong>ComandaMix</strong>
+        <strong>ComandaFacíl</strong>
 
         <% if (config.fotoPerfil) { %>
           <img
@@ -3179,49 +3189,69 @@
 
         <div class="stats">
           <article class="stat-card vermelho">
-            <div class="stat-card-content">
+            <div class="report-card-head">
               <div>
                 <div class="stat-label">Vendas no período</div>
-                <div class="stat-value"><%= formatarMoeda(painelDashboard.vendasHoje) %></div>
+                <div class="stat-value">
+                  <%= formatarMoeda(painelDashboard.vendasHoje) %>
+                </div>
               </div>
-              <div class="stat-card-icon">
-                <svg viewBox="0 0 24 24"><path d="M11 2h2v2.08c2.28.34 4 1.83 4 3.92h-2c0-1.1-1.34-2-3-2s-3 .9-3 2 1.34 2 3 2c2.76 0 5 1.79 5 4 0 2.09-1.72 3.58-4 3.92V20h-2v-2.08C8.72 17.58 7 16.09 7 14h2c0 1.1 1.34 2 3 2s3-.9 3-2-1.34-2-3-2c-2.76 0-5-1.79-5-4 0-2.09 1.72-3.58 4-3.92V2Z"/></svg>
+
+              <div class="report-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 1a11 11 0 1 0 11 11A11 11 0 0 0 12 1Zm1 17.93V20h-2v-1.05A4 4 0 0 1 8 15h2a2 2 0 1 0 2-2 4 4 0 0 1-1-7.87V4h2v1.13A4 4 0 0 1 16 9h-2a2 2 0 1 0-2 2 4 4 0 0 1 1 7.87Z"/>
+                </svg>
               </div>
             </div>
           </article>
 
           <article class="stat-card laranja">
-            <div class="stat-card-content">
+            <div class="report-card-head">
               <div>
                 <div class="stat-label">Pedidos no período</div>
-                <div class="stat-value"><%= painelDashboard.pedidosHoje %></div>
+                <div class="stat-value">
+                  <%= painelDashboard.pedidosHoje %>
+                </div>
               </div>
-              <div class="stat-card-icon">
-                <svg viewBox="0 0 24 24"><path d="M7 2h10a2 2 0 0 1 2 2v18l-3-2-4 2-4-2-3 2V4a2 2 0 0 1 2-2Zm0 2v14.26l1-.67 4 2 4-2 1 .67V4H7Zm2 3h6v2H9V7Zm0 4h6v2H9v-2Z"/></svg>
+
+              <div class="report-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M7 18c-1.1 0-2 .9-2 2h14a2 2 0 0 0-2-2H7Zm11-2H6a2 2 0 0 1-2-2V4h2v10h12V4h2v10a2 2 0 0 1-2 2ZM8 6h8v2H8V6Zm0 4h8v2H8v-2Z"/>
+                </svg>
               </div>
             </div>
           </article>
 
           <article class="stat-card verde">
-            <div class="stat-card-content">
+            <div class="report-card-head">
               <div>
                 <div class="stat-label">Ticket médio</div>
-                <div class="stat-value"><%= formatarMoeda(painelDashboard.ticketMedio) %></div>
+                <div class="stat-value">
+                  <%= formatarMoeda(painelDashboard.ticketMedio) %>
+                </div>
               </div>
-              <div class="stat-card-icon">
-                <svg viewBox="0 0 24 24"><path d="m4 14 4-4 4 4 7-7 1.41 1.41L12 17.24 8 13.24 5.41 15.83 4 14Zm14-9h6v6h-2V8.41l-7.29 7.3-1.42-1.42L20.59 7H18V5Z"/></svg>
+
+              <div class="report-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="m4 14 4-4 4 4 7-7 1.41 1.41L12 17.24 8 13.24 5.41 15.83 4 14Zm14-9h6v6h-2V8.41l-7.29 7.3-1.42-1.42L20.59 7H18V5Z"/>
+                </svg>
               </div>
             </div>
           </article>
 
           <article class="stat-card azul">
-            <div class="stat-card-content">
+            <div class="report-card-head">
               <div>
                 <div class="stat-label">Mesas ocupadas</div>
-                <div class="stat-value"><%= painelDashboard.mesasOcupadas %>/<%= painelDashboard.totalMesas %></div>
+                <div class="stat-value">
+                  <%= painelDashboard.mesasOcupadas %>/<%= painelDashboard.totalMesas %>
+                </div>
               </div>
-              <div class="stat-card-icon">
-                <svg viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-1v9a1 1 0 1 1-2 0v-9H7v9a1 1 0 1 1-2 0v-9H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/></svg>
+
+              <div class="report-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M4 4h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-1v9a1 1 0 1 1-2 0v-9H7v9a1 1 0 1 1-2 0v-9H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
+                </svg>
               </div>
             </div>
           </article>
@@ -3617,22 +3647,22 @@
 
                   <option
                     value="pronto"
-                    <%= pedido.status === 'Saiu Para Entrega'
+                    <%= pedido.status === 'Pronto'
                       ? 'selected'
                       : ''
                     %>
                   >
-                    Pedido Saiu P/Entrega
+                    Pronto
                   </option>
 
                   <option
-                    value="entregue"
-                    <%= pedido.status === 'entregue'
+                    value="saiu_para_entrega"
+                    <%= pedido.status === 'saiu_para_entrega'
                       ? 'selected'
                       : ''
                     %>
                   >
-                    Entregue
+                    Saiu P/Entrega
                   </option>
 
                   <option
@@ -4087,7 +4117,9 @@
                 <tr>
                   <th>Item</th>
                   <th>Categoria</th>
-                  <th>Quantidade</th>
+                  <th>Cadastrado</th>
+                  <th>Restante</th>
+                  <th>Consumido</th>
                   <th>Mínimo</th>
                   <th>Custo unitário</th>
                   <th>Status</th>
@@ -4098,7 +4130,7 @@
               <tbody>
                 <% if (!listaEstoque.length) { %>
                   <tr>
-                    <td colspan="7" class="empty">
+                    <td colspan="9" class="empty">
                       Nenhum item cadastrado.
                     </td>
                   </tr>
@@ -4114,9 +4146,34 @@
                       <%= item.categoriaId?.nome || '-' %>
                     </td>
 
-                    <td data-label="Quantidade">
-                      <%= item.quantidade %>
-                      <%= item.unidade %>
+                    <%
+                      const quantidadeRestante = Number(item.quantidade || 0);
+                      const quantidadeCadastrada = Number(
+                        item.quantidadeInicial ?? quantidadeRestante
+                      );
+                      const quantidadeConsumida = Math.max(
+                        quantidadeCadastrada - quantidadeRestante,
+                        0
+                      );
+                      const percentualRestante = quantidadeCadastrada > 0
+                        ? Math.max(0, Math.min(100, (quantidadeRestante / quantidadeCadastrada) * 100))
+                        : 0;
+                    %>
+
+                    <td data-label="Cadastrado">
+                      <strong><%= quantidadeCadastrada %> <%= item.unidade %></strong>
+                    </td>
+
+                    <td data-label="Restante">
+                      <strong><%= quantidadeRestante %> <%= item.unidade %></strong>
+                      <div style="margin-top:6px;height:7px;background:#eee;border-radius:999px;overflow:hidden;min-width:110px;">
+                        <div style="height:100%;width:<%= percentualRestante.toFixed(1) %>%;background:<%= percentualRestante <= 20 ? '#dc2626' : percentualRestante <= 40 ? '#f59e0b' : '#16a34a' %>;border-radius:999px;"></div>
+                      </div>
+                      <small><%= percentualRestante.toFixed(1).replace('.', ',') %>% restante</small>
+                    </td>
+
+                    <td data-label="Consumido">
+                      <%= quantidadeConsumida %> <%= item.unidade %>
                     </td>
 
                     <td data-label="Mínimo">
@@ -5349,7 +5406,7 @@
 
         <div class="field">
           <label for="estoqueQuantidade">
-            Quantidade
+            Quantidade inicial cadastrada
           </label>
 
           <input
@@ -5515,7 +5572,29 @@
         </div>
 
         <div class="field full">
-          <label>Adicionais do produto</label>
+          <label>Ficha técnica / ingredientes do estoque</label>
+          <small style="color:var(--cinza-500);">
+            Selecione os itens já cadastrados no estoque e informe quanto este produto consome por unidade vendida.
+          </small>
+
+          <div class="technical-list" data-technical-list></div>
+
+          <button
+            type="button"
+            class="mini-button edit"
+            data-add-technical
+            style="margin-top:9px;"
+          >
+            + Adicionar ingrediente
+          </button>
+
+          <div class="technical-cost-box" data-technical-cost>
+            Custo atual calculado: R$ 0,00
+          </div>
+        </div>
+
+        <div class="field full">
+          <label>Adicionais vendidos ao cliente</label>
 
           <div
             class="additional-list"
@@ -5633,7 +5712,63 @@
           </div>
 
           <div class="field full">
-            <label>Adicionais do produto</label>
+            <label>Ficha técnica / ingredientes do estoque</label>
+            <small style="color:var(--cinza-500);">
+              Cada produto pode usar quantidades diferentes dos mesmos ingredientes.
+            </small>
+
+            <div class="technical-list" data-technical-list>
+              <% (produto.fichaTecnica || []).forEach(ingrediente => { %>
+                <div class="technical-row">
+                  <select name="fichaEstoqueId[]" class="technical-stock" required>
+                    <option value="">Selecione o ingrediente</option>
+                    <% estoque.forEach(item => { %>
+                      <option
+                        value="<%= item._id %>"
+                        data-unidade="<%= item.unidade || 'unidade' %>"
+                        data-custo="<%= Number(item.custoUnitario || 0) %>"
+                        <%= String(ingrediente.estoqueId?._id || ingrediente.estoqueId) === String(item._id) ? 'selected' : '' %>
+                      >
+                        <%= item.nome %> — <%= item.quantidade %> <%= item.unidade %> em estoque
+                      </option>
+                    <% }) %>
+                  </select>
+
+                  <input
+                    type="number"
+                    name="fichaQuantidade[]"
+                    class="technical-quantity"
+                    min="0.0001"
+                    step="0.0001"
+                    value="<%= ingrediente.quantidade %>"
+                    placeholder="Quantidade"
+                    required
+                  >
+
+                  <select name="fichaUnidade[]" class="technical-unit" required>
+                    <% ['g','kg','ml','l','un'].forEach(unidade => { %>
+                      <option value="<%= unidade %>" <%= ingrediente.unidade === unidade ? 'selected' : '' %>>
+                        <%= unidade %>
+                      </option>
+                    <% }) %>
+                  </select>
+
+                  <button type="button" class="remove-technical" title="Remover ingrediente">×</button>
+                </div>
+              <% }) %>
+            </div>
+
+            <button type="button" class="mini-button edit" data-add-technical style="margin-top:9px;">
+              + Adicionar ingrediente
+            </button>
+
+            <div class="technical-cost-box" data-technical-cost>
+              Custo atual calculado: R$ <%= Number(produto.custo || 0).toFixed(2).replace('.', ',') %>
+            </div>
+          </div>
+
+          <div class="field full">
+            <label>Adicionais vendidos ao cliente</label>
 
             <div
               class="additional-list"
@@ -7917,7 +8052,7 @@ async function imprimirPedido(
 
   if (!online) {
     throw new Error(
-      'Abra o ComandaMix Print Agent no computador da impressora.'
+      'Abra o ComandaFacíl Print Agent no computador da impressora.'
     );
   }
 
@@ -8160,6 +8295,121 @@ if (podeReceberNotificacoes) {
   );
 }
   
+    const itensEstoqueFicha = <%- JSON.stringify((estoque || []).map(item => ({
+      id: String(item._id),
+      nome: item.nome,
+      quantidade: Number(item.quantidade || 0),
+      unidade: item.unidade || 'unidade',
+      custoUnitario: Number(item.custoUnitario || 0),
+    }))) %>;
+
+    function unidadeNormalizada(unidade) {
+      const valor = String(unidade || '').toLowerCase();
+      if (['kg', 'quilo', 'quilos'].includes(valor)) return 'kg';
+      if (['g', 'grama', 'gramas'].includes(valor)) return 'g';
+      if (['l', 'litro', 'litros'].includes(valor)) return 'l';
+      if (['ml', 'mililitro', 'mililitros'].includes(valor)) return 'ml';
+      return 'un';
+    }
+
+    function unidadesPermitidas(unidadeEstoque) {
+      const unidade = unidadeNormalizada(unidadeEstoque);
+      if (['kg', 'g'].includes(unidade)) return ['g', 'kg'];
+      if (['l', 'ml'].includes(unidade)) return ['ml', 'l'];
+      return ['un'];
+    }
+
+    function converterParaUnidadeEstoque(quantidade, unidadeConsumo, unidadeEstoque) {
+      const origem = unidadeNormalizada(unidadeConsumo);
+      const destino = unidadeNormalizada(unidadeEstoque);
+      if (origem === destino) return quantidade;
+      if (origem === 'g' && destino === 'kg') return quantidade / 1000;
+      if (origem === 'kg' && destino === 'g') return quantidade * 1000;
+      if (origem === 'ml' && destino === 'l') return quantidade / 1000;
+      if (origem === 'l' && destino === 'ml') return quantidade * 1000;
+      return quantidade;
+    }
+
+    function opcoesEstoqueHtml() {
+      return itensEstoqueFicha.map(item => `
+        <option value="${item.id}" data-unidade="${item.unidade}" data-custo="${item.custoUnitario}">
+          ${item.nome} — ${item.quantidade} ${item.unidade} em estoque
+        </option>
+      `).join('');
+    }
+
+    function criarLinhaTecnica() {
+      const row = document.createElement('div');
+      row.className = 'technical-row';
+      row.innerHTML = `
+        <select name="fichaEstoqueId[]" class="technical-stock" required>
+          <option value="">Selecione o ingrediente</option>
+          ${opcoesEstoqueHtml()}
+        </select>
+        <input type="number" name="fichaQuantidade[]" class="technical-quantity" min="0.0001" step="0.0001" placeholder="Quantidade" required>
+        <select name="fichaUnidade[]" class="technical-unit" required>
+          <option value="un">un</option>
+        </select>
+        <button type="button" class="remove-technical" title="Remover ingrediente">×</button>
+      `;
+      return row;
+    }
+
+    function atualizarUnidadesLinha(row) {
+      const estoqueSelect = row.querySelector('.technical-stock');
+      const unidadeSelect = row.querySelector('.technical-unit');
+      const item = itensEstoqueFicha.find(i => i.id === estoqueSelect.value);
+      const unidadeAnterior = unidadeSelect.value;
+      const permitidas = unidadesPermitidas(item?.unidade || 'un');
+      unidadeSelect.innerHTML = permitidas.map(unidade =>
+        `<option value="${unidade}">${unidade}</option>`
+      ).join('');
+      if (permitidas.includes(unidadeAnterior)) unidadeSelect.value = unidadeAnterior;
+      atualizarCustoFormulario(row.closest('form'));
+    }
+
+    function atualizarCustoFormulario(form) {
+      if (!form) return;
+      let custo = 0;
+      form.querySelectorAll('.technical-row').forEach(row => {
+        const item = itensEstoqueFicha.find(i => i.id === row.querySelector('.technical-stock')?.value);
+        const quantidade = Number(row.querySelector('.technical-quantity')?.value || 0);
+        const unidade = row.querySelector('.technical-unit')?.value || 'un';
+        if (!item || quantidade <= 0) return;
+        const naUnidadeEstoque = converterParaUnidadeEstoque(quantidade, unidade, item.unidade);
+        custo += naUnidadeEstoque * item.custoUnitario;
+      });
+      const box = form.querySelector('[data-technical-cost]');
+      if (box) box.textContent = `Custo atual calculado: ${custo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`;
+    }
+
+    document.querySelectorAll('[data-add-technical]').forEach(button => {
+      button.addEventListener('click', () => {
+        const form = button.closest('form');
+        form.querySelector('[data-technical-list]').appendChild(criarLinhaTecnica());
+      });
+    });
+
+    document.addEventListener('change', event => {
+      if (event.target.matches('.technical-stock')) atualizarUnidadesLinha(event.target.closest('.technical-row'));
+      if (event.target.matches('.technical-unit')) atualizarCustoFormulario(event.target.closest('form'));
+    });
+
+    document.addEventListener('input', event => {
+      if (event.target.matches('.technical-quantity')) atualizarCustoFormulario(event.target.closest('form'));
+    });
+
+    document.addEventListener('click', event => {
+      const remove = event.target.closest('.remove-technical');
+      if (remove) {
+        const form = remove.closest('form');
+        remove.closest('.technical-row')?.remove();
+        atualizarCustoFormulario(form);
+      }
+    });
+
+    document.querySelectorAll('.technical-row').forEach(row => atualizarUnidadesLinha(row));
+
     function criarLinhaAdicional() {
       const row = document.createElement('div');
       row.className = 'additional-row';

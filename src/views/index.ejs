@@ -8,7 +8,7 @@
     content="width=device-width, initial-scale=1.0"
   >
 
-  <title>Login e cadastro | ComandaMix</title>
+  <title>Login e cadastro | ComandaFacíl</title>
 
   <link
     rel="icon"
@@ -82,7 +82,7 @@
 
     .auth {
       display: grid;
-      grid-template-columns: minmax(360px, 44%) minmax(0, 56%);
+      grid-template-columns: minmax(360px, 54%) minmax(0, 56%);
       min-height: 100vh;
     }
 
@@ -100,7 +100,7 @@
         ),
         linear-gradient(
           145deg,
-          rgba(36, 16, 12, 0.84),
+          rgba(36, 16, 12, 0.174),
           rgba(101, 17, 17, 0.72)
         );
     }
@@ -114,7 +114,7 @@
         linear-gradient(
           180deg,
           rgba(18, 8, 5, 0.12),
-          rgba(18, 8, 5, 0.88)
+          rgba(18, 8, 5, 0.269)
         );
       pointer-events: none;
     }
@@ -154,13 +154,13 @@
       overflow: hidden;
       border-radius: 20px;
       background:
-        linear-gradient(
-          135deg,
-          var(--laranja-500),
-          var(--vermelho-600)
-        );
+        linear-gradient( white);
       box-shadow:
         0 18px 45px rgba(198, 40, 40, 0.38);
+    }
+
+    .facil {
+      color: var(--laranja-600);
     }
 
     .logo-icon img {
@@ -170,7 +170,7 @@
     }
 
     .marca-nome strong {
-      display: block;
+      display: flex;
       font-size: 27px;
       letter-spacing: -0.7px;
     }
@@ -526,11 +526,20 @@
     }
 
     .auth-rodape {
+      display: flex;
+      justify-content: center;
+      align-items: center;
       margin-top: 24px;
       color: var(--cinza-500);
       font-size: 12px;
       line-height: 1.5;
       text-align: center;
+      gap: 5px;
+    }
+
+    .auth-rodape img {
+      width: 16px;
+      height: 16px;
     }
 
     @media (max-width: 1050px) {
@@ -615,12 +624,12 @@
   </style>
 </head>
 
-<body>
+<body data-form-cadastro="<%= typeof formData !== 'undefined' && formData && Object.keys(formData).length > 0 ? 'true' : 'false' %>">
   <main class="auth">
     <section class="auth-imagem">
       <div class="auth-overlay">
         <img
-          src="/assets/imgs/template.png"
+          src="/assets/imgs/template2.png"
           alt="Sistema ComandaMix para restaurantes"
         >
       </div>
@@ -635,7 +644,7 @@
           </div>
 
           <div class="marca-nome">
-            <strong>ComandaMix</strong>
+            <strong>Comanda<div class="facil">Facíl</div></strong>
             <span>Gestão Food Service</span>
           </div>
         </div>
@@ -666,7 +675,7 @@
               alt="ComandaMix"
             >
 
-            <strong>ComandaMix</strong>
+            <strong>ComandaFacíl</strong>
           </div>
 
           <h2 id="tituloFormulario">
@@ -786,7 +795,9 @@
           <label class="lembrar">
             <input
               type="checkbox"
+              id="lembrarAcesso"
               name="lembrar"
+              value="on"
             >
 
             <span>
@@ -1004,6 +1015,9 @@
             <input
               type="checkbox"
               id="aceitarTermos"
+              name="aceitarTermos"
+              value="on"
+              <%= typeof formData !== 'undefined' && formData.aceitarTermos ? 'checked' : '' %>
               required
             >
 
@@ -1028,22 +1042,11 @@
         </form>
 
         <p class="auth-rodape">
-          Sistema online seguro para a gestão do seu estabelecimento.
+         <img src="./assets/imgs/lock.svg"> Sistema online seguro para a gestão do seu estabelecimento.
         </p>
       </div>
     </section>
   </main>
-
-  <%
-  const temFormData =
-    typeof formData !== 'undefined' &&
-    formData &&
-    Object.keys(formData).length > 0;
-%>
-
-<body data-form-cadastro="<%= temFormData ? 'true' : 'false' %>">
-
-  <!-- Todo o conteúdo da página fica aqui -->
 
   <script>
     const btnLogin = document.querySelector('#btnLogin');
@@ -1051,6 +1054,35 @@
 
     const formLogin = document.querySelector('#formLogin');
     const formCadastro = document.querySelector('#formCadastro');
+    const lembrarAcesso = document.querySelector('#lembrarAcesso');
+    const loginEmail = document.querySelector('#loginEmail');
+    const CHAVE_EMAIL_LEMBRADO = 'comandaFacilLoginEmail';
+
+    try {
+      const emailLembrado = localStorage.getItem(CHAVE_EMAIL_LEMBRADO);
+
+      if (emailLembrado) {
+        loginEmail.value = emailLembrado;
+        lembrarAcesso.checked = true;
+      }
+    } catch (erro) {
+      console.warn('Não foi possível recuperar o e-mail lembrado.', erro);
+    }
+
+    formLogin.addEventListener('submit', () => {
+      try {
+        if (lembrarAcesso.checked) {
+          localStorage.setItem(
+            CHAVE_EMAIL_LEMBRADO,
+            loginEmail.value.trim().toLowerCase()
+          );
+        } else {
+          localStorage.removeItem(CHAVE_EMAIL_LEMBRADO);
+        }
+      } catch (erro) {
+        console.warn('Não foi possível salvar a preferência de acesso.', erro);
+      }
+    });
 
     const tituloFormulario = document.querySelector(
       '#tituloFormulario'
@@ -1105,6 +1137,15 @@
       });
 
     formCadastro.addEventListener('submit', event => {
+      const aceitarTermos = document.querySelector('#aceitarTermos');
+
+      if (!aceitarTermos.checked) {
+        event.preventDefault();
+        alert('Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.');
+        aceitarTermos.focus();
+        return;
+      }
+
       const senha = document.querySelector(
         '#cadastroSenha'
       ).value;
