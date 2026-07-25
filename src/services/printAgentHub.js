@@ -3,6 +3,7 @@ const { PrintAgent } = require("../models/painelModels");
 const printQueueService = require("./printQueueService");
 
 const sockets = new Map();
+const statusListeners = new Map();
 let sweepTimer = null;
 
 function hash(value) {
@@ -16,6 +17,42 @@ function normalizarCodigo(value) {
   return String(value || "")
     .replace(/\D/g, "")
     .slice(0, 6);
+}
+
+function statusPayload(estabelecimentoId, connected, details = {}) {
+  return {
+    type: "print-agent-status",
+    connected: Boolean(connected),
+    status: connected ? "conectado" : "desconectado",
+    updatedAt: new Date().toISOString(),
+    nomeComputador: connected
+      ? String(details.nomeComputador || "").trim()
+      : "",
+  };
+}
+
+function publishStatus(estabelecimentoId, connected, details) {
+  const lojaId = String(estabelecimentoId);
+  const payload = statusPayload(lojaId, connected, details);
+  for (const listener of statusListeners.get(lojaId) || []) {
+    try {
+      listener(payload);
+    } catch (error) {
+      console.error("Erro ao publicar status do agente:", error);
+    }
+  }
+  return payload;
+}
+
+function subscribeStatus(estabelecimentoId, listener) {
+  const lojaId = String(estabelecimentoId);
+  const listeners = statusListeners.get(lojaId) || new Set();
+  listeners.add(listener);
+  statusListeners.set(lojaId, listeners);
+  return () => {
+    listeners.delete(listener);
+    if (!listeners.size) statusListeners.delete(lojaId);
+  };
 }
 
 function init(io) {
@@ -99,14 +136,18 @@ function init(io) {
     const agente = socket.data.agent;
     const lojaId = String(agente.estabelecimentoId);
 
-    sockets.set(lojaId, socket);
-
     try {
       agente.nomeComputador = String(
         socket.handshake.auth?.computerName || "",
       ).trim();
       agente.ultimaConexao = new Date();
       await agente.save();
+
+      const previousSocket = sockets.get(lojaId);
+      sockets.set(lojaId, socket);
+      if (previousSocket && previousSocket.id !== socket.id) {
+        previousSocket.disconnect(true);
+      }
 
       // O token precisa ser enviado antes do ready. O Electron só considera
       // a vinculação concluída depois de receber os dois eventos.
@@ -117,6 +158,9 @@ function init(io) {
       }
 
       socket.emit("agent:ready", { lojaId });
+      publishStatus(lojaId, true, {
+        nomeComputador: agente.nomeComputador,
+      });
       void printQueueService.drenarFilaDoEstabelecimento(lojaId, socket);
     } catch (error) {
       console.error("Erro ao finalizar conexão do agente:", error);
@@ -148,6 +192,7 @@ function init(io) {
     socket.on("disconnect", () => {
       if (sockets.get(lojaId)?.id === socket.id) {
         sockets.delete(lojaId);
+        publishStatus(lojaId, false);
       }
     });
   });
@@ -211,6 +256,13 @@ function isOnline(estabelecimentoId) {
   return Boolean(sockets.get(String(estabelecimentoId))?.connected);
 }
 
+function currentStatus(estabelecimentoId) {
+  const socket = sockets.get(String(estabelecimentoId));
+  return statusPayload(estabelecimentoId, Boolean(socket?.connected), {
+    nomeComputador: socket?.data?.agent?.nomeComputador,
+  });
+}
+
 function request(
   estabelecimentoId,
   event,
@@ -243,10 +295,15 @@ function request(
 
 module.exports = {
   init,
+  currentStatus,
   isOnline,
   request,
   requestPrintJob,
+  subscribeStatus,
   _testing: {
+    publishStatus,
     sockets,
+    statusListeners,
+    statusPayload,
   },
 };

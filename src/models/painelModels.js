@@ -38,6 +38,11 @@ const Estoque = mongoose.model(
       minimo: { type: Number, default: 0, min: 0 },
       unidade: { type: String, default: "unidade", trim: true },
       custoUnitario: { type: Number, default: 0, min: 0 },
+      estoqueOperacoes: {
+        type: [String],
+        default: [],
+        select: false,
+      },
     },
     opts,
   ),
@@ -458,6 +463,16 @@ const Configuracao = mongoose.model(
         refreshTokenCriptografado: { type: String, default: "", select: false },
         tokenExpiraEm: { type: Date, default: null },
         conectadoEm: { type: Date, default: null },
+        scope: { type: String, default: "", trim: true },
+        conectadoPor: {
+          type: mongoose.Schema.Types.ObjectId,
+          default: null,
+        },
+        desconectadoEm: { type: Date, default: null },
+        desconectadoPor: {
+          type: mongoose.Schema.Types.ObjectId,
+          default: null,
+        },
       },
 
     },
@@ -601,6 +616,8 @@ const Pedido = mongoose.model(
         type: Date,
         default: null,
       },
+      estoqueBaixado: { type: Boolean, default: false },
+      estoqueBaixadoEm: { type: Date, default: null },
 
       precisaTroco: {
         type: Boolean,
@@ -624,6 +641,20 @@ const Pedido = mongoose.model(
       pixCopiaCola: { type: String, default: "" },
       pixQrCodeBase64: { type: String, default: "" },
       pixExpiraEm: { type: Date, default: null },
+      estoqueProcessamento: {
+        type: String,
+        enum: ["pendente", "processando", "concluido", "falhou"],
+        default: "pendente",
+      },
+      estoqueProcessamentoEm: { type: Date, default: null },
+      estoqueErro: { type: String, default: "" },
+      pagamentoInconsistente: { type: Boolean, default: false },
+      pagamentoInconsistencia: { type: String, default: "" },
+      historicoFinanceiro: [{
+        paymentId: { type: String, default: "" },
+        status: { type: String, default: "" },
+        registradoEm: { type: Date, default: Date.now },
+      }],
 
     },
     opts,
@@ -700,7 +731,15 @@ const Assinatura = mongoose.model(
       ...base,
       status: {
         type: String,
-        enum: ["teste", "ativa", "pendente", "expirada", "cancelada"],
+        enum: [
+          "teste",
+          "pendente",
+          "ativa",
+          "atrasada",
+          "cancelada",
+          "expirada",
+          "reembolsada",
+        ],
         default: "teste",
         index: true,
       },
@@ -713,13 +752,105 @@ const Assinatura = mongoose.model(
       fimTeste: { type: Date, required: true },
       planoInicio: { type: Date, default: null },
       planoExpira: { type: Date, default: null },
+      proximaCobranca: { type: Date, default: null },
       mercadoPagoPreapprovalId: { type: String, default: "" },
+      mercadoPagoPreapprovalCriadoEm: { type: Date, default: null },
       mercadoPagoPaymentId: { type: String, default: "" },
+      mercadoPagoPaymentCriadoEm: { type: Date, default: null },
       ultimoStatusMercadoPago: { type: String, default: "" },
+      ultimoPagamentoAprovadoId: { type: String, default: "" },
+      ultimoPagamentoAprovadoEm: { type: Date, default: null },
+      ultimoEventoFinanceiroEm: { type: Date, default: null },
+      ultimoEventoFinanceiroKey: { type: String, default: "" },
+      historicoFinanceiro: [{
+        paymentId: { type: String, default: "" },
+        preapprovalId: { type: String, default: "" },
+        status: { type: String, default: "" },
+        aprovadoEm: { type: Date, default: null },
+        registradoEm: { type: Date, default: Date.now },
+      }],
     },
     opts,
   ),
 );
+
+const assinaturaTentativaSchema = new mongoose.Schema(
+  {
+    attemptId: { type: String, required: true, immutable: true },
+    ...base,
+    assinaturaId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Assinatura",
+      required: true,
+      index: true,
+    },
+    metodo: { type: String, enum: ["cartao", "pix"], required: true },
+    status: {
+      type: String,
+      enum: [
+        "criando",
+        "pending",
+        "authorized",
+        "approved",
+        "failed",
+        "cancelled",
+        "expired",
+        "superseded",
+        "reconciliation_required",
+      ],
+      required: true,
+      default: "criando",
+      index: true,
+    },
+    ativa: { type: Boolean, required: true, default: true },
+    idempotencyKey: { type: String, required: true, immutable: true },
+    mercadoPagoPaymentId: { type: String, default: "" },
+    mercadoPagoPreapprovalId: { type: String, default: "" },
+    valorCentavos: { type: Number, required: true, min: 1 },
+    moeda: { type: String, enum: ["BRL"], default: "BRL" },
+    redirectUrl: { type: String, default: "" },
+    pixQrCodeBase64: { type: String, default: "" },
+    pixCopiaCola: { type: String, default: "" },
+    expiresAt: { type: Date, required: true, index: true },
+    completedAt: { type: Date, default: null },
+    supersededAt: { type: Date, default: null },
+    erro: { type: String, default: "", maxlength: 1000 },
+  },
+  opts,
+);
+assinaturaTentativaSchema.index(
+  { attemptId: 1 },
+  { unique: true, name: "assinatura_tentativa_attempt_unico" },
+);
+assinaturaTentativaSchema.index(
+  { estabelecimentoId: 1, metodo: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { ativa: true },
+    name: "assinatura_tentativa_ativa_unica",
+  },
+);
+const AssinaturaTentativa = mongoose.model(
+  "AssinaturaTentativa",
+  assinaturaTentativaSchema,
+);
+
+const oauthStateSchema = new mongoose.Schema({
+  stateHash: { type: String, required: true },
+  sessionId: { type: String, required: true, index: true },
+  ...base,
+  expiresAt: { type: Date, required: true },
+  consumedAt: { type: Date, default: null },
+}, opts);
+oauthStateSchema.index(
+  { stateHash: 1 },
+  { unique: true, name: "oauth_state_hash_unico" },
+);
+oauthStateSchema.index(
+  { expiresAt: 1 },
+  { expireAfterSeconds: 0, name: "oauth_state_expiracao_ttl" },
+);
+const OAuthState = mongoose.model("OAuthState", oauthStateSchema);
 
 
 const PrintAgent = mongoose.model(
@@ -808,6 +939,90 @@ printJobSchema.index({
 
 const PrintJob = mongoose.model("PrintJob", printJobSchema);
 
+const paymentEventSchema = new mongoose.Schema({
+  eventKey: { type: String, required: true },
+  requestId: { type: String, required: true },
+  resourceId: { type: String, required: true },
+  resourceType: { type: String, required: true },
+  action: { type: String, default: "" },
+  estabelecimentoId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Registro",
+    default: null,
+  },
+  assinaturaId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Assinatura",
+    default: null,
+  },
+  pedidoId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Pedido",
+    default: null,
+  },
+  status: {
+    type: String,
+    enum: ["recebido", "processando", "processado", "falhou"],
+    default: "recebido",
+    index: true,
+  },
+  payloadHash: { type: String, required: true },
+  recebidoEm: { type: Date, default: Date.now },
+  processandoEm: { type: Date, default: null },
+  processadoEm: { type: Date, default: null },
+  erro: { type: String, default: "" },
+  tentativas: { type: Number, default: 0, min: 0 },
+}, opts);
+
+paymentEventSchema.index({ eventKey: 1 }, { unique: true, name: "payment_event_key_unico" });
+const PaymentEvent = mongoose.model("PaymentEvent", paymentEventSchema);
+
+// Estes índices de segurança são aplicados somente pelo script manual
+// scripts/create-mercado-pago-indexes.js, após a verificação de duplicidades.
+for (const model of [
+  Configuracao,
+  Pedido,
+  Assinatura,
+  AssinaturaTentativa,
+  OAuthState,
+  PaymentEvent,
+]) {
+  model.schema.set("autoIndex", false);
+}
+
+Configuracao.schema.index(
+  { estabelecimentoId: 1 },
+  { unique: true, name: "configuracao_estabelecimento_unico" },
+);
+Pedido.schema.index(
+  { mercadoPagoPaymentId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { mercadoPagoPaymentId: { $type: "string", $gt: "" } },
+    name: "pedido_payment_id_unico",
+  },
+);
+Assinatura.schema.index(
+  { estabelecimentoId: 1 },
+  { unique: true, name: "assinatura_estabelecimento_unico" },
+);
+Assinatura.schema.index(
+  { mercadoPagoPaymentId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { mercadoPagoPaymentId: { $type: "string", $gt: "" } },
+    name: "assinatura_payment_id_unico",
+  },
+);
+Assinatura.schema.index(
+  { mercadoPagoPreapprovalId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { mercadoPagoPreapprovalId: { $type: "string", $gt: "" } },
+    name: "assinatura_preapproval_id_unico",
+  },
+);
+
 module.exports = {
   Categoria,
   Estoque,
@@ -818,6 +1033,9 @@ module.exports = {
   Pedido,
   Avaliacao,
   Assinatura,
+  AssinaturaTentativa,
+  OAuthState,
   PrintAgent,
   PrintJob,
+  PaymentEvent,
 };

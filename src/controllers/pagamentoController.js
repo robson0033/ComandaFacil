@@ -1,14 +1,125 @@
+"use strict";
+
 const crypto = require("crypto");
-const { Assinatura, Configuracao, Pedido } = require("../models/painelModels");
+const {
+  Assinatura,
+  AssinaturaTentativa,
+  Configuracao,
+  OAuthState,
+  PaymentEvent,
+  Pedido,
+} = require("../models/painelModels");
 const { baixarEstoqueDoPedido, restaurarEstoqueDoPedido } = require("../services/estoqueService");
 const { registroModel } = require("../models/registroModel");
+const {
+  paidPeriod,
+  subscriptionStatusForFinancialStatus,
+  validateApprovedPayment,
+  validatePaymentIdentity,
+} = require("../services/mercadoPagoService");
+const {
+  sanitizeMercadoPagoError,
+  validateMercadoPagoWebhook,
+} = require("../middleware/mercadoPagoSecurity");
 
 const MP_API = "https://api.mercadopago.com";
-const valorPlano = () => Number(process.env.PLANO_MENSAL || 39.9);
-const estabelecimentoId = (req) =>
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const PIX_ATTEMPT_TTL_MS = 30 * 60 * 1000;
+const CARD_ATTEMPT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const REQUEST_TIMEOUT_MS = 12_000;
+const valorPlano = () => {
+  const value = Number(process.env.PLANO_MENSAL || 39.9);
+  if (!Number.isFinite(value) || value <= 0) throw new Error("Valor do plano inválido.");
+  return value;
+};
+const estabelecimentoId = req =>
   req.session.user.estabelecimentoId || req.session.user.id;
-const baseUrl = (req) =>
+const baseUrl = req =>
   String(process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+const platformCollectorId = () => {
+  const value = String(process.env.MERCADO_PAGO_PLATFORM_USER_ID || "").trim();
+  if (!value) throw new Error("Conta principal da plataforma não configurada.");
+  return value;
+};
+const subscriptionReference = assinatura =>
+  `assinatura:${assinatura._id}:estabelecimento:${assinatura.estabelecimentoId}`;
+const attemptReference = attempt =>
+  `assinatura-tentativa:${attempt.attemptId}:estabelecimento:${attempt.estabelecimentoId}`;
+
+function planoPagoVigente(assinatura, now = new Date()) {
+  return Boolean(
+    assinatura?.status === "ativa"
+    && assinatura.ultimoPagamentoAprovadoId
+    && assinatura.planoExpira
+    && new Date(assinatura.planoExpira) > now
+  );
+}
+
+async function obterOuCriarTentativa(assinatura, metodo) {
+  if (planoPagoVigente(assinatura)) {
+    const error = new Error("A assinatura já está ativa.");
+    error.code = "ASSINATURA_ATIVA";
+    throw error;
+  }
+  const now = new Date();
+  await AssinaturaTentativa.updateMany(
+    {
+      estabelecimentoId: assinatura.estabelecimentoId,
+      metodo,
+      ativa: true,
+      expiresAt: { $lte: now },
+    },
+    {
+      $set: {
+        ativa: false,
+        status: "expired",
+        supersededAt: now,
+      },
+    },
+  );
+  const existing = await AssinaturaTentativa.findOne({
+    estabelecimentoId: assinatura.estabelecimentoId,
+    metodo,
+    ativa: true,
+    expiresAt: { $gt: now },
+  });
+  if (existing) return { attempt: existing, created: false };
+
+  const attemptId = crypto.randomUUID();
+  try {
+    const attempt = await AssinaturaTentativa.create({
+      attemptId,
+      assinaturaId: assinatura._id,
+      estabelecimentoId: assinatura.estabelecimentoId,
+      metodo,
+      status: "criando",
+      ativa: true,
+      idempotencyKey: crypto.randomUUID(),
+      valorCentavos: Math.round(valorPlano() * 100),
+      moeda: "BRL",
+      expiresAt: new Date(
+        Date.now() + (metodo === "pix" ? PIX_ATTEMPT_TTL_MS : CARD_ATTEMPT_TTL_MS),
+      ),
+    });
+    return { attempt, created: true };
+  } catch (error) {
+    if (error?.code !== 11000) throw error;
+    const attempt = await AssinaturaTentativa.findOne({
+      estabelecimentoId: assinatura.estabelecimentoId,
+      metodo,
+      ativa: true,
+    });
+    if (!attempt) throw error;
+    return { attempt, created: false };
+  }
+}
+
+function pixDaTentativa(attempt) {
+  return {
+    qrCodeBase64: attempt.pixQrCodeBase64 || "",
+    copiaCola: attempt.pixCopiaCola || "",
+  };
+}
 
 function chaveCriptografia() {
   const segredo = process.env.TOKEN_ENCRYPTION_KEY;
@@ -22,33 +133,46 @@ function criptografar(texto) {
   const cipher = crypto.createCipheriv("aes-256-gcm", chaveCriptografia(), iv);
   const encrypted = Buffer.concat([cipher.update(String(texto), "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return [iv, tag, encrypted].map((b) => b.toString("base64url")).join(".");
+  return [iv, tag, encrypted].map(buffer => buffer.toString("base64url")).join(".");
 }
 
 function descriptografar(valor) {
   if (!valor) return "";
-  const [iv, tag, encrypted] = String(valor).split(".").map((v) => Buffer.from(v, "base64url"));
+  const parts = String(valor).split(".");
+  if (parts.length !== 3) throw new Error("Token armazenado inválido.");
+  const [iv, tag, encrypted] = parts.map(value => Buffer.from(value, "base64url"));
   const decipher = crypto.createDecipheriv("aes-256-gcm", chaveCriptografia(), iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
 }
 
 async function mp(path, options = {}, accessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN) {
-  if (!accessToken) throw new Error("Access Token do Mercado Pago não foi configurado.");
-  const response = await fetch(`${MP_API}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.message || data.error || `Erro Mercado Pago (${response.status})`);
+  if (!accessToken) throw new Error("Credencial Mercado Pago não configurada.");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  timer.unref?.();
+  try {
+    const response = await fetch(`${MP_API}${path}`, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error("Falha na API do Mercado Pago.");
+      error.status = response.status;
+      error.code = data.code || data.error || "";
+      throw error;
+    }
+    return data;
+  } finally {
+    clearTimeout(timer);
   }
-  return data;
 }
 
 async function assinaturaDoUsuario(req) {
@@ -61,17 +185,23 @@ async function assinaturaDoUsuario(req) {
       status: "teste",
       metodo: "teste",
       inicioTeste: inicio,
-      fimTeste: new Date(inicio.getTime() + 7 * 86400000),
+      fimTeste: new Date(inicio.getTime() + 7 * 86_400_000),
     });
   }
   return assinatura;
 }
 
 function manterTesteOuStatusAtual(assinatura) {
-  const agora = Date.now();
-  if (assinatura.fimTeste && new Date(assinatura.fimTeste).getTime() > agora) return "teste";
+  if (assinatura.fimTeste && new Date(assinatura.fimTeste).getTime() > Date.now()) {
+    return "teste";
+  }
   if (assinatura.status === "ativa") return "ativa";
   return "pendente";
+}
+
+function flashSafeIntegrationError(req, error) {
+  console.error("Mercado Pago:", sanitizeMercadoPagoError(error));
+  req.flash("errors", "Não foi possível concluir a operação com o Mercado Pago.");
 }
 
 exports.pagina = async (req, res) => {
@@ -85,10 +215,10 @@ exports.pagina = async (req, res) => {
       dono,
       pix: null,
       diasRestantes: res.locals.diasRestantes || 0,
+      csrfToken: res.locals.csrfToken,
     });
-  } catch (e) {
-    console.error(e);
-    req.flash("errors", e.message);
+  } catch (error) {
+    flashSafeIntegrationError(req, error);
     return req.session.save(() => res.redirect("/admin"));
   }
 };
@@ -98,11 +228,18 @@ exports.assinarCartao = async (req, res) => {
     const id = estabelecimentoId(req);
     const assinatura = await assinaturaDoUsuario(req);
     const dono = await registroModel.findById(id).lean();
+    const { attempt, created } = await obterOuCriarTentativa(assinatura, "cartao");
+    if (!created) {
+      if (attempt.redirectUrl) return res.redirect(attempt.redirectUrl);
+      req.flash("success", "Sua solicitação de assinatura já está sendo processada.");
+      return req.session.save(() => res.redirect("/assinatura"));
+    }
     const data = await mp("/preapproval", {
       method: "POST",
+      headers: { "X-Idempotency-Key": attempt.idempotencyKey },
       body: JSON.stringify({
         reason: "Plano Profissional ComandaFácil",
-        external_reference: String(id),
+        external_reference: attemptReference(attempt),
         payer_email: dono.email,
         auto_recurring: {
           frequency: 1,
@@ -114,17 +251,48 @@ exports.assinarCartao = async (req, res) => {
         status: "pending",
       }),
     });
+    if (!data.id || !data.init_point) throw new Error("Resposta de assinatura inválida.");
 
+    await AssinaturaTentativa.updateOne(
+      { _id: attempt._id, status: "criando", ativa: true },
+      {
+        $set: {
+          status: ["authorized", "pending"].includes(data.status)
+            ? data.status
+            : "pending",
+          mercadoPagoPreapprovalId: String(data.id),
+          redirectUrl: String(data.init_point),
+          erro: "",
+        },
+      },
+    );
     assinatura.metodo = "cartao";
     assinatura.status = manterTesteOuStatusAtual(assinatura);
-    assinatura.mercadoPagoPreapprovalId = data.id;
-    assinatura.ultimoStatusMercadoPago = data.status;
+    assinatura.mercadoPagoPreapprovalId = String(data.id);
+    assinatura.mercadoPagoPreapprovalCriadoEm = new Date();
+    assinatura.ultimoStatusMercadoPago = String(data.status || "pending");
+    assinatura.proximaCobranca = null;
     await assinatura.save();
-
     return res.redirect(data.init_point);
-  } catch (e) {
-    console.error(e);
-    req.flash("errors", e.message);
+  } catch (error) {
+    if (error?.code !== "ASSINATURA_ATIVA") {
+      await AssinaturaTentativa.updateOne(
+        {
+          estabelecimentoId: estabelecimentoId(req),
+          metodo: "cartao",
+          status: "criando",
+          ativa: true,
+        },
+        {
+          $set: {
+            status: "failed",
+            ativa: false,
+            erro: sanitizeMercadoPagoError(error).message,
+          },
+        },
+      ).catch(() => {});
+    }
+    flashSafeIntegrationError(req, error);
     return req.session.save(() => res.redirect("/assinatura"));
   }
 };
@@ -134,23 +302,62 @@ exports.gerarPix = async (req, res) => {
     const id = estabelecimentoId(req);
     const assinatura = await assinaturaDoUsuario(req);
     const dono = await registroModel.findById(id).lean();
+    const { attempt, created } = await obterOuCriarTentativa(assinatura, "pix");
+    if (!created) {
+      if (!attempt.pixCopiaCola) {
+        req.flash("success", "Seu Pix já está sendo gerado.");
+        return req.session.save(() => res.redirect("/assinatura"));
+      }
+      return res.render("assinatura", {
+        assinatura: assinatura.toObject(),
+        valorPlano: valorPlano(),
+        publicKey: process.env.MERCADO_PAGO_PUBLIC_KEY || "",
+        dono,
+        diasRestantes: res.locals.diasRestantes || 0,
+        csrfToken: res.locals.csrfToken,
+        pix: pixDaTentativa(attempt),
+      });
+    }
     const data = await mp("/v1/payments", {
       method: "POST",
-      headers: { "X-Idempotency-Key": crypto.randomUUID() },
+      headers: { "X-Idempotency-Key": attempt.idempotencyKey },
       body: JSON.stringify({
         transaction_amount: valorPlano(),
         description: "Plano mensal ComandaFácil",
         payment_method_id: "pix",
-        external_reference: String(id),
+        external_reference: attemptReference(attempt),
         notification_url: `${baseUrl(req)}/webhook/mercado-pago`,
         payer: { email: dono.email, first_name: dono.nome || "Cliente" },
       }),
     });
+    if (!data.id) throw new Error("Resposta de pagamento inválida.");
 
+    const pixQrCodeBase64 =
+      data.point_of_interaction?.transaction_data?.qr_code_base64 || "";
+    const pixCopiaCola =
+      data.point_of_interaction?.transaction_data?.qr_code || "";
+    await AssinaturaTentativa.updateOne(
+      { _id: attempt._id, status: "criando", ativa: true },
+      {
+        $set: {
+          status: ["pending", "authorized", "approved"].includes(data.status)
+            ? data.status
+            : "pending",
+          mercadoPagoPaymentId: String(data.id),
+          pixQrCodeBase64,
+          pixCopiaCola,
+          expiresAt: data.date_of_expiration
+            ? new Date(data.date_of_expiration)
+            : attempt.expiresAt,
+          erro: "",
+        },
+      },
+    );
     assinatura.metodo = "pix";
     assinatura.status = manterTesteOuStatusAtual(assinatura);
     assinatura.mercadoPagoPaymentId = String(data.id);
-    assinatura.ultimoStatusMercadoPago = data.status;
+    assinatura.mercadoPagoPaymentCriadoEm = new Date();
+    assinatura.ultimoStatusMercadoPago = String(data.status || "pending");
     await assinatura.save();
 
     return res.render("assinatura", {
@@ -159,33 +366,60 @@ exports.gerarPix = async (req, res) => {
       publicKey: process.env.MERCADO_PAGO_PUBLIC_KEY || "",
       dono,
       diasRestantes: res.locals.diasRestantes || 0,
+      csrfToken: res.locals.csrfToken,
       pix: {
-        qrCodeBase64: data.point_of_interaction?.transaction_data?.qr_code_base64 || "",
-        copiaCola: data.point_of_interaction?.transaction_data?.qr_code || "",
-        paymentId: data.id,
+        qrCodeBase64: pixQrCodeBase64,
+        copiaCola: pixCopiaCola,
       },
     });
-  } catch (e) {
-    console.error(e);
-    req.flash("errors", e.message);
+  } catch (error) {
+    if (error?.code !== "ASSINATURA_ATIVA") {
+      await AssinaturaTentativa.updateOne(
+        {
+          estabelecimentoId: estabelecimentoId(req),
+          metodo: "pix",
+          status: "criando",
+          ativa: true,
+        },
+        {
+          $set: {
+            status: "failed",
+            ativa: false,
+            erro: sanitizeMercadoPagoError(error).message,
+          },
+        },
+      ).catch(() => {});
+    }
+    flashSafeIntegrationError(req, error);
     return req.session.save(() => res.redirect("/assinatura"));
   }
 };
 
 exports.retorno = async (req, res) => {
-  req.flash("success", "Pagamento iniciado. Você continua usando o período gratuito até a confirmação ou até o vencimento real do teste.");
+  req.flash(
+    "success",
+    "Pagamento iniciado. A liberação ocorrerá somente após confirmação financeira.",
+  );
   return req.session.save(() => res.redirect("/admin"));
 };
 
-// OAuth do vendedor
 exports.conectarMercadoPago = async (req, res) => {
   try {
     if (!process.env.MP_CLIENT_ID || !process.env.MP_REDIRECT_URI) {
-      throw new Error("MP_CLIENT_ID e MP_REDIRECT_URI precisam ser configurados.");
+      throw new Error("Configuração OAuth indisponível.");
     }
-    const state = crypto.randomBytes(24).toString("hex");
-    req.session.mpOauthState = state;
-    await new Promise((resolve, reject) => req.session.save((e) => e ? reject(e) : resolve()));
+    const state = crypto.randomBytes(32).toString("base64url");
+    const stateHash = crypto.createHash("sha256").update(state).digest("hex");
+    await OAuthState.create({
+      stateHash,
+      sessionId: String(req.sessionID),
+      estabelecimentoId: estabelecimentoId(req),
+      expiresAt: new Date(Date.now() + OAUTH_STATE_TTL_MS),
+    });
+    req.session.mpOauthStateHash = stateHash;
+    await new Promise((resolve, reject) =>
+      req.session.save(error => error ? reject(error) : resolve()));
+
     const url = new URL("https://auth.mercadopago.com/authorization");
     url.searchParams.set("client_id", process.env.MP_CLIENT_ID);
     url.searchParams.set("response_type", "code");
@@ -193,19 +427,43 @@ exports.conectarMercadoPago = async (req, res) => {
     url.searchParams.set("state", state);
     url.searchParams.set("redirect_uri", process.env.MP_REDIRECT_URI);
     return res.redirect(url.toString());
-  } catch (e) {
-    req.flash("errors", e.message);
+  } catch (error) {
+    flashSafeIntegrationError(req, error);
     return req.session.save(() => res.redirect("/admin#configuracoes"));
   }
 };
 
+async function consumeOauthState(req) {
+  const supplied = String(req.query.state || "");
+  if (!supplied || !req.sessionID) throw new Error("Estado OAuth inválido ou expirado.");
+  const suppliedHash = crypto.createHash("sha256").update(supplied).digest("hex");
+  const consumed = await OAuthState.findOneAndUpdate(
+    {
+      stateHash: suppliedHash,
+      sessionId: String(req.sessionID),
+      estabelecimentoId: estabelecimentoId(req),
+      consumedAt: null,
+      expiresAt: { $gt: new Date() },
+    },
+    { $set: { consumedAt: new Date() } },
+    { new: true },
+  );
+  delete req.session.mpOauthStateHash;
+  await new Promise((resolve, reject) =>
+    req.session.save(error => error ? reject(error) : resolve()));
+  if (!consumed) {
+    throw new Error("Estado OAuth inválido ou expirado.");
+  }
+}
+
 exports.callbackMercadoPago = async (req, res) => {
   try {
-    if (!req.query.code || !req.query.state || req.query.state !== req.session.mpOauthState) {
-      throw new Error("Não foi possível validar a conexão com o Mercado Pago.");
-    }
+    if (!req.query.code || !req.query.state) throw new Error("Callback OAuth incompleto.");
+    await consumeOauthState(req);
+
     const response = await fetch(`${MP_API}/oauth/token`, {
       method: "POST",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       headers: { Accept: "application/json", "Content-Type": "application/json" },
       body: JSON.stringify({
         client_secret: process.env.MP_CLIENT_SECRET,
@@ -216,27 +474,35 @@ exports.callbackMercadoPago = async (req, res) => {
       }),
     });
     const token = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(token.message || "Falha ao conectar a conta Mercado Pago.");
+    if (!response.ok || !token.access_token || !token.user_id) {
+      const error = new Error("Falha ao conectar conta.");
+      error.status = response.status;
+      throw error;
+    }
 
     await Configuracao.findOneAndUpdate(
       { estabelecimentoId: estabelecimentoId(req) },
       { $set: {
         "mercadoPago.conectado": true,
-        "mercadoPago.userId": String(token.user_id || ""),
-        "mercadoPago.publicKey": token.public_key || "",
+        "mercadoPago.userId": String(token.user_id),
+        "mercadoPago.publicKey": String(token.public_key || ""),
         "mercadoPago.accessTokenCriptografado": criptografar(token.access_token),
         "mercadoPago.refreshTokenCriptografado": criptografar(token.refresh_token),
-        "mercadoPago.tokenExpiraEm": token.expires_in ? new Date(Date.now() + Number(token.expires_in) * 1000) : null,
+        "mercadoPago.tokenExpiraEm": token.expires_in
+          ? new Date(Date.now() + Number(token.expires_in) * 1000)
+          : null,
+        "mercadoPago.scope": String(token.scope || ""),
         "mercadoPago.conectadoEm": new Date(),
+        "mercadoPago.conectadoPor": req.session.user.id,
+        "mercadoPago.desconectadoEm": null,
+        "mercadoPago.desconectadoPor": null,
       }},
-      { upsert: true, setDefaultsOnInsert: true },
+      { upsert: true, setDefaultsOnInsert: true, runValidators: true },
     );
-    delete req.session.mpOauthState;
     req.flash("success", "Conta Mercado Pago conectada com sucesso.");
     return req.session.save(() => res.redirect("/admin#configuracoes"));
-  } catch (e) {
-    console.error("OAuth Mercado Pago:", e);
-    req.flash("errors", e.message);
+  } catch (error) {
+    flashSafeIntegrationError(req, error);
     return req.session.save(() => res.redirect("/admin#configuracoes"));
   }
 };
@@ -245,12 +511,19 @@ exports.desconectarMercadoPago = async (req, res) => {
   await Configuracao.findOneAndUpdate(
     { estabelecimentoId: estabelecimentoId(req) },
     { $set: {
-      mercadoPago: {
-        conectado: false, userId: "", publicKey: "",
-        accessTokenCriptografado: "", refreshTokenCriptografado: "",
-        tokenExpiraEm: null, conectadoEm: null,
-      },
+      "mercadoPago.conectado": false,
+      "mercadoPago.userId": "",
+      "mercadoPago.publicKey": "",
+      "mercadoPago.accessTokenCriptografado": "",
+      "mercadoPago.refreshTokenCriptografado": "",
+      "mercadoPago.tokenExpiraEm": null,
+      "mercadoPago.scope": "",
+      "mercadoPago.conectadoEm": null,
+      "mercadoPago.conectadoPor": null,
+      "mercadoPago.desconectadoEm": new Date(),
+      "mercadoPago.desconectadoPor": req.session.user.id,
     }},
+    { runValidators: true },
   );
   req.flash("success", "Conta Mercado Pago desconectada.");
   return req.session.save(() => res.redirect("/admin#configuracoes"));
@@ -262,30 +535,38 @@ async function configuracaoComToken(estabelecimento) {
   if (!cfg?.mercadoPago?.conectado || !cfg.mercadoPago.accessTokenCriptografado) {
     throw new Error("Este estabelecimento ainda não conectou a conta Mercado Pago.");
   }
-  return { cfg, accessToken: descriptografar(cfg.mercadoPago.accessTokenCriptografado) };
+  if (!cfg.mercadoPago.userId) throw new Error("Conta Mercado Pago sem identificação.");
+  return {
+    cfg,
+    accessToken: descriptografar(cfg.mercadoPago.accessTokenCriptografado),
+  };
 }
 
 exports.gerarPixPedido = async (req, res) => {
   try {
     const cfgPublica = await Configuracao.findOne({ slug: req.params.slug }).lean();
-    if (!cfgPublica) return res.status(404).json({ success: false, message: "Estabelecimento não encontrado." });
-    const pedido = await Pedido.findOne({ _id: req.params.pedidoId, estabelecimentoId: cfgPublica.estabelecimentoId });
+    if (!cfgPublica) {
+      return res.status(404).json({ success: false, message: "Estabelecimento não encontrado." });
+    }
+    const pedido = await Pedido.findOne({
+      _id: req.params.pedidoId,
+      estabelecimentoId: cfgPublica.estabelecimentoId,
+    });
     if (!pedido) return res.status(404).json({ success: false, message: "Pedido não encontrado." });
     if (pedido.pagamentoStatus === "pago") return res.json({ success: true, aprovado: true });
-
     if (pedido.mercadoPagoPaymentId && pedido.pixCopiaCola) {
       return res.json({
-        success: true, paymentId: pedido.mercadoPagoPaymentId,
-        copiaCola: pedido.pixCopiaCola, qrCodeBase64: pedido.pixQrCodeBase64,
+        success: true,
+        copiaCola: pedido.pixCopiaCola,
+        qrCodeBase64: pedido.pixQrCodeBase64,
         status: pedido.mercadoPagoStatus || "pending",
+        expiraEm: pedido.pixExpiraEm,
       });
     }
 
     const { accessToken } = await configuracaoComToken(cfgPublica.estabelecimentoId);
     const emailCliente = String(pedido.emailCliente || "").trim().toLowerCase();
-    const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente);
-
-    if (!emailValido) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente)) {
       return res.status(400).json({
         success: false,
         message: "Informe um e-mail válido para gerar o pagamento Pix.",
@@ -304,95 +585,499 @@ exports.gerarPixPedido = async (req, res) => {
         payer: { email: emailCliente, first_name: pedido.cliente || "Cliente" },
       }),
     }, accessToken);
+    if (!data.id) throw new Error("Resposta de pagamento inválida.");
 
     pedido.formaPagamento = "pix";
     pedido.mercadoPagoPaymentId = String(data.id);
-    pedido.mercadoPagoStatus = data.status || "pending";
+    pedido.mercadoPagoStatus = String(data.status || "pending");
     pedido.pixCopiaCola = data.point_of_interaction?.transaction_data?.qr_code || "";
     pedido.pixQrCodeBase64 = data.point_of_interaction?.transaction_data?.qr_code_base64 || "";
     pedido.pixExpiraEm = data.date_of_expiration ? new Date(data.date_of_expiration) : null;
     await pedido.save();
 
     return res.status(201).json({
-      success: true, paymentId: data.id, status: data.status,
-      copiaCola: pedido.pixCopiaCola, qrCodeBase64: pedido.pixQrCodeBase64,
+      success: true,
+      status: data.status,
+      copiaCola: pedido.pixCopiaCola,
+      qrCodeBase64: pedido.pixQrCodeBase64,
       expiraEm: pedido.pixExpiraEm,
     });
-  } catch (e) {
-    console.error("Pix do pedido:", e);
-    return res.status(400).json({ success: false, message: e.message });
+  } catch (error) {
+    console.error("Pix do pedido:", sanitizeMercadoPagoError(error));
+    return res.status(400).json({
+      success: false,
+      message: "Não foi possível gerar o pagamento Pix.",
+    });
   }
 };
 
 exports.statusPagamentoPedido = async (req, res) => {
   const cfg = await Configuracao.findOne({ slug: req.params.slug }).lean();
   if (!cfg) return res.status(404).json({ success: false, message: "Estabelecimento não encontrado." });
-  const pedido = await Pedido.findOne({ _id: req.params.pedidoId, estabelecimentoId: cfg.estabelecimentoId }).lean();
+  const pedido = await Pedido.findOne({
+    _id: req.params.pedidoId,
+    estabelecimentoId: cfg.estabelecimentoId,
+  }).lean();
   if (!pedido) return res.status(404).json({ success: false, message: "Pedido não encontrado." });
-  return res.json({ success: true, pagamentoStatus: pedido.pagamentoStatus, mercadoPagoStatus: pedido.mercadoPagoStatus });
+  return res.json({
+    success: true,
+    pagamentoStatus: pedido.pagamentoStatus,
+    mercadoPagoStatus: pedido.mercadoPagoStatus,
+  });
 };
 
+function eventData(req) {
+  const bodyType = String(req.body?.type || "").trim();
+  const queryType = String(req.query?.type || "").trim();
+  const resourceType = bodyType || queryType;
+  const action = String(req.body?.action || req.query?.action || resourceType).trim();
+  const bodyResourceId = req.body?.data?.id;
+  const queryResourceId = req.query?.["data.id"];
+  if (bodyType && queryType && bodyType !== queryType) {
+    throw new Error("Tipo de recurso divergente.");
+  }
+  if (bodyResourceId && queryResourceId
+    && String(bodyResourceId) !== String(queryResourceId)) {
+    throw new Error("Identificador de recurso divergente.");
+  }
+  const resourceId = bodyResourceId || queryResourceId;
+  if (!["payment", "subscription_preapproval"].includes(resourceType)) {
+    throw new Error("Tipo de evento não suportado.");
+  }
+  if (!resourceId || action.length > 120) throw new Error("Evento malformado.");
+  return { resourceType, action, resourceId: String(resourceId) };
+}
+
+function webhookEventKey({
+  resourceType,
+  resourceId,
+  action,
+  financialStatus,
+  effectiveAt,
+}) {
+  return crypto.createHash("sha256")
+    .update([
+      resourceType,
+      resourceId,
+      action,
+      financialStatus || "",
+      effectiveAt ? new Date(effectiveAt).toISOString() : "",
+    ].join(":"))
+    .digest("hex");
+}
+
+function financialEffectiveDate(resource) {
+  const raw = resource.date_last_updated
+    || resource.date_approved
+    || resource.date_created
+    || resource.last_modified;
+  const date = raw ? new Date(raw) : null;
+  return date && !Number.isNaN(date.getTime()) ? date : new Date(0);
+}
+
+function financialEventShouldApply({
+  effectiveAt,
+  lastFinancialAt,
+  status,
+  paymentId,
+  lastApprovedPaymentId,
+}) {
+  const current = lastFinancialAt ? new Date(lastFinancialAt) : null;
+  if (current && new Date(effectiveAt) < current) return false;
+  return !(
+    ["refunded", "charged_back", "cancelled", "rejected"].includes(status)
+    && lastApprovedPaymentId
+    && String(paymentId) !== String(lastApprovedPaymentId)
+  );
+}
+
+function assertStockCompleted(result) {
+  if (result?.success
+    && ["concluido", "ja_concluido"].includes(result.status)) return result;
+  const error = new Error("Movimentação de estoque pendente.");
+  error.code = result?.errorCode || "ESTOQUE_PENDENTE";
+  error.retryable = result?.retryable !== false;
+  throw error;
+}
+
+async function claimEvent(eventDocument) {
+  const staleAt = new Date(Date.now() - 5 * 60_000);
+  return PaymentEvent.findOneAndUpdate(
+    {
+      _id: eventDocument._id,
+      $or: [
+        { status: { $in: ["recebido", "falhou"] } },
+        { status: "processando", processandoEm: { $lt: staleAt } },
+        { status: "processando", processandoEm: null },
+      ],
+    },
+    {
+      $set: { status: "processando", processandoEm: new Date(), erro: "" },
+      $inc: { tentativas: 1 },
+    },
+    { new: true },
+  );
+}
+
+async function processOrderPayment(event, pedido, payment) {
+  const { cfg } = await configuracaoComToken(pedido.estabelecimentoId);
+  validatePaymentIdentity(payment, {
+    paymentId: pedido.mercadoPagoPaymentId,
+    amount: pedido.total,
+    externalReference: `pedido:${pedido._id}`,
+    collectorId: cfg.mercadoPago.userId,
+  });
+  event.estabelecimentoId = pedido.estabelecimentoId;
+  event.pedidoId = pedido._id;
+
+  pedido.mercadoPagoStatus = String(payment.status || "");
+  pedido.historicoFinanceiro.push({
+    paymentId: String(payment.id),
+    status: String(payment.status || ""),
+    registradoEm: new Date(),
+  });
+
+  if (payment.status === "approved") {
+    validateApprovedPayment(payment, {
+      paymentId: pedido.mercadoPagoPaymentId,
+      amount: pedido.total,
+      externalReference: `pedido:${pedido._id}`,
+      collectorId: cfg.mercadoPago.userId,
+    });
+    if (pedido.status === "cancelado") {
+      pedido.pagamentoInconsistente = true;
+      pedido.pagamentoInconsistencia = "Pagamento aprovado após cancelamento do pedido.";
+      await pedido.save();
+      return;
+    }
+    assertStockCompleted(await baixarEstoqueDoPedido(pedido._id));
+    pedido.pagamentoStatus = "pago";
+    pedido.pagoEm = payment.date_approved ? new Date(payment.date_approved) : new Date();
+  } else if (["cancelled", "rejected", "refunded", "charged_back"].includes(payment.status)) {
+    assertStockCompleted(await restaurarEstoqueDoPedido(pedido._id));
+    pedido.pagamentoStatus = "cancelado";
+  }
+  await pedido.save();
+}
+
+function parseSubscriptionReference(value) {
+  const attempt = /^assinatura-tentativa:([0-9a-f-]{36}):estabelecimento:([a-f0-9]{24})$/i
+    .exec(String(value || ""));
+  if (attempt) {
+    return { attemptId: attempt[1], estabelecimentoId: attempt[2] };
+  }
+  const match = /^assinatura:([a-f0-9]{24}):estabelecimento:([a-f0-9]{24})$/i
+    .exec(String(value || ""));
+  return match ? { assinaturaId: match[1], estabelecimentoId: match[2] } : null;
+}
+
+async function processSubscriptionPayment(event, payment) {
+  const reference = parseSubscriptionReference(payment.external_reference);
+  if (!reference) throw new Error("Referência de assinatura inválida.");
+  const attempt = reference.attemptId
+    ? await AssinaturaTentativa.findOne({
+      attemptId: reference.attemptId,
+      estabelecimentoId: reference.estabelecimentoId,
+    })
+    : null;
+  const assinatura = await Assinatura.findOne({
+    _id: attempt?.assinaturaId || reference.assinaturaId,
+    estabelecimentoId: reference.estabelecimentoId,
+  });
+  if (!assinatura) throw new Error("Assinatura não encontrada.");
+
+  const isCurrentPix = attempt
+    ? String(attempt.mercadoPagoPaymentId) === String(payment.id)
+    : String(assinatura.mercadoPagoPaymentId) === String(payment.id);
+  const paymentPreapprovalId = String(
+    payment.preapproval_id || payment.metadata?.preapproval_id || "",
+  );
+  const isCurrentRecurring = paymentPreapprovalId && paymentPreapprovalId === String(
+    attempt?.mercadoPagoPreapprovalId || assinatura.mercadoPagoPreapprovalId,
+  );
+  if (!isCurrentPix && !isCurrentRecurring) {
+    throw new Error("Pagamento não pertence à tentativa vigente.");
+  }
+  validatePaymentIdentity(payment, {
+    paymentId: payment.id,
+    amount: valorPlano(),
+    externalReference: attempt ? attemptReference(attempt) : subscriptionReference(assinatura),
+    collectorId: platformCollectorId(),
+    preapprovalId: isCurrentRecurring
+      ? (attempt?.mercadoPagoPreapprovalId || assinatura.mercadoPagoPreapprovalId)
+      : undefined,
+  });
+  const obsoleteAttempt = attempt && (!attempt.ativa
+    || ["expired", "superseded", "cancelled", "failed"].includes(attempt.status));
+  if (obsoleteAttempt) {
+    if (payment.status === "approved") {
+      attempt.status = "reconciliation_required";
+      attempt.ativa = false;
+      attempt.completedAt = new Date();
+      attempt.erro = "Pagamento aprovado para tentativa não vigente; conciliação manual necessária.";
+      await attempt.save();
+    }
+    event.estabelecimentoId = assinatura.estabelecimentoId;
+    event.assinaturaId = assinatura._id;
+    return;
+  }
+
+  event.estabelecimentoId = assinatura.estabelecimentoId;
+  event.assinaturaId = assinatura._id;
+  assinatura.ultimoStatusMercadoPago = String(payment.status || "");
+  const effectiveAt = financialEffectiveDate(payment);
+  const lastFinancialAt = assinatura.ultimoEventoFinanceiroEm
+    ? new Date(assinatura.ultimoEventoFinanceiroEm)
+    : null;
+  if (!financialEventShouldApply({
+    effectiveAt,
+    lastFinancialAt,
+    status: payment.status,
+    paymentId: payment.id,
+    lastApprovedPaymentId: assinatura.ultimoPagamentoAprovadoId,
+  })) {
+    assinatura.historicoFinanceiro.push({
+      paymentId: String(payment.id),
+      preapprovalId: paymentPreapprovalId,
+      status: `ignorado_fora_de_ordem:${String(payment.status || "")}`,
+      aprovadoEm: payment.date_approved ? new Date(payment.date_approved) : null,
+      registradoEm: new Date(),
+    });
+    await assinatura.save();
+    return;
+  }
+
+  if (payment.status === "approved") {
+    if (String(assinatura.ultimoPagamentoAprovadoId || "") === String(payment.id)) {
+      return;
+    }
+    const approvedAt = payment.date_approved ? new Date(payment.date_approved) : new Date();
+    const previousExpiration = assinatura.planoExpira
+      ? new Date(assinatura.planoExpira)
+      : null;
+    const continuedPeriod = previousExpiration
+      && !Number.isNaN(previousExpiration.getTime())
+      && previousExpiration > approvedAt;
+    const period = paidPeriod(assinatura.planoExpira, approvedAt);
+    assinatura.status = "ativa";
+    if (!assinatura.planoInicio || !continuedPeriod) {
+      assinatura.planoInicio = approvedAt;
+    }
+    assinatura.planoExpira = period.expiresAt;
+    assinatura.ultimoPagamentoAprovadoId = String(payment.id);
+    assinatura.ultimoPagamentoAprovadoEm = approvedAt;
+    assinatura.proximaCobranca = isCurrentRecurring
+      ? assinatura.proximaCobranca
+      : null;
+  } else {
+    assinatura.status = subscriptionStatusForFinancialStatus(
+      payment.status,
+      assinatura.status,
+    );
+  }
+  assinatura.ultimoEventoFinanceiroEm = effectiveAt;
+  assinatura.ultimoEventoFinanceiroKey = event.eventKey || "";
+  assinatura.historicoFinanceiro.push({
+    paymentId: String(payment.id),
+    preapprovalId: paymentPreapprovalId,
+    status: String(payment.status || ""),
+    aprovadoEm: payment.status === "approved"
+      ? (payment.date_approved ? new Date(payment.date_approved) : new Date())
+      : null,
+    registradoEm: new Date(),
+  });
+  await assinatura.save();
+  if (attempt) {
+    attempt.status = payment.status === "approved"
+      ? "approved"
+      : (["pending", "authorized"].includes(payment.status) ? payment.status : "failed");
+    if (["approved", "cancelled", "rejected", "refunded", "charged_back"].includes(payment.status)) {
+      attempt.ativa = false;
+      attempt.completedAt = new Date();
+    }
+    await attempt.save();
+  }
+}
+
+async function processPreapproval(event, preapproval) {
+  const reference = parseSubscriptionReference(preapproval.external_reference);
+  if (!reference) throw new Error("Referência de assinatura inválida.");
+  const attempt = reference.attemptId
+    ? await AssinaturaTentativa.findOne({
+      attemptId: reference.attemptId,
+      estabelecimentoId: reference.estabelecimentoId,
+      mercadoPagoPreapprovalId: String(preapproval.id),
+    })
+    : null;
+  const assinatura = await Assinatura.findOne({
+    _id: attempt?.assinaturaId || reference.assinaturaId,
+    estabelecimentoId: reference.estabelecimentoId,
+    ...(attempt ? {} : { mercadoPagoPreapprovalId: String(preapproval.id) }),
+  });
+  if (!assinatura) throw new Error("Preapproval não pertence à assinatura vigente.");
+  if (attempt && (!attempt.ativa
+    || ["expired", "superseded", "cancelled", "failed"].includes(attempt.status))) {
+    event.estabelecimentoId = assinatura.estabelecimentoId;
+    event.assinaturaId = assinatura._id;
+    return;
+  }
+
+  event.estabelecimentoId = assinatura.estabelecimentoId;
+  event.assinaturaId = assinatura._id;
+  assinatura.ultimoStatusMercadoPago = String(preapproval.status || "");
+  assinatura.proximaCobranca = preapproval.next_payment_date
+    ? new Date(preapproval.next_payment_date)
+    : null;
+
+  if (preapproval.status === "cancelled") {
+    const trialValid = assinatura.fimTeste && new Date(assinatura.fimTeste) > new Date();
+    assinatura.status = trialValid ? "teste" : "cancelada";
+  } else if (["paused"].includes(preapproval.status) && assinatura.status !== "ativa") {
+    assinatura.status = "atrasada";
+  }
+  // "authorized" confirma apenas autorização; nunca comprova pagamento.
+  await assinatura.save();
+  if (attempt) {
+    attempt.status = String(preapproval.status || attempt.status);
+    if (preapproval.status === "cancelled") {
+      attempt.ativa = false;
+      attempt.completedAt = new Date();
+    }
+    await attempt.save();
+  }
+}
+
+async function loadWebhookResource(data) {
+  if (data.resourceType === "subscription_preapproval") {
+    return {
+      kind: "preapproval",
+      resource: await mp(`/preapproval/${encodeURIComponent(data.resourceId)}`),
+    };
+  }
+  const pedido = await Pedido.findOne({ mercadoPagoPaymentId: data.resourceId });
+  if (pedido) {
+    const { accessToken } = await configuracaoComToken(pedido.estabelecimentoId);
+    return {
+      kind: "order",
+      pedido,
+      resource: await mp(
+        `/v1/payments/${encodeURIComponent(data.resourceId)}`,
+        {},
+        accessToken,
+      ),
+    };
+  }
+  return {
+    kind: "subscription",
+    resource: await mp(`/v1/payments/${encodeURIComponent(data.resourceId)}`),
+  };
+}
+
+async function processWebhookEvent(event, loaded) {
+  if (loaded.kind === "preapproval") {
+    return processPreapproval(event, loaded.resource);
+  }
+  if (loaded.kind === "order") {
+    return processOrderPayment(event, loaded.pedido, loaded.resource);
+  }
+  return processSubscriptionPayment(event, loaded.resource);
+}
+
 exports.webhook = async (req, res) => {
-  res.sendStatus(200);
+  let event;
+  let authenticated = false;
   try {
-    const type = req.body?.type || req.query?.type;
-    const resourceId = req.body?.data?.id || req.query?.["data.id"];
-    if (!resourceId) return;
+    const data = eventData(req);
+    const authenticity = validateMercadoPagoWebhook({
+      signatureHeader: req.get("x-signature"),
+      requestId: req.get("x-request-id"),
+      resourceId: data.resourceId,
+      secret: process.env.MERCADO_PAGO_WEBHOOK_SECRET,
+    });
+    authenticated = true;
+    const loaded = await loadWebhookResource(data);
+    if (String(loaded.resource?.id || "") !== String(authenticity.resourceId)) {
+      throw new Error("Recurso financeiro retornado é divergente.");
+    }
+    const effectiveAt = financialEffectiveDate(loaded.resource);
+    const eventKey = webhookEventKey({
+      resourceType: data.resourceType,
+      resourceId: authenticity.resourceId,
+      action: data.action,
+      financialStatus: loaded.resource.status,
+      effectiveAt,
+    });
+    const payloadHash = crypto.createHash("sha256")
+      .update(JSON.stringify(req.body || {}))
+      .digest("hex");
 
-    if (type === "payment") {
-      const pedidoSalvo = await Pedido.findOne({ mercadoPagoPaymentId: String(resourceId) });
-      if (pedidoSalvo) {
-        const { accessToken } = await configuracaoComToken(pedidoSalvo.estabelecimentoId);
-        const payment = await mp(`/v1/payments/${resourceId}`, {}, accessToken);
-        pedidoSalvo.mercadoPagoStatus = payment.status || "";
-        if (payment.status === "approved") {
-          pedidoSalvo.pagamentoStatus = "pago";
-          pedidoSalvo.pagoEm = payment.date_approved ? new Date(payment.date_approved) : new Date();
-        } else if (["cancelled", "rejected", "refunded", "charged_back"].includes(payment.status)) {
-          pedidoSalvo.pagamentoStatus = "cancelado";
-        }
-        await pedidoSalvo.save();
-        if (payment.status === "approved" && !pedidoSalvo.estoqueBaixado) {
-          try { await baixarEstoqueDoPedido(pedidoSalvo._id); } catch (erroEstoque) { console.error("Falha ao baixar estoque do PIX aprovado:", erroEstoque); }
-        }
-        if (["cancelled", "rejected", "refunded", "charged_back"].includes(payment.status) && pedidoSalvo.estoqueBaixado) {
-          try { await restaurarEstoqueDoPedido(pedidoSalvo._id); } catch (erroEstoque) { console.error("Falha ao restaurar estoque:", erroEstoque); }
-        }
-        return;
+    try {
+      event = await PaymentEvent.create({
+        eventKey,
+        requestId: authenticity.requestId,
+        resourceId: authenticity.resourceId,
+        resourceType: data.resourceType,
+        action: data.action,
+        payloadHash,
+        status: "recebido",
+        recebidoEm: new Date(),
+      });
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      event = await PaymentEvent.findOne({ eventKey });
+      const processingIsRecent = event?.status === "processando"
+        && event.processandoEm
+        && Date.now() - new Date(event.processandoEm).getTime() < 5 * 60_000;
+      if (event?.status === "processado" || processingIsRecent) {
+        return res.status(200).json({ received: true, duplicate: true });
       }
-
-      const payment = await mp(`/v1/payments/${resourceId}`);
-      const id = payment.external_reference;
-      if (!id || String(id).startsWith("pedido:")) return;
-      const update = { mercadoPagoPaymentId: String(payment.id), ultimoStatusMercadoPago: payment.status, metodo: "pix" };
-      if (payment.status === "approved") {
-        const inicio = new Date();
-        update.status = "ativa";
-        update.planoInicio = inicio;
-        update.planoExpira = new Date(inicio.getTime() + 30 * 86400000);
-      }
-      await Assinatura.findOneAndUpdate({ estabelecimentoId: id }, update, { upsert: true });
     }
 
-    if (type === "subscription_preapproval") {
-      const preapproval = await mp(`/preapproval/${resourceId}`);
-      const id = preapproval.external_reference;
-      if (!id) return;
-      const update = { mercadoPagoPreapprovalId: preapproval.id, ultimoStatusMercadoPago: preapproval.status, metodo: "cartao" };
-      if (preapproval.status === "authorized") {
-        update.status = "ativa";
-        update.planoInicio = new Date();
-        update.planoExpira = preapproval.next_payment_date ? new Date(preapproval.next_payment_date) : null;
-      } else if (preapproval.status === "cancelled") {
-        const atual = await Assinatura.findOne({ estabelecimentoId: id });
-        const testeAindaValido = atual?.fimTeste && new Date(atual.fimTeste) > new Date();
-        update.status = testeAindaValido ? "teste" : "cancelada";
-      }
-      await Assinatura.findOneAndUpdate({ estabelecimentoId: id }, update, { upsert: true });
+    const claimed = await claimEvent(event);
+    if (!claimed) return res.status(200).json({ received: true, duplicate: true });
+    event = claimed;
+    await processWebhookEvent(event, loaded);
+    event.status = "processado";
+    event.processadoEm = new Date();
+    event.erro = "";
+    await event.save();
+    return res.status(200).json({ received: true });
+  } catch (error) {
+    if (event?._id) {
+      await PaymentEvent.updateOne(
+        { _id: event._id },
+        {
+          $set: {
+            status: "falhou",
+            erro: sanitizeMercadoPagoError(error).message,
+          },
+        },
+      ).catch(() => {});
+      console.error("Webhook Mercado Pago:", sanitizeMercadoPagoError(error));
+      return res.status(503).json({ received: false });
     }
-  } catch (e) {
-    console.error("Webhook Mercado Pago:", e.message);
+    if (authenticated) {
+      console.error("Webhook Mercado Pago não persistido:", sanitizeMercadoPagoError(error));
+      return res.status(503).json({ received: false });
+    }
+    console.warn("Webhook Mercado Pago rejeitado:", sanitizeMercadoPagoError(error));
+    return res.status(401).json({ received: false });
   }
 };
 
 exports.assinaturaDoUsuario = assinaturaDoUsuario;
+exports._testing = {
+  claimEvent,
+  consumeOauthState,
+  eventData,
+  financialEffectiveDate,
+  financialEventShouldApply,
+  obterOuCriarTentativa,
+  parseSubscriptionReference,
+  processOrderPayment,
+  processPreapproval,
+  processSubscriptionPayment,
+  subscriptionReference,
+  attemptReference,
+  webhookEventKey,
+};

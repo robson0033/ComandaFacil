@@ -12,7 +12,9 @@ function testeValido(assinatura, agora = new Date()) {
 
 function planoPagoValido(assinatura, agora = new Date()) {
   if (assinatura?.status !== "ativa") return false;
-  if (!assinatura.planoExpira) return true;
+  if (!assinatura.ultimoPagamentoAprovadoId || !assinatura.planoExpira) {
+    return false;
+  }
   return new Date(assinatura.planoExpira).getTime() > agora.getTime();
 }
 
@@ -35,6 +37,14 @@ exports.carregarAssinatura = async (req, res, next) => {
     const agora = new Date();
     const emTeste = testeValido(assinatura, agora);
     const planoAtivo = planoPagoValido(assinatura, agora);
+    const planoComprovado = Boolean(
+      assinatura.ultimoPagamentoAprovadoId &&
+      assinatura.planoExpira
+    );
+
+    if (assinatura.status === "ativa" && !planoComprovado) {
+      assinatura.status = emTeste ? "teste" : "pendente";
+    }
 
     // Uma tentativa de pagamento pendente nunca encerra o teste gratuito.
     if (!emTeste && !planoAtivo && assinatura.status === "teste") {

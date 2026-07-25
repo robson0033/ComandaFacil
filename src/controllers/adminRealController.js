@@ -404,13 +404,19 @@ async function obterAssinatura(idEstabelecimento) {
     assinatura.planoExpira ||
     assinatura.expiraEm;
 
-  if (
-    assinatura.status === "ativa" &&
-    vencimentoPago &&
-    agora > new Date(vencimentoPago)
-  ) {
-    assinatura.status = "expirada";
-    await assinatura.save();
+  if (assinatura.status === "ativa") {
+    if (!assinatura.ultimoPagamentoAprovadoId || !vencimentoPago) {
+      const testeAindaValido =
+        assinatura.fimTeste &&
+        agora < new Date(assinatura.fimTeste);
+      assinatura.status = testeAindaValido
+        ? "teste"
+        : "pendente";
+      await assinatura.save();
+    } else if (agora > new Date(vencimentoPago)) {
+      assinatura.status = "expirada";
+      await assinatura.save();
+    }
   }
 
   return assinatura;
@@ -423,7 +429,11 @@ function calcularDiasRestantes(assinatura) {
 
   let dataFinal = null;
 
-  if (assinatura.status === "teste") {
+  const testeAindaValido =
+    assinatura.fimTeste &&
+    new Date(assinatura.fimTeste).getTime() > Date.now();
+
+  if (testeAindaValido) {
     dataFinal = assinatura.fimTeste;
   }
 
@@ -6155,6 +6165,36 @@ exports.statusAgente = async (req, res) => {
   const lojaId = String(estabelecimentoId(req));
   const agente = await PrintAgent.findOne({ estabelecimentoId: lojaId }).lean();
   return res.json({ success: true, online: printAgentHub.isOnline(lojaId), agente: agente ? { nomeComputador: agente.nomeComputador, ultimaConexao: agente.ultimaConexao, impressoras: agente.impressoras || [] } : null });
+};
+
+exports.streamStatusAgente = (req, res) => {
+  const lojaId = String(estabelecimentoId(req));
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+  res.write("retry: 3000\n\n");
+
+  const enviar = payload => {
+    if (res.writableEnded) return;
+    res.write(
+      `event: print-agent-status\n`
+      + `data: ${JSON.stringify(payload)}\n\n`,
+    );
+  };
+  enviar(printAgentHub.currentStatus(lojaId));
+
+  const unsubscribe = printAgentHub.subscribeStatus(lojaId, enviar);
+  const heartbeat = setInterval(() => {
+    if (!res.writableEnded) res.write(": heartbeat\n\n");
+  }, 20_000);
+  heartbeat.unref?.();
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+    if (!res.writableEnded) res.end();
+  });
 };
 
 exports.impressorasAgente = async (req, res) => {

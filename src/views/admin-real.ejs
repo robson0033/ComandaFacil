@@ -1221,34 +1221,69 @@
 
     .sidebar-card {
       margin-top: auto;
-      padding: 16px;
-      border: 1px solid rgba(255,255,255,0.12);
-      border-radius: 16px;
-      background: rgba(255,255,255,0.07);
+      padding: 18px;
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 18px;
+      background:
+        linear-gradient(145deg, rgba(255,255,255,0.11), rgba(255,255,255,0.045));
+      box-shadow: 0 14px 32px rgba(0,0,0,0.18);
+    }
+
+    .sidebar-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .sidebar-card-icon {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      flex: 0 0 34px;
+      border-radius: 11px;
+      background: rgba(233,107,19,0.18);
+      color: #ffc08e;
+      font-size: 16px;
     }
 
     .sidebar-card strong {
       display: block;
-      margin-bottom: 7px;
-      font-size: 14px;
+      font-size: 15px;
+      letter-spacing: -0.1px;
     }
 
     .sidebar-card p {
+      margin: 0 0 14px;
       color: #d7c0b7;
       font-size: 12px;
       line-height: 1.5;
     }
 
-    .sidebar-card > span {
-      display: inline-flex;
-      margin-top: 12px;
-      padding: 7px 10px;
-      border-radius: 999px;
-      background: rgba(33, 140, 85, 0.18);
-      color: #8ee3b3;
+    .plan-details {
+      display: grid;
+      gap: 8px;
+      padding: 12px 0;
+      border-top: 1px solid rgba(255,255,255,0.1);
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .plan-detail {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
       font-size: 12px;
+    }
+
+    .plan-detail span {
+      color: #bca69d;
+    }
+
+    .plan-detail b {
+      color: #fff;
       font-weight: 800;
-      text-transform: capitalize;
+      text-align: right;
     }
 
     .plan-button {
@@ -1265,6 +1300,13 @@
         );
       color: #fff;
       font-weight: 900;
+      text-decoration: none;
+      transition: transform .2s ease, filter .2s ease;
+    }
+
+    .plan-button:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.05);
     }
 
     .plan-expired {
@@ -2797,8 +2839,62 @@
 
   const diasPlano =
     typeof diasRestantes !== 'undefined'
-      ? diasRestantes
-      : 7;
+      && Number.isFinite(Number(diasRestantes))
+      ? Math.max(0, Math.ceil(Number(diasRestantes)))
+      : null;
+
+  const dataPlanoValida = valor => {
+    if (!valor) return null;
+    const data = new Date(valor);
+    return Number.isNaN(data.getTime()) ? null : data;
+  };
+
+  const formatarDataPlano = valor => {
+    const data = dataPlanoValida(valor);
+    return data
+      ? data.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+      : null;
+  };
+
+  const planoAtivoCard = plano.status === 'ativa';
+  const fimTesteCard = dataPlanoValida(plano.fimTeste);
+  const planoGratuitoCard = !planoAtivoCard
+    && fimTesteCard
+    && fimTesteCard.getTime() > Date.now();
+  const planoPendenteCard = plano.status === 'pendente';
+  const inicioPlanoCard = planoAtivoCard
+    ? dataPlanoValida(plano.planoInicio)
+    : dataPlanoValida(plano.inicioTeste);
+  const fimPlanoCard = planoAtivoCard
+    ? dataPlanoValida(plano.planoExpira)
+    : dataPlanoValida(plano.planoExpira) || dataPlanoValida(plano.fimTeste);
+  const tituloPlanoCard = planoAtivoCard
+    ? 'Plano ativo'
+    : planoGratuitoCard
+      ? 'Período gratuito'
+      : planoPendenteCard
+        ? 'Pagamento pendente'
+        : 'Plano vencido';
+  const subtituloPlanoCard = planoAtivoCard
+    ? 'Seu acesso está liberado.'
+    : planoGratuitoCard
+      ? 'Seu teste está ativo.'
+      : planoPendenteCard
+        ? 'Aguardando confirmação do pagamento.'
+        : 'Renove para continuar usando o sistema.';
+  const statusPlanoCard = planoAtivoCard
+    ? 'Ativo'
+    : planoGratuitoCard
+      ? 'Período gratuito'
+      : planoPendenteCard
+        ? 'Pendente'
+        : plano.status === 'cancelada'
+          ? 'Cancelado'
+          : plano.status === 'reembolsada'
+            ? 'Reembolsado'
+            : plano.status === 'atrasada'
+              ? 'Em atraso'
+              : 'Vencido';
 
   const usuario =
     typeof user !== 'undefined' && user
@@ -3123,35 +3219,46 @@
       </nav>
 
       <div class="sidebar-card">
-        <strong>
-          <%= plano.status === 'teste'
-            ? 'Teste grátis'
-            : 'Plano Profissional'
-          %>
-        </strong>
-
-        <p class="<%= plano.status === 'expirada'
+        <div class="sidebar-card-header">
+          <span class="sidebar-card-icon" aria-hidden="true">◆</span>
+          <strong><%= tituloPlanoCard %></strong>
+        </div>
+        <p class="<%= !planoAtivoCard && !planoGratuitoCard && !planoPendenteCard
           ? 'plan-expired'
           : ''
-        %>">
-          <% if (plano.status === 'teste') { %>
-            Você tem <%= diasPlano %> dia(s) restantes
-            no período gratuito.
-          <% } else if (plano.status === 'ativa') { %>
-            Sua assinatura está ativa.
-          <% } else { %>
-            Seu acesso ao plano expirou.
-          <% } %>
-        </p>
+        %>"><%= subtituloPlanoCard %></p>
 
-        <span><%= plano.status %></span>
+        <div class="plan-details">
+          <div class="plan-detail">
+            <span>Status</span>
+            <b><%= statusPlanoCard %></b>
+          </div>
+          <% if (inicioPlanoCard) { %>
+            <div class="plan-detail">
+              <span>Início</span>
+              <b><%= formatarDataPlano(inicioPlanoCard) %></b>
+            </div>
+          <% } %>
+          <% if (fimPlanoCard) { %>
+            <div class="plan-detail">
+              <span>Válido até</span>
+              <b><%= formatarDataPlano(fimPlanoCard) %></b>
+            </div>
+          <% } %>
+          <% if (diasPlano !== null && (planoAtivoCard || planoGratuitoCard)) { %>
+            <div class="plan-detail">
+              <span>Dias restantes</span>
+              <b><%= diasPlano %></b>
+            </div>
+          <% } %>
+        </div>
 
         <a
           class="plan-button"
           href="/assinatura"
         >
-          <%= plano.status === 'ativa'
-            ? 'Gerenciar plano'
+          <%= planoAtivoCard
+            ? 'Ver assinatura'
             : 'Assinar agora'
           %>
         </a>
@@ -5110,6 +5217,7 @@
             <% if (config.mercadoPago && config.mercadoPago.conectado) { %>
               <div class="link-box" style="margin-bottom:14px">✅ Conta conectada — Pix automático disponível no catálogo.</div>
               <form action="/admin/mercado-pago/desconectar" method="POST" onsubmit="return confirm('Desconectar a conta Mercado Pago?')">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                 <button type="submit" class="button" style="background:#777">Desconectar Mercado Pago</button>
               </form>
             <% } else { %>
@@ -5329,6 +5437,8 @@
                           type="button"
                           class="printer-tool-button"
                           data-refresh-usb
+                          data-agent-required
+                          disabled
                         >
                           ↻ Atualizar lista USB
                         </button>
@@ -5337,6 +5447,8 @@
                           type="button"
                           class="printer-tool-button test"
                           data-test-printer
+                          data-agent-required
+                          disabled
                         >
                           🖨 Imprimir teste
                         </button>
@@ -5376,6 +5488,8 @@
                           type="button"
                           class="printer-tool-button"
                           data-scan-network
+                          data-agent-required
+                          disabled
                         >
                           🔍 Procurar na rede
                         </button>
@@ -5384,6 +5498,8 @@
                           type="button"
                           class="printer-tool-button test"
                           data-test-printer
+                          data-agent-required
+                          disabled
                         >
                           🧪 Testar conexão e impressão
                         </button>
@@ -7769,6 +7885,7 @@ function criarCardPedido(
                 type="button"
                 class="print-order-button"
                 data-print-order="${escaparHtml(pedido.id)}"
+                ${printAgentConectado ? '' : 'disabled'}
               >
                 🖨 Imprimir pedido
               </button>
@@ -7783,11 +7900,6 @@ function criarCardPedido(
 }
 
 async function verificarPrintAgent() {
-  const status =
-    document.querySelector(
-      '#printAgentStatus'
-    );
-
   try {
     const response = await fetch(
       `${printAgentUrl}/status`,
@@ -7804,23 +7916,79 @@ async function verificarPrintAgent() {
     }
 
     const result = await response.json();
-    if (!result.online) throw new Error('Agente desconectado');
-    if (status) {
-      status.textContent = result.agente?.nomeComputador
-        ? `Agente conectado — ${result.agente.nomeComputador}`
-        : 'Agente conectado';
-      status.classList.add('online');
-    }
-    return true;
+    atualizarStatusAgente({
+      conectado: Boolean(result.online),
+      status: result.online ? 'conectado' : 'desconectado',
+      atualizadoEm: result.agente?.ultimaConexao,
+      nomeComputador: result.agente?.nomeComputador
+    });
+    return Boolean(result.online);
   } catch (error) {
-    if (status) {
-      status.textContent =
-        'Agente desconectado';
-      status.classList.remove('online');
-    }
-
+    atualizarStatusAgente({
+      conectado: false,
+      status: 'desconectado'
+    });
     return false;
   }
+}
+
+let printAgentConectado = false;
+
+function atualizarStatusAgente({
+  conectado,
+  status,
+  atualizadoEm,
+  updatedAt,
+  nomeComputador
+} = {}) {
+  const online = conectado === true;
+  printAgentConectado = online;
+  const badge = document.querySelector('#printAgentStatus');
+  if (badge) {
+    badge.textContent = online
+      ? (nomeComputador
+          ? `Agente conectado — ${nomeComputador}`
+          : 'Agente conectado')
+      : 'Agente desconectado';
+    badge.classList.toggle('online', online);
+    badge.dataset.status = status || (online ? 'conectado' : 'desconectado');
+    badge.dataset.updatedAt = String(atualizadoEm || updatedAt || '');
+  }
+
+  document.querySelectorAll(
+    '[data-agent-required], [data-print-order]'
+  ).forEach(button => {
+    button.disabled = !online;
+  });
+
+  if (online) {
+    const codeBox = document.querySelector('#agentPairCode');
+    if (codeBox) codeBox.textContent = 'Vínculo concluído.';
+  }
+  return printAgentConectado;
+}
+
+function iniciarStreamStatusAgente() {
+  if (typeof EventSource !== 'function') return null;
+  const stream = new EventSource(`${printAgentUrl}/status/stream`);
+  stream.addEventListener('print-agent-status', event => {
+    try {
+      const payload = JSON.parse(event.data);
+      if (payload?.type !== 'print-agent-status') return;
+      atualizarStatusAgente({
+        conectado: payload.connected,
+        status: payload.status,
+        updatedAt: payload.updatedAt,
+        nomeComputador: payload.nomeComputador
+      });
+    } catch (error) {
+      console.error('Status inválido do agente:', error);
+    }
+  });
+  stream.addEventListener('open', () => {
+    void verificarPrintAgent();
+  });
+  return stream;
 }
 
 async function carregarPedidoImpressao(
@@ -8226,7 +8394,8 @@ if (generateAgentCodeButton) {
   );
 }
 
-verificarPrintAgent();
+void verificarPrintAgent();
+iniciarStreamStatusAgente();
 
 async function imprimirPedido(
   pedidoId,
@@ -8360,8 +8529,6 @@ document.addEventListener(
     }
   }
 );
-
-verificarPrintAgent();
 
 async function verificarNovosPedidos() {
   if (verificandoPedidos) {

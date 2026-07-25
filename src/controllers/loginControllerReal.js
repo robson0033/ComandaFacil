@@ -5,9 +5,7 @@ const { Funcionario } = require("../models/painelModels");
 
 const TRINTA_DIAS = 1000 * 60 * 60 * 24 * 30;
 
-function configurarDuracaoDaSessao(req) {
-  const lembrar = req.body.lembrar === "on";
-
+function configurarDuracaoDaSessao(req, lembrar) {
   if (lembrar) {
     req.session.cookie.maxAge = TRINTA_DIAS;
     return;
@@ -18,12 +16,25 @@ function configurarDuracaoDaSessao(req) {
   req.session.cookie.expires = false;
 }
 
+function autenticarComNovaSessao(req, res, user, lembrar) {
+  return req.session.regenerate(error => {
+    if (error) return res.status(500).render("404");
+    configurarDuracaoDaSessao(req, lembrar);
+    req.session.user = user;
+    return req.session.save(saveError => {
+      if (saveError) return res.status(500).render("404");
+      return res.redirect("/admin");
+    });
+  });
+}
+
 exports.login = async (req, res) => {
   try {
     const email = String(req.body.email || "")
       .toLowerCase()
       .trim();
     const senha = String(req.body.senha || "");
+    const lembrar = req.body.lembrar === "on";
 
     if (!validator.isEmail(email) || !senha) {
       req.flash("errors", "E-mail ou senha inválidos.");
@@ -33,9 +44,7 @@ exports.login = async (req, res) => {
     const dono = await registroModel.findOne({ email });
 
     if (dono && (await bcrypt.compare(senha, dono.senha))) {
-      configurarDuracaoDaSessao(req);
-
-      req.session.user = {
+      return autenticarComNovaSessao(req, res, {
         id: dono._id,
         estabelecimentoId: dono._id,
         nome: dono.nome,
@@ -51,9 +60,7 @@ exports.login = async (req, res) => {
           "funcionarios",
           "configuracoes",
         ],
-      };
-
-      return req.session.save(() => res.redirect("/admin"));
+      }, lembrar);
     }
 
     const funcionario = await Funcionario.findOne({
@@ -65,9 +72,7 @@ exports.login = async (req, res) => {
       funcionario &&
       (await bcrypt.compare(senha, funcionario.senha))
     ) {
-      configurarDuracaoDaSessao(req);
-
-      req.session.user = {
+      return autenticarComNovaSessao(req, res, {
         id: funcionario._id,
         estabelecimentoId: funcionario.estabelecimentoId,
         nome: funcionario.nome,
@@ -75,9 +80,7 @@ exports.login = async (req, res) => {
         tipo: "funcionario",
         funcao: funcionario.funcao,
         permissoes: funcionario.permissoes,
-      };
-
-      return req.session.save(() => res.redirect("/admin"));
+      }, lembrar);
     }
 
     req.flash("errors", "E-mail ou senha inválidos.");
@@ -87,6 +90,8 @@ exports.login = async (req, res) => {
     return res.status(500).render("404");
   }
 };
+
+exports._testing = { autenticarComNovaSessao };
 
 exports.logout = (req, res) => {
   req.session.destroy(() => res.redirect("/"));

@@ -38,6 +38,19 @@ const {
   carregarAssinatura,
   assinaturaRequired,
 } = require('./src/middleware/assinatura');
+const {
+  csrfProtection,
+  csrfSameOriginProtection,
+} = require('./src/middleware/csrf');
+const {
+  createRateLimiter,
+} = require('./src/middleware/rateLimit');
+
+const limiteAssinatura = createRateLimiter({ windowMs: 60_000, max: 6 });
+const limiteOauth = createRateLimiter({ windowMs: 60_000, max: 10 });
+const limitePixPedido = createRateLimiter({ windowMs: 60_000, max: 12 });
+const limiteStatusPagamento = createRateLimiter({ windowMs: 60_000, max: 60 });
+const limiteWebhook = createRateLimiter({ windowMs: 60_000, max: 300 });
 
 /*
 |--------------------------------------------------------------------------
@@ -200,6 +213,8 @@ route.post(
   loginRequired,
   carregarAssinatura,
   permissao('configuracoes'),
+  limiteAssinatura,
+  csrfProtection,
   pagamento.assinarCartao
 );
 
@@ -208,6 +223,8 @@ route.post(
   loginRequired,
   carregarAssinatura,
   permissao('configuracoes'),
+  limiteAssinatura,
+  csrfProtection,
   pagamento.gerarPix
 );
 
@@ -219,14 +236,19 @@ route.get(
   pagamento.retorno
 );
 
-route.get('/admin/mercado-pago/conectar', loginRequired, permissao('configuracoes'), pagamento.conectarMercadoPago);
-route.get('/admin/mercado-pago/callback', loginRequired, permissao('configuracoes'), pagamento.callbackMercadoPago);
-route.post('/admin/mercado-pago/desconectar', loginRequired, permissao('configuracoes'), pagamento.desconectarMercadoPago);
+route.get('/admin/mercado-pago/conectar', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, pagamento.conectarMercadoPago);
+route.get('/admin/mercado-pago/callback', loginRequired, carregarAssinatura, permissao('configuracoes'), limiteOauth, pagamento.callbackMercadoPago);
+route.post('/admin/mercado-pago/desconectar', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, csrfProtection, pagamento.desconectarMercadoPago);
 
 route.post(
   '/webhook/mercado-pago',
+  limiteWebhook,
   pagamento.webhook
 );
+
+// Protege todas as mutações administrativas existentes sem interferir no
+// callback OAuth GET ou no webhook externo.
+route.use('/admin', csrfSameOriginProtection);
 
 /*
 |--------------------------------------------------------------------------
@@ -492,6 +514,7 @@ route.post(
 
 route.post('/admin/agente/codigo', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.gerarCodigoAgente);
 route.get('/admin/agente/status', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.statusAgente);
+route.get('/admin/agente/status/stream', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.streamStatusAgente);
 route.get('/admin/agente/network/scan', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.buscarImpressorasRedeRemotas);
 route.get('/admin/agente/impressoras', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.impressorasAgente);
 route.post('/admin/agente/teste', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.testarImpressoraRemota);
@@ -517,8 +540,8 @@ route.get(
 );
 
 route.post('/catalogo/:slug/pedidos', admin.criarPedidoCatalogo);
-route.post('/catalogo/:slug/pedidos/:pedidoId/pix', pagamento.gerarPixPedido);
-route.get('/catalogo/:slug/pedidos/:pedidoId/pagamento-status', pagamento.statusPagamentoPedido);
+route.post('/catalogo/:slug/pedidos/:pedidoId/pix', limitePixPedido, pagamento.gerarPixPedido);
+route.get('/catalogo/:slug/pedidos/:pedidoId/pagamento-status', limiteStatusPagamento, pagamento.statusPagamentoPedido);
 route.get('/catalogo/:slug/meus-pedidos', admin.buscarPedidosCatalogo);
 route.post('/catalogo/:slug/produtos/:produtoId/avaliacoes', admin.avaliarProdutoCatalogo);
 

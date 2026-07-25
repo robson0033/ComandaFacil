@@ -98,3 +98,34 @@ test("requestPrintJob nunca gera jobId para trabalho não persistido", async () 
     printAgentHub._testing.sockets.delete(storeId);
   }
 });
+
+test("status em tempo real é isolado por estabelecimento e suporta duas abas", () => {
+  const lojaA = `loja-a-${crypto.randomUUID()}`;
+  const lojaB = `loja-b-${crypto.randomUUID()}`;
+  const abaA1 = [];
+  const abaA2 = [];
+  const abaB = [];
+  const offA1 = printAgentHub.subscribeStatus(lojaA, value => abaA1.push(value));
+  const offA2 = printAgentHub.subscribeStatus(lojaA, value => abaA2.push(value));
+  const offB = printAgentHub.subscribeStatus(lojaB, value => abaB.push(value));
+  try {
+    printAgentHub._testing.publishStatus(lojaA, true, {
+      nomeComputador: "CAIXA-A",
+    });
+    assert.equal(abaA1.length, 1);
+    assert.equal(abaA2.length, 1);
+    assert.equal(abaB.length, 0);
+    assert.equal(abaA1[0].status, "conectado");
+    assert.equal(abaA1[0].nomeComputador, "CAIXA-A");
+
+    offA1();
+    printAgentHub._testing.publishStatus(lojaA, false);
+    assert.equal(abaA1.length, 1);
+    assert.equal(abaA2.length, 2);
+    assert.equal(abaA2[1].status, "desconectado");
+  } finally {
+    offA1();
+    offA2();
+    offB();
+  }
+});
