@@ -260,14 +260,20 @@ const Configuracao = mongoose.model(
       impressoraNome: { type: String, default: "", trim: true },
       impressoraTipo: {
         type: String,
-        enum: ["termica", "comum", "rede", ""],
-        default: "",
+        enum: ["termica", "comum", "rede", "usb", "bluetooth", ""],
+        default: "rede",
       },
       impressoraEndereco: { type: String, default: "", trim: true },
+      impressoraIp: { type: String, default: "", trim: true },
       impressoraPorta: { type: Number, default: 9100, min: 1, max: 65535 },
       larguraPapel: {
         type: String,
         enum: ["58mm", "80mm", "A4"],
+        default: "80mm",
+      },
+      impressoraPapel: {
+        type: String,
+        enum: ["58mm", "80mm"],
         default: "80mm",
       },
       impressaoAutomatica: { type: Boolean, default: false },
@@ -277,40 +283,6 @@ const Configuracao = mongoose.model(
         unique: true,
         lowercase: true,
         trim: true,
-      },
-
-      impressoraNome: {
-        type: String,
-        default: "",
-        trim: true,
-      },
-
-      impressoraTipo: {
-        type: String,
-        enum: ["rede", "usb", "bluetooth"],
-        default: "rede",
-      },
-
-      impressoraIp: {
-        type: String,
-        default: "",
-        trim: true,
-      },
-
-      impressoraPorta: {
-        type: Number,
-        default: 9100,
-      },
-
-      impressoraPapel: {
-        type: String,
-        enum: ["58mm", "80mm"],
-        default: "80mm",
-      },
-
-      impressaoAutomatica: {
-        type: Boolean,
-        default: false,
       },
 
       impressoras: {
@@ -764,6 +736,78 @@ const PrintAgent = mongoose.model(
   }, opts),
 );
 
+const printJobSchema = new mongoose.Schema({
+  jobId: { type: String, required: true, unique: true, immutable: true },
+  ...base,
+  pedidoId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Pedido",
+    required: true,
+    index: true,
+  },
+  tipo: {
+    type: String,
+    enum: ["automatica", "manual"],
+    required: true,
+    index: true,
+  },
+  impressoraChave: { type: String, required: true, trim: true },
+  impressora: { type: mongoose.Schema.Types.Mixed, required: true },
+  estabelecimento: { type: mongoose.Schema.Types.Mixed, required: true },
+  pedido: { type: mongoose.Schema.Types.Mixed, required: true },
+  status: {
+    type: String,
+    enum: [
+      "pendente",
+      "aguardando_retry",
+      "recebido",
+      "processando",
+      "enviado",
+      "concluido",
+      "falhou",
+      "cancelado",
+      "resultado_desconhecido",
+    ],
+    default: "pendente",
+    required: true,
+    index: true,
+  },
+  tentativas: { type: Number, default: 0, min: 0, max: 5 },
+  erro: { type: String, default: "", maxlength: 1000 },
+  nextAttemptAt: { type: Date, default: Date.now, index: true },
+  lastAttemptAt: { type: Date, default: null },
+  lockedBy: { type: String, default: "", index: true },
+  leaseToken: { type: String, default: "" },
+  leaseExpiresAt: { type: Date, default: null, index: true },
+  recebidoEm: { type: Date, default: null },
+  processandoEm: { type: Date, default: null },
+  enviadoEm: { type: Date, default: null },
+  concluidoEm: { type: Date, default: null },
+}, opts);
+
+printJobSchema.index(
+  {
+    estabelecimentoId: 1,
+    pedidoId: 1,
+    impressoraChave: 1,
+    tipo: 1,
+  },
+  {
+    unique: true,
+    partialFilterExpression: { tipo: "automatica" },
+    name: "printjob_automatico_unico",
+  },
+);
+
+printJobSchema.index({
+  estabelecimentoId: 1,
+  status: 1,
+  nextAttemptAt: 1,
+  createdAt: 1,
+});
+
+const PrintJob = mongoose.model("PrintJob", printJobSchema);
+
 module.exports = {
   Categoria,
   Estoque,
@@ -775,4 +819,5 @@ module.exports = {
   Avaliacao,
   Assinatura,
   PrintAgent,
+  PrintJob,
 };

@@ -1,6 +1,7 @@
 const QRCode = require("qrcode");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
+const mongoose = require("mongoose");
 
 const { registroModel } = require("../models/registroModel");
 
@@ -15,9 +16,11 @@ const {
   Pedido,
   Avaliacao,
   PrintAgent,
+  PrintJob,
 } = require("../models/painelModels");
 
 const printAgentHub = require("../services/printAgentHub");
+const printQueueService = require("../services/printQueueService");
 
 /*
 |--------------------------------------------------------------------------
@@ -277,6 +280,36 @@ function estabelecimentoId(req) {
   );
 }
 
+function montarAcessoPainel(usuario = {}) {
+  const proprietario =
+    usuario.tipo === "proprietario";
+  const permissoes = new Set(
+    Array.isArray(usuario.permissoes)
+      ? usuario.permissoes
+      : [],
+  );
+  const pode = modulo =>
+    proprietario ||
+    permissoes.has(modulo);
+
+  return {
+    podeDashboard: pode("dashboard"),
+    podePedidos: pode("pedidos"),
+    podeRelatorios: pode("relatorios"),
+    podeEstoque: pode("estoque"),
+    podeCatalogo: pode("catalogo"),
+    podeMesas: pode("mesas"),
+    podeFuncionarios:
+      pode("funcionarios"),
+    podeConfiguracoes:
+      pode("configuracoes"),
+    podeImprimirPedidos:
+      pode("imprimir_pedidos"),
+    podeConfigurarImpressoras:
+      pode("configurar_impressoras"),
+  };
+}
+
 function obterBaseUrl(req) {
   const appUrl = String(process.env.APP_URL || "")
     .trim()
@@ -420,12 +453,32 @@ function calcularDiasRestantes(assinatura) {
 async function obterOuCriarConfiguracao(
   req,
   idEstabelecimento,
+  {
+    completa = false,
+    incluirImpressoras = false,
+  } = {},
 ) {
-  let configuracao =
-    await Configuracao.findOne({
+  const consulta =
+    Configuracao.findOne({
       estabelecimentoId:
         idEstabelecimento,
     });
+
+  if (!completa) {
+    consulta.select([
+      "nomeEstabelecimento",
+      "fotoPerfil",
+      "slug",
+      ...(incluirImpressoras
+        ? [
+            "impressoras",
+            "impressaoAutomatica",
+          ]
+        : []),
+    ].join(" "));
+  }
+
+  let configuracao = await consulta;
 
   if (configuracao) {
     return configuracao;
@@ -462,85 +515,239 @@ async function obterOuCriarConfiguracao(
   return configuracao;
 }
 
+const FUSO_RELATORIOS =
+  "America/Sao_Paulo";
+
+function partesDataNoFuso(
+  data,
+  timeZone = FUSO_RELATORIOS,
+) {
+  const partes =
+    new Intl.DateTimeFormat(
+      "en-CA",
+      {
+        timeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      },
+    ).formatToParts(data);
+
+  const valor = tipo =>
+    Number(
+      partes.find(
+        parte =>
+          parte.type === tipo,
+      )?.value,
+    );
+
+  return {
+    ano: valor("year"),
+    mes: valor("month"),
+    dia: valor("day"),
+  };
+}
+
+function dataLocalParaUtc(
+  {
+    ano,
+    mes,
+    dia,
+    hora = 0,
+    minuto = 0,
+    segundo = 0,
+    milissegundo = 0,
+  },
+  timeZone = FUSO_RELATORIOS,
+) {
+  const alvoUtc = Date.UTC(
+    ano,
+    mes - 1,
+    dia,
+    hora,
+    minuto,
+    segundo,
+    milissegundo,
+  );
+  let tentativa = alvoUtc;
+
+  for (
+    let indice = 0;
+    indice < 3;
+    indice += 1
+  ) {
+    const partes =
+      new Intl.DateTimeFormat(
+        "en-CA",
+        {
+          timeZone,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hourCycle: "h23",
+        },
+      ).formatToParts(
+        new Date(tentativa),
+      );
+
+    const valor = tipo =>
+      Number(
+        partes.find(
+          parte =>
+            parte.type === tipo,
+        )?.value,
+      );
+
+    const exibidoComoUtc =
+      Date.UTC(
+        valor("year"),
+        valor("month") - 1,
+        valor("day"),
+        valor("hour"),
+        valor("minute"),
+        valor("second"),
+        milissegundo,
+      );
+
+    tentativa +=
+      alvoUtc - exibidoComoUtc;
+  }
+
+  return new Date(tentativa);
+}
+
+function adicionarDiasCalendario(
+  partes,
+  quantidade,
+) {
+  const data = new Date(
+    Date.UTC(
+      partes.ano,
+      partes.mes - 1,
+      partes.dia + quantidade,
+    ),
+  );
+
+  return {
+    ano: data.getUTCFullYear(),
+    mes: data.getUTCMonth() + 1,
+    dia: data.getUTCDate(),
+  };
+}
+
 function obterPeriodoRelatorio(
   filtro,
   dataInicio,
   dataFim,
+  agoraReferencia = new Date(),
 ) {
-  const agora = new Date();
+  const agora =
+    new Date(agoraReferencia);
+  const hoje =
+    partesDataNoFuso(agora);
   let inicio = null;
   let fim = null;
   let filtroFinal = filtro;
 
   if (filtro === "hoje") {
-    inicio = new Date(agora);
-    inicio.setHours(0, 0, 0, 0);
-
-    fim = new Date(agora);
-    fim.setHours(23, 59, 59, 999);
+    inicio = dataLocalParaUtc(
+      hoje,
+    );
+    fim = dataLocalParaUtc({
+      ...hoje,
+      hora: 23,
+      minuto: 59,
+      segundo: 59,
+      milissegundo: 999,
+    });
   }
 
   if (filtro === "semana") {
-    const diaSemana = agora.getDay();
-    const diferenca =
-      diaSemana === 0
-        ? -6
-        : 1 - diaSemana;
+    const meioDiaHoje =
+      dataLocalParaUtc({
+        ...hoje,
+        hora: 12,
+      });
+    const nomeDia =
+      meioDiaHoje.toLocaleDateString(
+        "en-US",
+        {
+          timeZone:
+            FUSO_RELATORIOS,
+          weekday: "short",
+        },
+      );
+    const diaSemana = [
+      "Sun",
+      "Mon",
+      "Tue",
+      "Wed",
+      "Thu",
+      "Fri",
+      "Sat",
+    ].indexOf(nomeDia);
+    const inicioSemana =
+      adicionarDiasCalendario(
+        hoje,
+        diaSemana === 0
+          ? -6
+          : 1 - diaSemana,
+      );
+    const fimSemana =
+      adicionarDiasCalendario(
+        inicioSemana,
+        6,
+      );
 
-    inicio = new Date(agora);
-    inicio.setDate(
-      agora.getDate() + diferenca,
-    );
-    inicio.setHours(0, 0, 0, 0);
-
-    fim = new Date(inicio);
-    fim.setDate(
-      inicio.getDate() + 6,
-    );
-    fim.setHours(23, 59, 59, 999);
+    inicio =
+      dataLocalParaUtc(
+        inicioSemana,
+      );
+    fim = dataLocalParaUtc({
+      ...fimSemana,
+      hora: 23,
+      minuto: 59,
+      segundo: 59,
+      milissegundo: 999,
+    });
   }
 
   if (filtro === "mes") {
-    inicio = new Date(
-      agora.getFullYear(),
-      agora.getMonth(),
-      1,
-      0,
-      0,
-      0,
-      0,
-    );
-
+    inicio = dataLocalParaUtc({
+      ano: hoje.ano,
+      mes: hoje.mes,
+      dia: 1,
+    });
     fim = new Date(
-      agora.getFullYear(),
-      agora.getMonth() + 1,
-      0,
-      23,
-      59,
-      59,
-      999,
+      dataLocalParaUtc({
+        ano:
+          hoje.mes === 12
+            ? hoje.ano + 1
+            : hoje.ano,
+        mes:
+          hoje.mes === 12
+            ? 1
+            : hoje.mes + 1,
+        dia: 1,
+      }).getTime() - 1,
     );
   }
 
   if (filtro === "ano") {
-    inicio = new Date(
-      agora.getFullYear(),
-      0,
-      1,
-      0,
-      0,
-      0,
-      0,
-    );
-
+    inicio = dataLocalParaUtc({
+      ano: hoje.ano,
+      mes: 1,
+      dia: 1,
+    });
     fim = new Date(
-      agora.getFullYear(),
-      11,
-      31,
-      23,
-      59,
-      59,
-      999,
+      dataLocalParaUtc({
+        ano: hoje.ano + 1,
+        mes: 1,
+        dia: 1,
+      }).getTime() - 1,
     );
   }
 
@@ -552,13 +759,36 @@ function obterPeriodoRelatorio(
       formatoValido.test(dataInicio) &&
       formatoValido.test(dataFim)
     ) {
-      inicio = new Date(
-        `${dataInicio}T00:00:00`,
-      );
+      const [
+        anoInicio,
+        mesInicio,
+        diaInicio,
+      ] = dataInicio
+        .split("-")
+        .map(Number);
+      const [
+        anoFim,
+        mesFim,
+        diaFim,
+      ] = dataFim
+        .split("-")
+        .map(Number);
 
-      fim = new Date(
-        `${dataFim}T23:59:59.999`,
-      );
+      inicio = dataLocalParaUtc({
+        ano: anoInicio,
+        mes: mesInicio,
+        dia: diaInicio,
+      });
+
+      fim = dataLocalParaUtc({
+        ano: anoFim,
+        mes: mesFim,
+        dia: diaFim,
+        hora: 23,
+        minuto: 59,
+        segundo: 59,
+        milissegundo: 999,
+      });
 
       if (
         Number.isNaN(inicio.getTime()) ||
@@ -572,11 +802,15 @@ function obterPeriodoRelatorio(
     }
 
     if (filtroFinal === "hoje") {
-      inicio = new Date(agora);
-      inicio.setHours(0, 0, 0, 0);
-
-      fim = new Date(agora);
-      fim.setHours(23, 59, 59, 999);
+      inicio =
+        dataLocalParaUtc(hoje);
+      fim = dataLocalParaUtc({
+        ...hoje,
+        hora: 23,
+        minuto: 59,
+        segundo: 59,
+        milissegundo: 999,
+      });
     }
   }
 
@@ -992,6 +1226,515 @@ function montarGrafico(
   };
 }
 
+function filtroBaseRelatorio(
+  idEstabelecimento,
+  periodo,
+  canalAtual = "todos",
+) {
+  const idNormalizado =
+    mongoose.isValidObjectId(
+      idEstabelecimento,
+    )
+      ? new mongoose.Types.ObjectId(
+          idEstabelecimento,
+        )
+      : idEstabelecimento;
+
+  const filtro = {
+    estabelecimentoId:
+      idNormalizado,
+    status: {
+      $ne: "cancelado",
+    },
+  };
+
+  if (
+    periodo?.inicio &&
+    periodo?.fim
+  ) {
+    filtro.createdAt = {
+      $gte: periodo.inicio,
+      $lte: periodo.fim,
+    };
+  }
+
+  if (canalAtual !== "todos") {
+    filtro.canal =
+      canalAtual === "retirada"
+        ? {
+            $in: [
+              "retirada",
+              "balcao",
+            ],
+          }
+        : canalAtual;
+  }
+
+  return filtro;
+}
+
+function pedidoEntraNoFinanceiro(
+  pedido,
+) {
+  return (
+    pedido?.status !== "cancelado" &&
+    pedido?.pagamentoStatus ===
+      "pago"
+  );
+}
+
+function pedidoContaFinalizado(
+  pedido,
+) {
+  return (
+    pedido?.status !== "cancelado" &&
+    [
+      "finalizado",
+      "entregue",
+    ].includes(pedido?.status)
+  );
+}
+
+function formatoDataGrafico(
+  filtro,
+  periodo,
+) {
+  if (filtro === "hoje") {
+    return "%Y-%m-%d-%H";
+  }
+
+  if (
+    filtro === "ano" ||
+    filtro === "todos"
+  ) {
+    return "%Y-%m";
+  }
+
+  if (
+    filtro === "personalizado" &&
+    periodo?.inicio &&
+    periodo?.fim &&
+    (
+      periodo.fim.getTime() -
+      periodo.inicio.getTime()
+    ) > 31 * 86400000
+  ) {
+    return "%Y-%m";
+  }
+
+  return "%Y-%m-%d";
+}
+
+function montarGraficoAgregado(
+  grupos = [],
+  filtro,
+) {
+  const mapa = new Map(
+    grupos.map(grupo => [
+      String(grupo._id),
+      Number(grupo.valor || 0),
+    ]),
+  );
+
+  if (filtro === "hoje") {
+    const labels = [
+      "00h",
+      "04h",
+      "08h",
+      "12h",
+      "16h",
+      "20h",
+    ];
+    const valores =
+      new Array(6).fill(0);
+
+    mapa.forEach(
+      (valor, chave) => {
+        const hora = Number(
+          chave.slice(-2),
+        );
+        const indice = Math.min(
+          5,
+          Math.floor(hora / 4),
+        );
+        valores[indice] += valor;
+      },
+    );
+
+    return {
+      labels,
+      valores,
+      maiorValor: Math.max(
+        ...valores,
+        1,
+      ),
+    };
+  }
+
+  if (filtro === "semana") {
+    const labels = [
+      "Seg",
+      "Ter",
+      "Qua",
+      "Qui",
+      "Sex",
+      "Sáb",
+      "Dom",
+    ];
+    const valores =
+      new Array(7).fill(0);
+
+    mapa.forEach(
+      (valor, chave) => {
+        const [ano, mes, dia] =
+          chave.split("-").map(Number);
+        const data =
+          dataLocalParaUtc({
+            ano,
+            mes,
+            dia,
+            hora: 12,
+          });
+        const nomeDia =
+          data.toLocaleDateString(
+            "en-US",
+            {
+              timeZone:
+                FUSO_RELATORIOS,
+              weekday: "short",
+            },
+          );
+        const diaSemana = [
+          "Sun",
+          "Mon",
+          "Tue",
+          "Wed",
+          "Thu",
+          "Fri",
+          "Sat",
+        ].indexOf(nomeDia);
+        const indice =
+          diaSemana === 0
+            ? 6
+            : diaSemana - 1;
+        valores[indice] += valor;
+      },
+    );
+
+    return {
+      labels,
+      valores,
+      maiorValor: Math.max(
+        ...valores,
+        1,
+      ),
+    };
+  }
+
+  const ordenados =
+    [...mapa.entries()].sort(
+      ([a], [b]) =>
+        a.localeCompare(b),
+    );
+  const labels =
+    ordenados.map(([chave]) => {
+      const partes =
+        chave.split("-").map(Number);
+
+      if (partes.length === 2) {
+        return new Date(
+          Date.UTC(
+            partes[0],
+            partes[1] - 1,
+            1,
+          ),
+        ).toLocaleDateString(
+          "pt-BR",
+          {
+            timeZone: "UTC",
+            month: "short",
+            year: "2-digit",
+          },
+        );
+      }
+
+      return `${String(
+        partes[2],
+      ).padStart(2, "0")}/${String(
+        partes[1],
+      ).padStart(2, "0")}`;
+    });
+  const valores =
+    ordenados.map(
+      ([, valor]) => valor,
+    );
+
+  return {
+    labels: labels.length
+      ? labels
+      : ["Sem dados"],
+    valores: valores.length
+      ? valores
+      : [0],
+    maiorValor: Math.max(
+      ...valores,
+      1,
+    ),
+  };
+}
+
+async function agregarRelatorios({
+  idEstabelecimento,
+  periodo,
+  canalAtual,
+}) {
+  const base = filtroBaseRelatorio(
+    idEstabelecimento,
+    periodo,
+    canalAtual,
+  );
+  const formato =
+    formatoDataGrafico(
+      periodo.filtro,
+      periodo,
+    );
+  const [resultado = {}] =
+    await Pedido.aggregate([
+      {
+        $match: base,
+      },
+      {
+        $facet: {
+          financeiro: [
+            {
+              $match: {
+                pagamentoStatus:
+                  "pago",
+              },
+            },
+            {
+              $group: {
+                _id: null,
+                faturamento: {
+                  $sum: {
+                    $ifNull: [
+                      "$total",
+                      0,
+                    ],
+                  },
+                },
+                custo: {
+                  $sum: {
+                    $ifNull: [
+                      "$custo",
+                      0,
+                    ],
+                  },
+                },
+                quantidade: {
+                  $sum: 1,
+                },
+              },
+            },
+          ],
+          finalizados: [
+            {
+              $match: {
+                status: {
+                  $in: [
+                    "finalizado",
+                    "entregue",
+                  ],
+                },
+              },
+            },
+            {
+              $count:
+                "quantidade",
+            },
+          ],
+          grafico: [
+            {
+              $match: {
+                pagamentoStatus:
+                  "pago",
+              },
+            },
+            {
+              $group: {
+                _id: {
+                  $dateToString: {
+                    format: formato,
+                    date: "$createdAt",
+                    timezone:
+                      FUSO_RELATORIOS,
+                  },
+                },
+                valor: {
+                  $sum: {
+                    $ifNull: [
+                      "$total",
+                      0,
+                    ],
+                  },
+                },
+              },
+            },
+            {
+              $sort: {
+                _id: 1,
+              },
+            },
+          ],
+          produtos: [
+            {
+              $match: {
+                pagamentoStatus:
+                  "pago",
+              },
+            },
+            {
+              $unwind: "$itens",
+            },
+            {
+              $group: {
+                _id: "$itens.produtoId",
+                nome: {
+                  $first:
+                    "$itens.nome",
+                },
+                quantidade: {
+                  $sum: {
+                    $ifNull: [
+                      "$itens.quantidade",
+                      0,
+                    ],
+                  },
+                },
+                total: {
+                  $sum: {
+                    $ifNull: [
+                      "$itens.subtotal",
+                      0,
+                    ],
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+  const financeiro =
+    resultado.financeiro?.[0] ||
+    {};
+  const produtos =
+    resultado.produtos || [];
+
+  return {
+    faturamento: Number(
+      financeiro.faturamento || 0,
+    ),
+    custo: Number(
+      financeiro.custo || 0,
+    ),
+    quantidadePaga: Number(
+      financeiro.quantidade || 0,
+    ),
+    totalFinalizados: Number(
+      resultado.finalizados?.[0]
+        ?.quantidade || 0,
+    ),
+    grafico:
+      montarGraficoAgregado(
+        resultado.grafico || [],
+        periodo.filtro,
+      ),
+    maisVendidos: [...produtos]
+      .sort(
+        (a, b) =>
+          b.quantidade -
+          a.quantidade,
+      )
+      .slice(0, 5),
+    menosVendidos: [...produtos]
+      .sort(
+        (a, b) =>
+          a.quantidade -
+          b.quantidade,
+      )
+      .slice(0, 5),
+  };
+}
+
+async function agregarDashboard({
+  idEstabelecimento,
+  periodo,
+}) {
+  const [resultado = {}] =
+    await Pedido.aggregate([
+      {
+        $match:
+          filtroBaseRelatorio(
+            idEstabelecimento,
+            periodo,
+          ),
+      },
+      {
+        $facet: {
+          pedidos: [
+            {
+              $count:
+                "quantidade",
+            },
+          ],
+          financeiro: [
+            {
+              $match: {
+                pagamentoStatus:
+                  "pago",
+              },
+            },
+            {
+              $group: {
+                _id: null,
+                faturamento: {
+                  $sum: {
+                    $ifNull: [
+                      "$total",
+                      0,
+                    ],
+                  },
+                },
+                quantidade: {
+                  $sum: 1,
+                },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+  const financeiro =
+    resultado.financeiro?.[0] ||
+    {};
+
+  return {
+    vendas: Number(
+      financeiro.faturamento || 0,
+    ),
+    quantidadePaga: Number(
+      financeiro.quantidade || 0,
+    ),
+    quantidadePedidos: Number(
+      resultado.pedidos?.[0]
+        ?.quantidade || 0,
+    ),
+  };
+}
+
 /*
 |--------------------------------------------------------------------------
 | PAINEL ADMINISTRATIVO
@@ -1009,6 +1752,21 @@ exports.admin = async (req, res) => {
       );
     }
 
+    const {
+      podeDashboard,
+      podePedidos,
+      podeRelatorios,
+      podeEstoque,
+      podeCatalogo,
+      podeMesas,
+      podeFuncionarios,
+      podeConfiguracoes,
+      podeImprimirPedidos,
+      podeConfigurarImpressoras,
+    } = montarAcessoPainel(
+      req.session.user,
+    );
+
     const assinatura =
       await obterAssinatura(
         idEstabelecimento,
@@ -1023,6 +1781,13 @@ exports.admin = async (req, res) => {
       await obterOuCriarConfiguracao(
         req,
         idEstabelecimento,
+        {
+          completa:
+            podeConfiguracoes,
+          incluirImpressoras:
+            podeImprimirPedidos ||
+            podeConfigurarImpressoras,
+        },
       );
 
     const pedidosFiltrosPermitidos = ["hoje", "semana", "mes", "personalizado"];
@@ -1074,89 +1839,152 @@ exports.admin = async (req, res) => {
       funcionarios,
       pedidos,
     ] = await Promise.all([
-      Categoria.find({
-        estabelecimentoId:
-          idEstabelecimento,
-      })
-        .sort({ nome: 1 })
-        .lean(),
+      podeEstoque || podeCatalogo
+        ? Categoria.find({
+            estabelecimentoId:
+              idEstabelecimento,
+            tipo: {
+              $in: [
+                ...(podeEstoque
+                  ? ["estoque"]
+                  : []),
+                ...(podeCatalogo
+                  ? ["catalogo"]
+                  : []),
+              ],
+            },
+          })
+            .sort({ nome: 1 })
+            .lean()
+        : Promise.resolve([]),
 
-      Estoque.find({
-        estabelecimentoId:
-          idEstabelecimento,
-      })
-        .populate(
-          "categoriaId",
-          "nome tipo",
-        )
-        .sort({ nome: 1 })
-        .lean(),
+      podeEstoque
+        ? Estoque.find({
+            estabelecimentoId:
+              idEstabelecimento,
+          })
+            .populate(
+              "categoriaId",
+              "nome tipo",
+            )
+            .sort({ nome: 1 })
+            .lean()
+        : Promise.resolve([]),
 
-      Produto.find({
-        estabelecimentoId:
-          idEstabelecimento,
-      })
-        .populate(
-          "categoriaId",
-          "nome tipo",
-        )
-        .sort({ nome: 1 })
-        .lean(),
+      podeCatalogo
+        ? Produto.find({
+            estabelecimentoId:
+              idEstabelecimento,
+          })
+            .populate(
+              "categoriaId",
+              "nome tipo",
+            )
+            .sort({ nome: 1 })
+            .lean()
+        : Promise.resolve([]),
 
-      Mesa.find({
-        estabelecimentoId:
-          idEstabelecimento,
-      })
-        .sort({ numero: 1 })
-        .lean(),
+      podeMesas || podeDashboard
+        ? Mesa.find({
+            estabelecimentoId:
+              idEstabelecimento,
+          })
+            .sort({ numero: 1 })
+            .lean()
+        : Promise.resolve([]),
 
-      Funcionario.find({
-        estabelecimentoId:
-          idEstabelecimento,
-      })
-        .select("-senha")
-        .sort({ nome: 1 })
-        .lean(),
+      podeFuncionarios
+        ? Funcionario.find({
+            estabelecimentoId:
+              idEstabelecimento,
+          })
+            .select("-senha")
+            .sort({ nome: 1 })
+            .lean()
+        : Promise.resolve([]),
 
-      Pedido.find({
-        estabelecimentoId:
-          idEstabelecimento,
-        ...filtroDataPedidos,
-      })
-        .populate(
-          "mesaId",
-          "numero setor status",
-        )
-        .sort({ createdAt: -1 })
-        .limit(500)
-        .lean(),
+      (
+        podeDashboard ||
+        podePedidos ||
+        podeRelatorios ||
+        podeMesas
+      )
+        ? Pedido.find({
+            estabelecimentoId:
+              idEstabelecimento,
+            ...filtroDataPedidos,
+          })
+            .populate(
+              "mesaId",
+              "numero setor status",
+            )
+            .sort({ createdAt: -1 })
+            .limit(500)
+            .lean()
+        : Promise.resolve([]),
     ]);
 
-    const configuracao =
+    const configuracaoCompleta =
       typeof configuracaoDocumento.toObject ===
       "function"
         ? configuracaoDocumento.toObject()
         : configuracaoDocumento;
 
+    const configuracao = podeConfiguracoes
+      ? configuracaoCompleta
+      : {
+          nomeEstabelecimento:
+            configuracaoCompleta
+              ?.nomeEstabelecimento ||
+            "Meu estabelecimento",
+          fotoPerfil:
+            configuracaoCompleta
+              ?.fotoPerfil || "",
+          slug: podeCatalogo
+            ? configuracaoCompleta?.slug ||
+              ""
+            : "",
+          impressoras:
+            podeImprimirPedidos ||
+            podeConfigurarImpressoras
+              ? configuracaoCompleta
+                  ?.impressoras || []
+              : [],
+          impressaoAutomatica:
+            (
+              podeImprimirPedidos ||
+              podeConfigurarImpressoras
+            ) &&
+            Boolean(
+              configuracaoCompleta
+                ?.impressaoAutomatica,
+            ),
+        };
+
     const categoriasEstoque =
-      categorias.filter(
+      podeEstoque
+        ? categorias.filter(
         (categoria) =>
           categoria.tipo ===
           "estoque",
-      );
+          )
+        : [];
 
     const categoriasCatalogo =
-      categorias.filter(
+      podeCatalogo
+        ? categorias.filter(
         (categoria) =>
           categoria.tipo ===
           "catalogo",
-      );
+          )
+        : [];
 
     const baseUrl = obterBaseUrl(req);
 
     const catalogoLink =
-      configuracao?.slug
-        ? `${baseUrl}/catalogo/${configuracao.slug}`
+      podeCatalogo &&
+      configuracaoCompleta?.slug
+        ? `${baseUrl}/catalogo/${configuracaoCompleta.slug}`
         : "#";
 
     /*
@@ -1301,25 +2129,28 @@ exports.admin = async (req, res) => {
         );
       });
 
-    const pedidosPagosDashboard =
-      pedidosDashboard.filter((pedido) => {
-        return (
-          pedido.pagamentoStatus === "pago" ||
-          pedido.status === "finalizado"
-        );
-      });
+    const dashboardAgregado =
+      podeDashboard
+        ? await agregarDashboard({
+            idEstabelecimento,
+            periodo:
+              dashboardPeriodo,
+          })
+        : {
+            vendas: 0,
+            quantidadePaga: 0,
+            quantidadePedidos: 0,
+          };
 
     const vendasHoje =
-      pedidosPagosDashboard.reduce(
-        (total, pedido) =>
-          total + Number(pedido.total || 0),
-        0,
-      );
+      dashboardAgregado.vendas;
 
     const ticketMedio =
-      pedidosPagosDashboard.length
+      dashboardAgregado
+        .quantidadePaga
         ? vendasHoje /
-          pedidosPagosDashboard.length
+          dashboardAgregado
+            .quantidadePaga
         : 0;
 
     const dashboard = {
@@ -1331,7 +2162,8 @@ exports.admin = async (req, res) => {
         dashboardDataFim,
       vendasHoje,
       pedidosHoje:
-        pedidosDashboard.length,
+        dashboardAgregado
+          .quantidadePedidos,
       ticketMedio,
       mesasOcupadas: mesas.filter(
         (mesa) =>
@@ -1438,38 +2270,35 @@ exports.admin = async (req, res) => {
         );
       });
 
-    const pedidosFinalizados =
-      pedidosFiltrados.filter(
-        (pedido) => {
-          return (
-            pedido.pagamentoStatus ===
-              "pago" ||
-            pedido.status ===
-              "finalizado"
-          );
-        },
-      );
+    const agregadoRelatorios =
+      podeRelatorios
+        ? await agregarRelatorios({
+            idEstabelecimento,
+            periodo,
+            canalAtual,
+          })
+        : {
+            faturamento: 0,
+            custo: 0,
+            quantidadePaga: 0,
+            totalFinalizados: 0,
+            grafico: {
+              labels: [
+                "Sem dados",
+              ],
+              valores: [0],
+              maiorValor: 1,
+            },
+            maisVendidos: [],
+            menosVendidos: [],
+          };
 
     const faturamento =
-      pedidosFinalizados.reduce(
-        (total, pedido) =>
-          total +
-          Number(pedido.total || 0),
-        0,
-      );
+      agregadoRelatorios
+        .faturamento;
 
     const custo =
-      pedidosFinalizados.reduce(
-        (total, pedido) =>
-          total +
-          Number(pedido.custo || 0),
-        0,
-      );
-
-    const ranking =
-      montarRankingProdutos(
-        pedidosFiltrados,
-      );
+      agregadoRelatorios.custo;
 
     const relatorios = {
       filtroAtual: periodo.filtro,
@@ -1480,17 +2309,16 @@ exports.admin = async (req, res) => {
       custo,
       lucro: faturamento - custo,
       totalPedidos:
-        pedidosFinalizados.length,
-      grafico: montarGrafico(
-        pedidosFinalizados,
-        periodo.filtro,
-        periodo.inicio,
-        periodo.fim,
-      ),
+        agregadoRelatorios
+          .totalFinalizados,
+      grafico:
+        agregadoRelatorios.grafico,
       maisVendidos:
-        ranking.maisVendidos,
+        agregadoRelatorios
+          .maisVendidos,
       menosVendidos:
-        ranking.menosVendidos,
+        agregadoRelatorios
+          .menosVendidos,
       historico:
         pedidosFiltrados.slice(
           0,
@@ -1501,7 +2329,7 @@ exports.admin = async (req, res) => {
     const pedidoCanalAtual = ["todos", "delivery", "mesa", "retirada"].includes(req.query.pedidoCanal)
       ? req.query.pedidoCanal
       : "todos";
-    const pedidoStatusAtual = ["todos", "novo", "preparo", "em_preparo", "pronto", "saiu_para_entrega", "finalizado", "cancelado"].includes(req.query.pedidoStatus)
+    const pedidoStatusAtual = ["todos", "novo", "preparo", "pronto", "entregue", "finalizado", "cancelado"].includes(req.query.pedidoStatus)
       ? req.query.pedidoStatus
       : "todos";
 
@@ -1516,9 +2344,7 @@ exports.admin = async (req, res) => {
 
       const statusPedido = pedido.status || "novo";
       if (pedidoStatusAtual !== "todos") {
-        const preparoEquivalente = ["preparo", "em_preparo"].includes(pedidoStatusAtual)
-          && ["preparo", "em_preparo"].includes(statusPedido);
-        if (!preparoEquivalente && statusPedido !== pedidoStatusAtual) return false;
+        if (statusPedido !== pedidoStatusAtual) return false;
       }
 
       return true;
@@ -1532,10 +2358,52 @@ exports.admin = async (req, res) => {
       statusAtual: pedidoStatusAtual,
     };
 
-    const donoPainel = await registroModel
-      .findById(idEstabelecimento)
-      .select("cpfCnpj")
-      .lean();
+    const donoPainel =
+      podeConfiguracoes
+        ? await registroModel
+            .findOne({
+              _id: idEstabelecimento,
+            })
+            .select("cpfCnpj")
+            .lean()
+        : null;
+
+    const dashboardSeguro =
+      podeDashboard
+        ? dashboard
+        : {
+            filtroAtual: "hoje",
+            dataInicio: "",
+            dataFim: "",
+            vendasHoje: 0,
+            pedidosHoje: 0,
+            ticketMedio: 0,
+            mesasOcupadas: 0,
+            totalMesas: 0,
+            pedidosLista: [],
+          };
+
+    const relatoriosSeguros =
+      podeRelatorios
+        ? relatorios
+        : {
+            filtroAtual: "hoje",
+            canalAtual: "todos",
+            dataInicio: "",
+            dataFim: "",
+            faturamento: 0,
+            custo: 0,
+            lucro: 0,
+            totalPedidos: 0,
+            grafico: {
+              labels: [],
+              valores: [],
+              maiorValor: 1,
+            },
+            maisVendidos: [],
+            menosVendidos: [],
+            historico: [],
+          };
 
     return res.render(
       "admin-real",
@@ -1550,25 +2418,40 @@ exports.admin = async (req, res) => {
         configuracao,
         catalogoLink,
 
-        dashboard,
-        relatorios,
+        dashboard:
+          dashboardSeguro,
+        relatorios:
+          relatoriosSeguros,
 
         categoriasEstoque,
         categoriasCatalogo,
 
-        estoque,
-        itensEstoque: estoque,
+        estoque:
+          podeEstoque ? estoque : [],
+        itensEstoque:
+          podeEstoque ? estoque : [],
 
-        produtos,
+        produtos:
+          podeCatalogo ? produtos : [],
 
-        mesas: mesasComConta,
+        mesas:
+          podeMesas ? mesasComConta : [],
 
-        funcionarios,
+        funcionarios:
+          podeFuncionarios
+            ? funcionarios
+            : [],
         listaFuncionarios:
-          funcionarios,
+          podeFuncionarios
+            ? funcionarios
+            : [],
 
-        pedidos,
-        pedidosFiltradosPainel: listaPedidos,
+        pedidos:
+          podePedidos ? pedidos : [],
+        pedidosFiltradosPainel:
+          podePedidos
+            ? listaPedidos
+            : [],
         filtrosPedidos,
 
         errors:
@@ -1721,9 +2604,29 @@ exports.criarEstoque = async (
   res,
 ) => {
   try {
+    const idEstabelecimento =
+      estabelecimentoId(req);
+
+    const categoriaValida =
+      await Categoria.exists({
+        _id: req.body.categoriaId,
+        estabelecimentoId:
+          idEstabelecimento,
+        tipo: "estoque",
+      });
+
+    if (!categoriaValida) {
+      return erroERedirecionar(
+        req,
+        res,
+        "estoque",
+        "Categoria de estoque inválida.",
+      );
+    }
+
     await Estoque.create({
       estabelecimentoId:
-        estabelecimentoId(req),
+        idEstabelecimento,
       nome: String(
         req.body.nome || "",
       ).trim(),
@@ -1788,6 +2691,23 @@ exports.editarEstoque = async (
     item.categoriaId =
       req.body.categoriaId ||
       item.categoriaId;
+
+    const categoriaValida =
+      await Categoria.exists({
+        _id: item.categoriaId,
+        estabelecimentoId:
+          estabelecimentoId(req),
+        tipo: "estoque",
+      });
+
+    if (!categoriaValida) {
+      return erroERedirecionar(
+        req,
+        res,
+        "estoque",
+        "Categoria de estoque inválida.",
+      );
+    }
 
     item.quantidade = Number(
       req.body.quantidade ?? item.quantidade,
@@ -1866,9 +2786,29 @@ exports.criarProduto = async (
   res,
 ) => {
   try {
+    const idEstabelecimento =
+      estabelecimentoId(req);
+
+    const categoriaValida =
+      await Categoria.exists({
+        _id: req.body.categoriaId,
+        estabelecimentoId:
+          idEstabelecimento,
+        tipo: "catalogo",
+      });
+
+    if (!categoriaValida) {
+      return erroERedirecionar(
+        req,
+        res,
+        "catalogo",
+        "Categoria de catálogo inválida.",
+      );
+    }
+
     await Produto.create({
       estabelecimentoId:
-        estabelecimentoId(req),
+        idEstabelecimento,
       nome: String(
         req.body.nome || "",
       ).trim(),
@@ -1944,6 +2884,23 @@ exports.editarProduto = async (
     produto.categoriaId =
       req.body.categoriaId ||
       produto.categoriaId;
+
+    const categoriaValida =
+      await Categoria.exists({
+        _id: produto.categoriaId,
+        estabelecimentoId:
+          estabelecimentoId(req),
+        tipo: "catalogo",
+      });
+
+    if (!categoriaValida) {
+      return erroERedirecionar(
+        req,
+        res,
+        "catalogo",
+        "Categoria de catálogo inválida.",
+      );
+    }
 
     produto.preco = Number(
       req.body.preco ??
@@ -3184,9 +4141,8 @@ exports.atualizarStatusPedido =
       const statusPermitidos = [
         "novo",
         "preparo",
-        "em_preparo",
         "pronto",
-        "saiu_para_entrega",
+        "entregue",
         "finalizado",
         "cancelado",
       ];
@@ -3224,19 +4180,6 @@ exports.atualizarStatusPedido =
       }
 
       pedido.status = status;
-
-      if (status === "finalizado") {
-        pedido.pagamentoStatus =
-          "pago";
-        pedido.pagoEm = new Date();
-
-        if (
-          req.body.formaPagamento
-        ) {
-          pedido.formaPagamento =
-            req.body.formaPagamento;
-        }
-      }
 
       await pedido.save();
 
@@ -3295,6 +4238,78 @@ exports.atualizarStatusPedido =
         res,
         "pedidos",
         "Não foi possível atualizar o pedido.",
+      );
+    }
+  };
+
+exports.confirmarPagamentoPedido =
+  async (req, res) => {
+    try {
+      const idEstabelecimento =
+        estabelecimentoId(req);
+
+      const pedido =
+        await Pedido.findOne({
+          _id: req.params.id,
+          estabelecimentoId:
+            idEstabelecimento,
+          status: {
+            $ne: "cancelado",
+          },
+        });
+
+      if (!pedido) {
+        return erroERedirecionar(
+          req,
+          res,
+          "pedidos",
+          "Pedido não encontrado.",
+        );
+      }
+
+      if (
+        pedido.pagamentoStatus !==
+        "pago"
+      ) {
+        if (
+          pedido.formaPagamento ===
+          "pix"
+        ) {
+          return erroERedirecionar(
+            req,
+            res,
+            "pedidos",
+            "Pagamentos Pix devem ser confirmados automaticamente pelo provedor.",
+          );
+        }
+
+        pedido.pagamentoStatus =
+          "pago";
+
+        if (!pedido.pagoEm) {
+          pedido.pagoEm = new Date();
+        }
+
+        await pedido.save();
+      }
+
+      return salvarERedirecionar(
+        req,
+        res,
+        "pedidos",
+        "Pagamento confirmado.",
+      );
+    } catch (error) {
+      console.error(
+        "Erro ao confirmar pagamento:",
+        error,
+      );
+
+      return erroERedirecionar(
+        req,
+        res,
+        "pedidos",
+        "Não foi possível confirmar o pagamento.",
       );
     }
   };
@@ -3604,7 +4619,7 @@ exports.catalogoPublico = async (req, res) => {
 |--------------------------------------------------------------------------
 */
 
-exports.criarPedidoCatalogo = async (
+const criarPedidoCatalogoAnterior = async (
   req,
   res
 ) => {
@@ -3856,7 +4871,7 @@ exports.criarPedidoCatalogo = async (
     }
 
     const pedido =
-      await Pedido.create({
+      await printQueueService.criarPedidoComJobsAutomaticos({
         estabelecimentoId:
           configuracao.estabelecimentoId,
 
@@ -4269,7 +5284,7 @@ exports.criarPedidoMesa = async (
     }
 
     const pedido =
-      await Pedido.create({
+      await printQueueService.criarPedidoComJobsAutomaticos({
         estabelecimentoId:
           mesa.estabelecimentoId,
         mesaId: mesa._id,
@@ -4526,6 +5541,53 @@ function obterDataSaoPaulo() {
       ),
   };
 }
+
+exports.streamNovosPedidos = (req, res) => {
+  res.setHeader(
+    "Content-Type",
+    "text/event-stream"
+  );
+
+  res.setHeader(
+    "Cache-Control",
+    "no-cache, no-transform"
+  );
+
+  res.setHeader(
+    "Connection",
+    "keep-alive"
+  );
+
+  res.flushHeaders?.();
+
+  const enviarEvento = () => {
+    if (res.writableEnded) return;
+
+    res.write(
+      `event: novos-pedidos\n` +
+      `data: ${JSON.stringify({
+        timestamp: Date.now()
+      })}\n\n`
+    );
+  };
+
+  enviarEvento();
+
+  const timer = setInterval(
+    enviarEvento,
+    5000
+  );
+
+  timer.unref?.();
+
+  req.on("close", () => {
+    clearInterval(timer);
+
+    if (!res.writableEnded) {
+      res.end();
+    }
+  });
+};
 
 function estabelecimentoAberto(
   configuracao,
@@ -4925,7 +5987,7 @@ exports.criarPedidoCatalogo =
       }
 
       const pedido =
-        await Pedido.create({
+        await printQueueService.criarPedidoComJobsAutomaticos({
           estabelecimentoId:
             configuracao.estabelecimentoId,
 
@@ -5101,13 +6163,20 @@ exports.impressorasAgente = async (req, res) => {
 };
 
 exports.testarImpressoraRemota = async (req, res) => {
-  try { const data = await printAgentHub.request(String(estabelecimentoId(req)), "printer:test", { impressora: req.body.impressora }, 20000); return res.json({ success: true, ...data }); }
+  try {
+    const data = await printAgentHub.requestPrintJob(
+      String(estabelecimentoId(req)),
+      "printer:test",
+      { impressora: req.body.impressora, jobId: crypto.randomUUID() },
+      20000,
+    );
+    return res.status(data.pending ? 202 : 200).json({ success: true, ...data });
+  }
   catch (error) { return res.status(503).json({ success: false, message: error.message }); }
 };
 
 exports.imprimirPedidoRemoto = async (req, res) => {
   try {
-    const payloadResponse = { req: { ...req, params: { id: req.params.id } } };
     const lojaId = String(estabelecimentoId(req));
     const [pedido, configuracao, dono] = await Promise.all([
       Pedido.findOne({ _id: req.params.id, estabelecimentoId: lojaId }).populate("mesaId", "numero setor").lean(),
@@ -5115,23 +6184,91 @@ exports.imprimirPedidoRemoto = async (req, res) => {
       registroModel.findById(lojaId).select("cpfCnpj").lean(),
     ]);
     if (!pedido) return res.status(404).json({ success: false, message: "Pedido não encontrado." });
-    const payload = {
-      estabelecimento: {
-        nome: configuracao?.nomeEstabelecimento || "ComandaFacil",
-        telefone: configuracao?.telefone || "",
-        endereco: configuracao?.endereco || "",
-        cpfCnpj: dono?.cpfCnpj || "",
-        logoUrl: configuracao?.fotoPerfil || "",
-      },
-      impressoras: configuracao?.impressoras || [], modo: req.body.modo || "manual",
-      pedido: { id: String(pedido._id), numero: String(pedido._id).slice(-6).toUpperCase(), origem: pedido.canal === "delivery" ? "Delivery" : pedido.canal === "mesa" ? `Mesa ${pedido.mesaId?.numero || ""}` : "Retirada", canal: pedido.canal, cliente: pedido.cliente, telefone: pedido.telefoneCliente || "", endereco: pedido.enderecoEntrega || "", observacao: pedido.observacao || "", total: pedido.total, status: pedido.status, pagamentoStatus: pedido.pagamentoStatus, formaPagamento: pedido.formaPagamento || pedido.metodoPagamento || pedido.pagamentoMetodo || "nao_informado", pagamentoInformadoEm: pedido.pagamentoInformadoEm || null, pagoEm: pedido.pagoEm || null, precisaTroco: Boolean(pedido.precisaTroco), trocoPara: pedido.trocoPara ?? null, valorTroco: pedido.valorTroco ?? null, createdAt: pedido.createdAt, itens: pedido.itens || [] }
-    };
-    const data = await printAgentHub.request(lojaId, "print:job", payload, 30000);
-    return res.json({ success: true, ...data });
+    const impressoras = (configuracao?.impressoras || []).filter(item =>
+      ["manual", "manual_automatica"].includes(item.modo));
+    if (!impressoras.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Nenhuma impressora manual está configurada.",
+      });
+    }
+    const jobs = [];
+    for (const impressora of impressoras) {
+      jobs.push(await printQueueService.criarJobManual({
+        pedido,
+        impressora,
+        configuracao,
+        dono,
+      }));
+    }
+    return res.status(202).json({
+      success: true,
+      status: "pendente",
+      jobId: jobs[0].jobId,
+      jobIds: jobs.map(job => job.jobId),
+      message: "Impressão adicionada à fila.",
+    });
   } catch (error) { return res.status(503).json({ success: false, message: error.message }); }
+};
+
+exports.statusJobImpressao = async (req, res) => {
+  const job = await PrintJob.findOne({
+    jobId: req.params.jobId,
+    estabelecimentoId: estabelecimentoId(req),
+  }).lean();
+  if (!job) {
+    return res.status(404).json({ success: false, message: "Trabalho não encontrado." });
+  }
+  return res.json({
+    success: true,
+    job: {
+      jobId: job.jobId,
+      status: job.status,
+      tentativas: job.tentativas,
+      erro: job.erro || "",
+      createdAt: job.createdAt,
+      recebidoEm: job.recebidoEm,
+      processandoEm: job.processandoEm,
+      enviadoEm: job.enviadoEm,
+      concluidoEm: job.concluidoEm,
+    },
+  });
+};
+
+exports.retryJobImpressao = async (req, res) => {
+  try {
+    const job = await PrintJob.findOne({
+      jobId: req.params.jobId,
+      estabelecimentoId: estabelecimentoId(req),
+    });
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Trabalho não encontrado." });
+    }
+    const updated = await printQueueService.retryJob(job);
+    return res.status(202).json({
+      success: true,
+      jobId: updated.jobId,
+      status: updated.status,
+    });
+  } catch (error) {
+    return res.status(409).json({ success: false, message: error.message });
+  }
 };
 
 exports.buscarImpressorasRedeRemotas = async (req,res) => {
  try { const data=await printAgentHub.request(String(estabelecimentoId(req)), "network:scan", {}, 120000); return res.json({success:true,devices:data}); }
  catch(error){return res.status(503).json({success:false,message:error.message});}
 };
+
+exports.montarAcessoPainel =
+  montarAcessoPainel;
+exports.obterPeriodoRelatorio =
+  obterPeriodoRelatorio;
+exports.pedidoEntraNoFinanceiro =
+  pedidoEntraNoFinanceiro;
+exports.pedidoContaFinalizado =
+  pedidoContaFinalizado;
+exports.agregarRelatorios =
+  agregarRelatorios;
+exports.agregarDashboard =
+  agregarDashboard;

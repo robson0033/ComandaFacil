@@ -3107,7 +3107,7 @@
           </a>
         <% } %>
 
-        <% if (pode('configuracoes')) { %>
+        <% if (pode('configuracoes') || pode('configurar_impressoras')) { %>
           <a
             href="#configuracoes"
             class="menu-link"
@@ -3221,6 +3221,7 @@
         </div>
       <% }) %>
 
+      <% if (pode('dashboard')) { %>
       <!-- DASHBOARD -->
       <section class="page" id="page-dashboard">
         <section class="dashboard-filter-panel">
@@ -3375,7 +3376,9 @@
           </div>
         </section>
       </section>
+      <% } %>
 
+      <% if (pode('pedidos')) { %>
       <!-- PEDIDOS -->
 <section class="page" id="page-pedidos">
   <section class="panel">
@@ -3446,7 +3449,7 @@
           <select id="ordersStatusFilter" name="pedidoStatus">
             <option value="todos" <%= painelFiltrosPedidos.statusAtual === 'todos' ? 'selected' : '' %>>Todos</option>
             <option value="novo" <%= painelFiltrosPedidos.statusAtual === 'novo' ? 'selected' : '' %>>Novo</option>
-            <option value="preparo" <%= ['preparo','em_preparo'].includes(painelFiltrosPedidos.statusAtual) ? 'selected' : '' %>>Em preparo</option>
+            <option value="preparo" <%= painelFiltrosPedidos.statusAtual === 'preparo' ? 'selected' : '' %>>Em preparo</option>
             <option value="pronto" <%= painelFiltrosPedidos.statusAtual === 'pronto' ? 'selected' : '' %>>Pronto</option>
             <option value="entregue" <%= painelFiltrosPedidos.statusAtual === 'entregue' ? 'selected' : '' %>>Entregue</option>
             <option value="finalizado" <%= painelFiltrosPedidos.statusAtual === 'finalizado' ? 'selected' : '' %>>Finalizado</option>
@@ -3708,6 +3711,12 @@
                 action="/admin/pedidos/<%= pedido._id %>/status"
                 method="POST"
                 class="order-status-form"
+                <% if (
+                  pedido.pagamentoStatus !== 'pago' &&
+                  ['dinheiro', 'cartao'].includes(pedido.formaPagamento)
+                ) { %>
+                  onsubmit="if(this.status.value === 'finalizado') return confirm('Finalizar este pedido? O pagamento continuará pendente até você usar Confirmar pagamento.');"
+                <% } %>
               >
                 <select name="status">
                   <option
@@ -3741,13 +3750,13 @@
                   </option>
 
                   <option
-                    value="saiu_para_entrega"
-                    <%= pedido.status === 'saiu_para_entrega'
+                    value="entregue"
+                    <%= pedido.status === 'entregue'
                       ? 'selected'
                       : ''
                     %>
                   >
-                    Saiu Para Entrega
+                    Entregue
                   </option>
 
                   <option
@@ -3778,6 +3787,25 @@
                   Atualizar
                 </button>
               </form>
+
+              <% if (
+                pedido.pagamentoStatus !== 'pago' &&
+                pedido.status !== 'cancelado' &&
+                pedido.formaPagamento !== 'pix'
+              ) { %>
+                <form
+                  action="/admin/pedidos/<%= pedido._id %>/confirmar-pagamento"
+                  method="POST"
+                  onsubmit="return confirm('Confirmar o recebimento deste pedido por <%= pedido.formaPagamento === 'dinheiro' ? 'dinheiro' : pedido.formaPagamento === 'cartao' ? 'cartão' : 'forma já registrada' %>?');"
+                >
+                  <button
+                    type="submit"
+                    class="mini-button edit"
+                  >
+                    Confirmar pagamento
+                  </button>
+                </form>
+              <% } %>
 
               <% if (telefoneWhatsappBrasil) { %>
                 <a
@@ -3821,7 +3849,9 @@
     </div>
   </section>
 </section>
+      <% } %>
 
+      <% if (pode('relatorios')) { %>
       <!-- RELATÓRIOS -->
       <section class="page" id="page-relatorios">
   <section class="report-filter-panel">
@@ -4113,7 +4143,9 @@
     </div>
   </section>
 </section>
+      <% } %>
 
+      <% if (pode('estoque')) { %>
       <!-- ESTOQUE -->
       <section class="page" id="page-estoque">
         <section class="panel">
@@ -4305,7 +4337,9 @@
           </div>
         </section>
       </section>
+      <% } %>
 
+      <% if (pode('catalogo')) { %>
       <!-- CATÁLOGO -->
       <section class="page" id="page-catalogo">
         <section class="panel">
@@ -4510,7 +4544,9 @@
           </div>
         </section>
       </section>
+      <% } %>
 
+      <% if (pode('mesas')) { %>
       <!-- MESAS -->
       <section class="page" id="page-mesas">
         <section class="panel">
@@ -4744,7 +4780,9 @@
           </div>
         </section>
       </section>
+      <% } %>
 
+      <% if (pode('funcionarios')) { %>
       <!-- FUNCIONÁRIOS -->
       <section class="page" id="page-funcionarios">
   <section class="panel">
@@ -4911,10 +4949,13 @@
     </div>
   </section>
 </section>
+      <% } %>
 
+      <% if (pode('configuracoes') || pode('configurar_impressoras')) { %>
       <!-- CONFIGURAÇÕES -->
       <section class="page" id="page-configuracoes">
         <div class="settings-grid">
+          <% if (pode('configuracoes')) { %>
           <section class="panel">
             <div class="panel-header">
               <div class="panel-title">
@@ -5076,6 +5117,7 @@
               <a href="/admin/mercado-pago/conectar" class="button" style="display:inline-flex;text-decoration:none">Conectar minha conta Mercado Pago</a>
             <% } %>
           </section>
+          <% } %>
 
           <% if (pode('configurar_impressoras')) { %>
           <section class="panel">
@@ -5464,9 +5506,11 @@
           <% } %>
         </div>
       </section>
+      <% } %>
     </main>
   </div>
 
+  <% if (pode('estoque')) { %>
   <!-- MODAL ESTOQUE -->
   <div class="modal" id="modalEstoque">
     <div class="modal-card">
@@ -5596,7 +5640,9 @@
       </form>
     </div>
   </div>
+  <% } %>
 
+  <% if (pode('catalogo')) { %>
   <!-- MODAL PRODUTO -->
   <div class="modal" id="modalProduto">
     <div class="modal-card">
@@ -5952,7 +5998,9 @@
       </div>
     </div>
   <% }) %>
+  <% } %>
 
+  <% if (pode('mesas')) { %>
   <!-- MODAL MESA -->
   <div class="modal" id="modalMesa">
     <div class="modal-card">
@@ -6040,7 +6088,9 @@
       </form>
     </div>
   </div>
+  <% } %>
 
+  <% if (pode('funcionarios')) { %>
   <!-- MODAL FUNCIONÁRIO -->
   <div class="modal" id="modalFuncionario">
   <div class="modal-card">
@@ -6105,6 +6155,7 @@
           type="email"
           id="funcionarioEmail"
           name="email"
+          autocomplete="username"
           required
         >
       </div>
@@ -6193,6 +6244,7 @@
           id="funcionarioSenha"
           name="senha"
           minlength="6"
+          autocomplete="new-password"
           required
         >
       </div>
@@ -6341,6 +6393,7 @@
           type="email"
           id="editarFuncionarioEmail"
           name="email"
+          autocomplete="username"
           required
         >
       </div>
@@ -6425,6 +6478,7 @@
           id="editarFuncionarioSenha"
           name="senha"
           minlength="6"
+          autocomplete="new-password"
           placeholder="Deixe vazio para manter"
         >
       </div>
@@ -6497,6 +6551,7 @@
     </form>
   </div>
 </div>
+  <% } %>
 
   <div
   class="order-toast-container"
@@ -7037,17 +7092,6 @@ function obterToastContainer() {
     '#orderToastContainer'
   );
 }
-
-const pedidosConhecidos =
-  new Set(
-    Array.from(
-      document.querySelectorAll(
-        '[data-order-id]'
-      )
-    ).map(elemento => {
-      return elemento.dataset.orderId;
-    })
-  );
 
 let ultimaVerificacaoPedidos =
   new Date().toISOString();
@@ -7640,6 +7684,9 @@ function criarCardPedido(
           )}/status"
           method="POST"
           class="order-status-form"
+          ${pedido.pagamentoStatus !== 'pago' && ['dinheiro', 'cartao'].includes(pedido.formaPagamento)
+            ? `onsubmit="if(this.status.value === 'finalizado') return confirm('Finalizar este pedido? O pagamento continuará pendente até você usar Confirmar pagamento.');"`
+            : ''}
         >
           <select name="status">
             <option value="novo">
@@ -7674,6 +7721,27 @@ function criarCardPedido(
             Atualizar
           </button>
         </form>
+
+        ${
+          pedido.pagamentoStatus !== 'pago' &&
+          pedido.status !== 'cancelado' &&
+          pedido.formaPagamento !== 'pix'
+            ? `
+              <form
+                action="/admin/pedidos/${encodeURIComponent(pedido.id)}/confirmar-pagamento"
+                method="POST"
+                onsubmit="return confirm('Confirmar o recebimento deste pedido?');"
+              >
+                <button
+                  type="submit"
+                  class="mini-button edit"
+                >
+                  Confirmar pagamento
+                </button>
+              </form>
+            `
+            : ''
+        }
 
         ${pedido.telefone ? `
           <a
@@ -8164,15 +8232,6 @@ async function imprimirPedido(
   pedidoId,
   modo = 'manual'
 ) {
-  const online =
-    await verificarPrintAgent();
-
-  if (!online) {
-    throw new Error(
-      'Abra o ComandaFacíl Print Agent no computador da impressora.'
-    );
-  }
-
   const response = await fetch(`/admin/agente/pedidos/${encodeURIComponent(pedidoId)}/imprimir`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ modo })
   });
@@ -8187,6 +8246,39 @@ async function imprimirPedido(
   }
 
   return result;
+}
+
+async function acompanharJobsImpressao(jobIds, button) {
+  const ids = Array.isArray(jobIds) ? jobIds : [jobIds];
+  for (let tentativa = 0; tentativa < 40; tentativa += 1) {
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    const respostas = await Promise.all(ids.map(async jobId => {
+      const response = await fetch(
+        `${printAgentUrl}/jobs/${encodeURIComponent(jobId)}`
+      );
+      return response.ok ? response.json() : null;
+    }));
+    const statuses = respostas
+      .map(result => result?.job?.status)
+      .filter(Boolean);
+    if (
+      statuses.length === ids.length &&
+      statuses.every(status =>
+        status === 'concluido' || status === 'enviado'
+      )
+    ) {
+      button.textContent = 'Enviado';
+      return;
+    }
+    if (statuses.some(status =>
+      status === 'falhou' || status === 'cancelado'
+    )) {
+      button.textContent = 'Falhou';
+      return;
+    }
+    button.textContent = 'Na fila';
+  }
+  button.textContent = 'Na fila';
 }
 
 document.addEventListener('click', async event => {
@@ -8241,7 +8333,7 @@ document.addEventListener(
 
     button.disabled = true;
     button.textContent =
-      'Imprimindo...';
+      'Enfileirando...';
 
     try {
       const result =
@@ -8250,50 +8342,24 @@ document.addEventListener(
           'manual'
         );
 
-      alert(
-        `${result.impressoes || 0} impressão(ões) enviada(s).`
+      button.textContent = 'Na fila';
+      await acompanharJobsImpressao(
+        result.jobIds || [result.jobId],
+        button
       );
     } catch (error) {
       alert(error.message);
+      button.textContent = original;
     } finally {
       button.disabled = false;
-      button.textContent = original;
+      if (button.textContent !== original) {
+        setTimeout(() => {
+          button.textContent = original;
+        }, 3000);
+      }
     }
   }
 );
-
-async function imprimirPedidoAutomaticamente(
-  pedido
-) {
-  if (!podeImprimirPedidos) {
-    return;
-  }
-
-  const possuiAutomatica =
-    impressorasConfiguradas.some(
-      impressora =>
-        impressora.modo ===
-          'automatica' ||
-        impressora.modo ===
-          'manual_automatica'
-    );
-
-  if (!possuiAutomatica) {
-    return;
-  }
-
-  try {
-    await imprimirPedido(
-      pedido.id,
-      'automatica'
-    );
-  } catch (error) {
-    console.error(
-      'Impressão automática falhou:',
-      error
-    );
-  }
-}
 
 verificarPrintAgent();
 
@@ -8336,16 +8402,12 @@ async function verificarNovosPedidos() {
     result.pedidos.forEach(
       pedido => {
         if (
-          pedidosConhecidos.has(
-            pedido.id
+          document.querySelector(
+            `[data-order-id="${CSS.escape(pedido.id)}"]`
           )
         ) {
           return;
         }
-
-        pedidosConhecidos.add(
-          pedido.id
-        );
 
         if (ordersEmptyState) {
           ordersEmptyState.remove();
@@ -8375,9 +8437,6 @@ async function verificarNovosPedidos() {
           destacarTituloNovoPedido();
         }
 
-        imprimirPedidoAutomaticamente(
-          pedido
-        );
       }
     );
 
@@ -8405,10 +8464,12 @@ if (menuPedidos) {
 
 if (podeReceberNotificacoes) {
   verificarNovosPedidos();
-
-  setInterval(
-    verificarNovosPedidos,
-    5000
+  const pedidosStream = new EventSource(
+    '/admin/api/pedidos/stream'
+  );
+  pedidosStream.addEventListener(
+    'novos-pedidos',
+    verificarNovosPedidos
   );
 }
   

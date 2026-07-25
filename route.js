@@ -31,6 +31,7 @@ const pagamento = require(
 const {
   loginRequired,
   permissao,
+  permissaoCategoria,
 } = require('./src/middleware/auth');
 
 const {
@@ -190,6 +191,7 @@ route.get(
   '/assinatura',
   loginRequired,
   carregarAssinatura,
+  permissao('configuracoes'),
   pagamento.pagina
 );
 
@@ -197,6 +199,7 @@ route.post(
   '/assinatura/cartao',
   loginRequired,
   carregarAssinatura,
+  permissao('configuracoes'),
   pagamento.assinarCartao
 );
 
@@ -204,6 +207,7 @@ route.post(
   '/assinatura/pix',
   loginRequired,
   carregarAssinatura,
+  permissao('configuracoes'),
   pagamento.gerarPix
 );
 
@@ -211,12 +215,13 @@ route.get(
   '/assinatura/retorno',
   loginRequired,
   carregarAssinatura,
+  permissao('configuracoes'),
   pagamento.retorno
 );
 
-route.get('/admin/mercado-pago/conectar', loginRequired, pagamento.conectarMercadoPago);
-route.get('/admin/mercado-pago/callback', loginRequired, pagamento.callbackMercadoPago);
-route.post('/admin/mercado-pago/desconectar', loginRequired, pagamento.desconectarMercadoPago);
+route.get('/admin/mercado-pago/conectar', loginRequired, permissao('configuracoes'), pagamento.conectarMercadoPago);
+route.get('/admin/mercado-pago/callback', loginRequired, permissao('configuracoes'), pagamento.callbackMercadoPago);
+route.post('/admin/mercado-pago/desconectar', loginRequired, permissao('configuracoes'), pagamento.desconectarMercadoPago);
 
 route.post(
   '/webhook/mercado-pago',
@@ -256,6 +261,15 @@ route.post(
 );
 
 route.post(
+  '/admin/pedidos/:id/confirmar-pagamento',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissao('pedidos'),
+  admin.confirmarPagamentoPedido
+);
+
+route.post(
   '/admin/pedidos/:id/excluir',
   loginRequired,
   carregarAssinatura,
@@ -272,6 +286,14 @@ route.get(
   permissao('pedidos'),
   admin.buscarNovosPedidos
 );
+route.get(
+  '/admin/api/pedidos/stream',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissao('pedidos'),
+  admin.streamNovosPedidos
+);
 
 /*
 |--------------------------------------------------------------------------
@@ -284,6 +306,7 @@ route.post(
   loginRequired,
   carregarAssinatura,
   assinaturaRequired,
+  permissaoCategoria,
   admin.criarCategoria
 );
 
@@ -292,6 +315,7 @@ route.post(
   loginRequired,
   carregarAssinatura,
   assinaturaRequired,
+  permissaoCategoria,
   admin.excluirCategoria
 );
 
@@ -413,6 +437,16 @@ route.post(
 */
 
 route.post(
+  '/admin/funcionarios',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissao('funcionarios'),
+  funcionarioUpload.single('foto'),
+  admin.criarFuncionario
+);
+
+route.post(
   '/admin/funcionarios/:id/editar',
   loginRequired,
   carregarAssinatura,
@@ -462,6 +496,8 @@ route.get('/admin/agente/network/scan', loginRequired, carregarAssinatura, assin
 route.get('/admin/agente/impressoras', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.impressorasAgente);
 route.post('/admin/agente/teste', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.testarImpressoraRemota);
 route.post('/admin/agente/pedidos/:id/imprimir', loginRequired, carregarAssinatura, assinaturaRequired, permissao('imprimir_pedidos'), admin.imprimirPedidoRemoto);
+route.get('/admin/agente/jobs/:jobId', loginRequired, carregarAssinatura, assinaturaRequired, permissao('imprimir_pedidos'), admin.statusJobImpressao);
+route.post('/admin/agente/jobs/:jobId/retry', loginRequired, carregarAssinatura, assinaturaRequired, permissao('imprimir_pedidos'), admin.retryJobImpressao);
 
 /*
 |--------------------------------------------------------------------------
@@ -500,15 +536,6 @@ route.post(
 route.post(
   '/mesa/:token/pedidos/:pedidoId/avaliacoes',
   admin.avaliarPedidoMesa
-);
-
-route.get(
-  '/admin/api/pedidos/novos',
-  loginRequired,
-  carregarAssinatura,
-  assinaturaRequired,
-  permissao('pedidos'),
-  admin.buscarNovosPedidos
 );
 
 module.exports = route;

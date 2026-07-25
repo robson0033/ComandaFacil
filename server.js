@@ -10,6 +10,7 @@ const route = require("./route");
 const http = require("http");
 const { Server } = require("socket.io");
 const printAgentHub = require("./src/services/printAgentHub");
+const printQueueService = require("./src/services/printQueueService");
 const app = express();
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, { cors: { origin: true, methods: ["GET", "POST"] } });
@@ -44,8 +45,15 @@ app.use(flash());
 app.use(middleware.middlewareGlobal);
 app.use(route);
 app.use((req, res) => res.status(404).render("404"));
-app.on("pronto", () =>
+app.on("pronto", () => {
+  void printQueueService.reconciliarPedidosSemJob().catch(error =>
+    console.error("Erro ao reconciliar fila de impressão:", error));
+  const reconcileTimer = setInterval(() => {
+    void printQueueService.reconciliarPedidosSemJob().catch(error =>
+      console.error("Erro ao reconciliar fila de impressão:", error));
+  }, 5 * 60 * 1000);
+  reconcileTimer.unref?.();
   httpServer.listen(process.env.PORT || 3000, () =>
     console.log(`http://localhost:${process.env.PORT || 3000}`),
-  ),
-);
+  );
+});
