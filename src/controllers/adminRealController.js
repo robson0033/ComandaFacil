@@ -39,6 +39,14 @@ const {
   converterQuantidade,
   restaurarEstoqueDoPedido,
 } = require("../services/estoqueService");
+const {
+  arquivarPedido,
+} = require("../services/pedidoArquivamentoService");
+const {
+  registrarAuditoria,
+} = require("../services/auditoriaService");
+const { processImage, UploadError } = require("../uploads/imageProcessor");
+const storageService = require("../services/storageService");
 
 function exigirMovimentacaoEstoqueConcluida(resultado) {
   if (resultado?.success
@@ -253,36 +261,38 @@ function idsDeIngredientesDesativadosReferenciados(estoque, produtos) {
   )];
 }
 
-/*
-|--------------------------------------------------------------------------
-| IMAGEM ARMAZENADA DIRETAMENTE NO MONGODB
-|--------------------------------------------------------------------------
-|
-| O Multer entrega o arquivo em req.file.buffer.
-| Este helper converte o Buffer em uma Data URL:
-|
-| data:image/png;base64,iVBORw0KGgo...
-|
-| Como os campos de imagem dos models já são String, não é
-| necessário alterar os schemas atuais.
-|
-*/
+async function armazenarUploadImagem(file, category, idEstabelecimento, resource) {
+  if (!file) return null;
+  const processed = await processImage(file.buffer, category);
+  const saved = await storageService.saveImage(processed.buffer, {
+    estabelecimentoId: idEstabelecimento,
+    resource,
+    extension: processed.extension,
+  });
+  return {
+    storageKey: saved.storageKey,
+    url: saved.url,
+    mimeType: processed.mimeType,
+    largura: processed.width,
+    altura: processed.height,
+    tamanho: processed.size,
+    atualizadoEm: new Date(),
+  };
+}
 
-function imagemParaDataUrl(file) {
-  if (
-    !file ||
-    !file.buffer ||
-    !file.mimetype
-  ) {
-    return "";
-  }
+async function removerUploadSemOcultarErro(metadata, idEstabelecimento) {
+  if (!metadata?.storageKey) return;
+  await storageService.removeImage(metadata.storageKey, {
+    estabelecimentoId: idEstabelecimento,
+  });
+}
 
-  return [
-    "data:",
-    file.mimetype,
-    ";base64,",
-    file.buffer.toString("base64"),
-  ].join("");
+function responderErroUpload(req, res, error, section, fallback) {
+  if (!(error instanceof UploadError)) return null;
+  return res.status(error.status).json({
+    code: error.code,
+    message: error.message || fallback,
+  });
 }
 
 
@@ -538,6 +548,8 @@ function montarAcessoPainel(usuario = {}) {
       pode("imprimir_pedidos"),
     podeConfigurarImpressoras:
       pode("configurar_impressoras"),
+    podeArquivarPedidos:
+      pode("arquivar_pedidos"),
   };
 }
 
@@ -1484,6 +1496,7 @@ function filtroBaseRelatorio(
   const filtro = {
     estabelecimentoId:
       idNormalizado,
+    excluido: { $ne: true },
     status: {
       $ne: "cancelado",
     },
@@ -2005,6 +2018,7 @@ exports.admin = async (req, res) => {
       podeConfiguracoes,
       podeImprimirPedidos,
       podeConfigurarImpressoras,
+      podeArquivarPedidos,
     } = acessoPainel;
 
     const assinatura =
@@ -2078,6 +2092,7 @@ exports.admin = async (req, res) => {
       mesas,
       funcionarios,
       pedidos,
+      pedidosArquivados,
     ] = await Promise.all([
       podeEstoque || podeCatalogo
         ? Categoria.find({
@@ -2153,6 +2168,7 @@ exports.admin = async (req, res) => {
         ? Pedido.find({
             estabelecimentoId:
               idEstabelecimento,
+            excluido: { $ne: true },
             ...filtroDataPedidos,
           })
             .populate(
@@ -2163,7 +2179,46 @@ exports.admin = async (req, res) => {
             .limit(500)
             .lean()
         : Promise.resolve([]),
+
+      podeArquivarPedidos
+        ? Pedido.find({
+            estabelecimentoId: idEstabelecimento,
+            excluido: true,
+          })
+            .select(
+              "_id createdAt status pagamentoStatus motivoExclusao "
+              + "excluidoEm excluidoPor excluidoPorTipo",
+            )
+            .sort({ excluidoEm: -1 })
+            .limit(200)
+            .lean()
+        : Promise.resolve([]),
     ]);
+
+    if (podeArquivarPedidos && pedidosArquivados.length) {
+      const idsFuncionarios = pedidosArquivados
+        .filter(item => item.excluidoPorTipo === "funcionario" && item.excluidoPor)
+        .map(item => item.excluidoPor);
+      const [proprietario, autoresFuncionarios] = await Promise.all([
+        registroModel.findOne({
+          _id: idEstabelecimento,
+        }).select("_id nome").lean(),
+        idsFuncionarios.length
+          ? Funcionario.find({
+              _id: { $in: idsFuncionarios },
+              estabelecimentoId: idEstabelecimento,
+            }).select("_id nome").lean()
+          : Promise.resolve([]),
+      ]);
+      const nomesFuncionarios = new Map(
+        autoresFuncionarios.map(item => [String(item._id), item.nome]),
+      );
+      pedidosArquivados.forEach(item => {
+        item.excluidoPorNome = item.excluidoPorTipo === "proprietario"
+          ? (proprietario?.nome || "Proprietário")
+          : (nomesFuncionarios.get(String(item.excluidoPor)) || "Funcionário");
+      });
+    }
 
     const idsDesativadosReferenciados =
       idsDeIngredientesDesativadosReferenciados(estoque, produtos);
@@ -2703,6 +2758,8 @@ exports.admin = async (req, res) => {
 
         pedidos:
           podePedidos ? pedidos : [],
+        pedidosArquivados:
+          podeArquivarPedidos ? pedidosArquivados : [],
         pedidosFiltradosPainel:
           podePedidos
             ? listaPedidos
@@ -3149,8 +3206,10 @@ exports.criarProduto = async (
   req,
   res,
 ) => {
+  let novaImagem = null;
+  let idEstabelecimento = null;
   try {
-    const idEstabelecimento =
+    idEstabelecimento =
       estabelecimentoId(req);
 
     const categoriaValida =
@@ -3179,6 +3238,12 @@ exports.criarProduto = async (
       idEstabelecimento,
     );
 
+    novaImagem = await armazenarUploadImagem(
+      req.file,
+      "produto",
+      idEstabelecimento,
+      "produtos",
+    );
     await Produto.create({
       estabelecimentoId:
         idEstabelecimento,
@@ -3201,9 +3266,8 @@ exports.criarProduto = async (
         normalizarAdicionais(req.body),
       ativo:
         req.body.ativo === "on",
-      imagem: req.file
-        ? imagemParaDataUrl(req.file)
-        : "",
+      imagem: novaImagem?.url || "",
+      imagemArquivo: novaImagem,
     });
 
     return salvarERedirecionar(
@@ -3214,6 +3278,15 @@ exports.criarProduto = async (
     );
   } catch (error) {
     console.error(error);
+    if (novaImagem?.storageKey && idEstabelecimento) {
+      await removerUploadSemOcultarErro(novaImagem, idEstabelecimento)
+        .catch(cleanupError =>
+          console.error("Falha ao limpar nova imagem de produto:", cleanupError.message));
+    }
+    const uploadResponse = responderErroUpload(
+      req, res, error, "catalogo", "Não foi possível cadastrar o produto.",
+    );
+    if (uploadResponse) return uploadResponse;
 
     return erroERedirecionar(
       req,
@@ -3228,12 +3301,17 @@ exports.editarProduto = async (
   req,
   res,
 ) => {
+  let novaImagem = null;
+  let imagemAntiga = null;
+  let idEstabelecimento = null;
+  let produtoSalvo = false;
   try {
+    idEstabelecimento = estabelecimentoId(req);
     const produto =
       await Produto.findOne({
         _id: req.params.id,
         estabelecimentoId:
-          estabelecimentoId(req),
+          idEstabelecimento,
       });
 
     if (!produto) {
@@ -3301,8 +3379,17 @@ exports.editarProduto = async (
       req.body.ativo === "on";
 
     if (req.file) {
-      produto.imagem =
-        imagemParaDataUrl(req.file);
+      imagemAntiga = produto.imagemArquivo?.toObject?.()
+        || produto.imagemArquivo
+        || null;
+      novaImagem = await armazenarUploadImagem(
+        req.file,
+        "produto",
+        idEstabelecimento,
+        "produtos",
+      );
+      produto.imagem = novaImagem.url;
+      produto.imagemArquivo = novaImagem;
     }
 
     await validarFichaAntesDeSalvar(
@@ -3311,6 +3398,10 @@ exports.editarProduto = async (
       fichaTecnicaAnterior,
     );
     await produto.save();
+    produtoSalvo = true;
+    await removerUploadSemOcultarErro(imagemAntiga, idEstabelecimento)
+      .catch(cleanupError =>
+        console.error("Imagem anterior de produto ficou órfã:", cleanupError.message));
 
     return salvarERedirecionar(
       req,
@@ -3320,6 +3411,15 @@ exports.editarProduto = async (
     );
   } catch (error) {
     console.error(error);
+    if (!produtoSalvo && novaImagem?.storageKey && idEstabelecimento) {
+      await removerUploadSemOcultarErro(novaImagem, idEstabelecimento)
+        .catch(cleanupError =>
+          console.error("Falha ao limpar nova imagem de produto:", cleanupError.message));
+    }
+    const uploadResponse = responderErroUpload(
+      req, res, error, "catalogo", "Não foi possível atualizar o produto.",
+    );
+    if (uploadResponse) return uploadResponse;
 
     return erroERedirecionar(
       req,
@@ -3568,6 +3668,7 @@ exports.excluirMesa = async (
         estabelecimentoId:
           idEstabelecimento,
         mesaId: req.params.id,
+        excluido: { $ne: true },
         pagamentoStatus: "pendente",
         status: {
           $ne: "cancelado",
@@ -3750,6 +3851,7 @@ exports.pagarContaMesa = async (
     const pedidosPendentes = await Pedido.find({
       estabelecimentoId: idEstabelecimento,
       mesaId: mesa._id,
+      excluido: { $ne: true },
       pagamentoStatus: "pendente",
       status: { $ne: "cancelado" },
     });
@@ -3843,12 +3945,14 @@ const PERMISSOES_FUNCIONARIO = new Set([
   "configuracoes",
   "imprimir_pedidos",
   "configurar_impressoras",
+  "arquivar_pedidos",
 ]);
 
 const PERMISSOES_ADMINISTRATIVAS_CRITICAS = new Set([
   "funcionarios",
   "configuracoes",
   "configurar_impressoras",
+  "arquivar_pedidos",
 ]);
 
 function erroPermissaoFuncionario(mensagem) {
@@ -3958,8 +4062,10 @@ exports.criarFuncionario = async (
   req,
   res,
 ) => {
+  let novaImagem = null;
+  let idEstabelecimento = null;
   try {
-    const idEstabelecimento =
+    idEstabelecimento =
       estabelecimentoId(req);
 
     const nome = String(
@@ -4044,6 +4150,12 @@ exports.criarFuncionario = async (
       ),
     );
 
+    novaImagem = await armazenarUploadImagem(
+      req.file,
+      "funcionario",
+      idEstabelecimento,
+      "funcionarios",
+    );
     await Funcionario.create({
       estabelecimentoId:
         idEstabelecimento,
@@ -4058,9 +4170,8 @@ exports.criarFuncionario = async (
       ).trim(),
       salario,
       funcao: req.body.funcao,
-      foto: req.file
-        ? imagemParaDataUrl(req.file)
-        : "",
+      foto: novaImagem?.url || "",
+      fotoArquivo: novaImagem,
       senha: await bcrypt.hash(
         senha,
         10,
@@ -4078,6 +4189,15 @@ exports.criarFuncionario = async (
     );
   } catch (error) {
     console.error(error);
+    if (novaImagem?.storageKey && idEstabelecimento) {
+      await removerUploadSemOcultarErro(novaImagem, idEstabelecimento)
+        .catch(cleanupError =>
+          console.error("Falha ao limpar nova foto de funcionário:", cleanupError.message));
+    }
+    const uploadResponse = responderErroUpload(
+      req, res, error, "funcionarios", "Não foi possível cadastrar o funcionário.",
+    );
+    if (uploadResponse) return uploadResponse;
 
     return responderErroFuncionario(
       req,
@@ -4094,8 +4214,12 @@ exports.editarFuncionario = async (
   req,
   res,
 ) => {
+  let novaImagem = null;
+  let imagemAntiga = null;
+  let idEstabelecimento = null;
+  let funcionarioSalvo = false;
   try {
-    const idEstabelecimento =
+    idEstabelecimento =
       estabelecimentoId(req);
 
     const funcionario =
@@ -4191,8 +4315,17 @@ exports.editarFuncionario = async (
     funcionario.permissoes = permissoes;
 
     if (req.file) {
-      funcionario.foto =
-        imagemParaDataUrl(req.file);
+      imagemAntiga = funcionario.fotoArquivo?.toObject?.()
+        || funcionario.fotoArquivo
+        || null;
+      novaImagem = await armazenarUploadImagem(
+        req.file,
+        "funcionario",
+        idEstabelecimento,
+        "funcionarios",
+      );
+      funcionario.foto = novaImagem.url;
+      funcionario.fotoArquivo = novaImagem;
     }
 
     const novaSenha = String(
@@ -4217,6 +4350,10 @@ exports.editarFuncionario = async (
     }
 
     await funcionario.save();
+    funcionarioSalvo = true;
+    await removerUploadSemOcultarErro(imagemAntiga, idEstabelecimento)
+      .catch(cleanupError =>
+        console.error("Foto anterior de funcionário ficou órfã:", cleanupError.message));
 
     return salvarERedirecionar(
       req,
@@ -4226,6 +4363,15 @@ exports.editarFuncionario = async (
     );
   } catch (error) {
     console.error(error);
+    if (!funcionarioSalvo && novaImagem?.storageKey && idEstabelecimento) {
+      await removerUploadSemOcultarErro(novaImagem, idEstabelecimento)
+        .catch(cleanupError =>
+          console.error("Falha ao limpar nova foto de funcionário:", cleanupError.message));
+    }
+    const uploadResponse = responderErroUpload(
+      req, res, error, "funcionarios", "Não foi possível atualizar o funcionário.",
+    );
+    if (uploadResponse) return uploadResponse;
 
     return responderErroFuncionario(
       req,
@@ -4286,8 +4432,12 @@ exports.salvarConfiguracao = async (
   req,
   res
 ) => {
+  let novaImagem = null;
+  let imagemAntiga = null;
+  let idEstabelecimento = null;
+  let configuracaoSalva = false;
   try {
-    const idEstabelecimento =
+    idEstabelecimento =
       estabelecimentoId(req);
 
     const nomeEstabelecimento =
@@ -4374,8 +4524,20 @@ exports.salvarConfiguracao = async (
     };
 
     if (req.file) {
-      atualizacao.fotoPerfil =
-        imagemParaDataUrl(req.file);
+      const configuracaoAnterior = await Configuracao.findOne({
+        estabelecimentoId: idEstabelecimento,
+      }).select("fotoPerfilArquivo");
+      imagemAntiga = configuracaoAnterior?.fotoPerfilArquivo?.toObject?.()
+        || configuracaoAnterior?.fotoPerfilArquivo
+        || null;
+      novaImagem = await armazenarUploadImagem(
+        req.file,
+        "perfil",
+        idEstabelecimento,
+        "perfil",
+      );
+      atualizacao.fotoPerfil = novaImagem.url;
+      atualizacao.fotoPerfilArquivo = novaImagem;
     }
 
     await Configuracao.findOneAndUpdate(
@@ -4391,6 +4553,10 @@ exports.salvarConfiguracao = async (
         runValidators: true,
       }
     );
+    configuracaoSalva = true;
+    await removerUploadSemOcultarErro(imagemAntiga, idEstabelecimento)
+      .catch(cleanupError =>
+        console.error("Foto anterior do perfil ficou órfã:", cleanupError.message));
 
     return salvarERedirecionar(
       req,
@@ -4403,6 +4569,15 @@ exports.salvarConfiguracao = async (
       'Erro ao salvar configurações:',
       error
     );
+    if (!configuracaoSalva && novaImagem?.storageKey && idEstabelecimento) {
+      await removerUploadSemOcultarErro(novaImagem, idEstabelecimento)
+        .catch(cleanupError =>
+          console.error("Falha ao limpar nova foto do perfil:", cleanupError.message));
+    }
+    const uploadResponse = responderErroUpload(
+      req, res, error, "configuracoes", "Não foi possível salvar as configurações.",
+    );
+    if (uploadResponse) return uploadResponse;
 
     return erroERedirecionar(
       req,
@@ -4500,6 +4675,7 @@ exports.obterPedidoParaImpressao = async (
           _id: req.params.id,
           estabelecimentoId:
             idEstabelecimento,
+          excluido: { $ne: true },
         })
           .populate(
             "mesaId",
@@ -4702,6 +4878,7 @@ exports.atualizarStatusPedido =
           _id: req.params.id,
           estabelecimentoId:
             idEstabelecimento,
+          excluido: { $ne: true },
         });
 
       if (!pedido) {
@@ -4736,6 +4913,20 @@ exports.atualizarStatusPedido =
             usuarioId: req.session.user.id,
             operationKey: `restauracao_manual:${pedido._id}`,
           });
+          await registrarAuditoria({
+            estabelecimentoId: idEstabelecimento,
+            entidade: "pedido",
+            entidadeId: pedido._id,
+            acao: "estoque_restaurado",
+            usuarioId: req.session.user.id,
+            usuarioTipo: req.session.user.tipo,
+            dadosResumidos: {
+              codigoPedido: String(pedido._id).slice(-6).toUpperCase(),
+              resultado: resultadoEstoque.status,
+              estoqueRestaurado: true,
+            },
+            operationKey: `auditoria:estoque_restaurado:${pedido._id}`,
+          });
         }
         adicionarHistoricoFinanceiro(pedido, {
           tipo: "cancelamento_manual",
@@ -4751,6 +4942,23 @@ exports.atualizarStatusPedido =
       pedido.status = status;
 
       await pedido.save();
+      await registrarAuditoria({
+        estabelecimentoId: idEstabelecimento,
+        entidade: "pedido",
+        entidadeId: pedido._id,
+        acao: status === "cancelado"
+          ? "pedido_cancelado"
+          : "status_sensivel_alterado",
+        usuarioId: req.session.user.id,
+        usuarioTipo: req.session.user.tipo,
+        dadosResumidos: {
+          codigoPedido: String(pedido._id).slice(-6).toUpperCase(),
+          statusNovo: status,
+          pagamentoStatus: pedido.pagamentoStatus,
+          motivo: String(req.body.motivo || "").trim().slice(0, 500),
+        },
+        operationKey: `auditoria:status:${pedido._id}:${status}`,
+      });
 
       if (
         pedido.mesaId &&
@@ -4764,6 +4972,7 @@ exports.atualizarStatusPedido =
             estabelecimentoId:
               idEstabelecimento,
             mesaId: pedido.mesaId,
+            excluido: { $ne: true },
             _id: {
               $ne: pedido._id,
             },
@@ -4822,6 +5031,7 @@ exports.confirmarPagamentoPedido =
           _id: req.params.id,
           estabelecimentoId:
             idEstabelecimento,
+          excluido: { $ne: true },
           status: {
             $ne: "cancelado",
           },
@@ -4853,6 +5063,20 @@ exports.confirmarPagamentoPedido =
       await confirmarPedidoComEstoque(pedido, {
         usuarioId: req.session.user.id,
       });
+      await registrarAuditoria({
+        estabelecimentoId: idEstabelecimento,
+        entidade: "pedido",
+        entidadeId: pedido._id,
+        acao: "pagamento_manual_confirmado",
+        usuarioId: req.session.user.id,
+        usuarioTipo: req.session.user.tipo,
+        dadosResumidos: {
+          codigoPedido: String(pedido._id).slice(-6).toUpperCase(),
+          pagamentoStatus: "pago",
+          formaPagamento: pedido.formaPagamento,
+        },
+        operationKey: `auditoria:pagamento_manual:${pedido._id}`,
+      });
 
       return salvarERedirecionar(
         req,
@@ -4875,60 +5099,34 @@ exports.confirmarPagamentoPedido =
     }
   };
 
-exports.excluirPedido = async (req, res) => {
+exports.arquivarPedido = async (req, res) => {
   try {
     const idEstabelecimento = estabelecimentoId(req);
-    const pedido = await Pedido.findOne({
-      _id: req.params.id,
+    const usuario = req.usuarioAtual || req.session.user;
+    const resultado = await arquivarPedido({
+      pedidoId: req.params.id,
       estabelecimentoId: idEstabelecimento,
+      usuario: {
+        id: usuario.id || usuario._id,
+        tipo: usuario.tipo === "funcionario"
+          ? "funcionario"
+          : "proprietario",
+      },
+      motivo: req.body?.motivo,
     });
-
-    if (!pedido) {
-      return res.status(404).json({
-        success: false,
-        message: "Pedido não encontrado.",
-      });
-    }
-
-    const mesaId = pedido.mesaId;
-    const resultadoEstoque = await restaurarEstoqueDoPedido(pedido._id);
-    if (!resultadoEstoque?.success) {
-      adicionarHistoricoFinanceiro(pedido, {
-        tipo: "exclusao_bloqueada",
-        statusAnterior: pedido.pagamentoStatus,
-        statusNovo: pedido.pagamentoStatus,
-        usuarioId: req.session.user.id,
-        motivo: resultadoEstoque?.errorCode || "Falha na restauração.",
-        operationKey:
-          `exclusao_bloqueada:${pedido._id}:${resultadoEstoque?.errorCode || "erro"}`,
-      });
-      await pedido.save();
-    }
-    exigirMovimentacaoEstoqueConcluida(resultadoEstoque);
-    adicionarHistoricoFinanceiro(pedido, {
-      tipo: "exclusao_executada",
-      statusAnterior: pedido.pagamentoStatus,
-      statusNovo: "excluido",
-      usuarioId: req.session.user.id,
-      operationKey: `exclusao_executada:${pedido._id}`,
-    });
-    await pedido.save();
-    await Pedido.deleteOne({
-      _id: pedido._id,
-      estabelecimentoId: idEstabelecimento,
-    });
-
-    if (mesaId) {
+    const pedido = resultado.pedido;
+    if (pedido.mesaId) {
       const possuiOutroPedidoAberto = await Pedido.exists({
         estabelecimentoId: idEstabelecimento,
-        mesaId,
+        mesaId: pedido.mesaId,
+        excluido: { $ne: true },
         pagamentoStatus: "pendente",
         status: { $nin: ["finalizado", "cancelado"] },
       });
 
       if (!possuiOutroPedidoAberto) {
         await Mesa.updateOne(
-          { _id: mesaId, estabelecimentoId: idEstabelecimento },
+          { _id: pedido.mesaId, estabelecimentoId: idEstabelecimento },
           { $set: { status: "livre" } },
         );
       }
@@ -4936,13 +5134,20 @@ exports.excluirPedido = async (req, res) => {
 
     return res.json({
       success: true,
-      message: "Pedido excluído definitivamente.",
+      status: resultado.status,
+      message: resultado.status === "ja_excluido"
+        ? "Pedido já estava arquivado."
+        : "Pedido arquivado. O histórico foi preservado.",
     });
   } catch (error) {
-    console.error("Erro ao excluir pedido:", error);
-    return res.status(500).json({
+    console.error("Erro ao arquivar pedido:", error);
+    const statusCode = error.statusCode || 500;
+    return res.status(statusCode).json({
       success: false,
-      message: "Não foi possível excluir o pedido.",
+      code: error.code || "ARQUIVAMENTO_FALHOU",
+      message: statusCode < 500
+        ? error.message
+        : "Não foi possível arquivar o pedido.",
     });
   }
 };
@@ -4982,6 +5187,7 @@ exports.excluirPedido = async (req, res) => {
       await Pedido.find({
         estabelecimentoId:
           idEstabelecimento,
+        excluido: { $ne: true },
 
         createdAt: {
           $gt: dataInicial,
@@ -5647,6 +5853,7 @@ exports.mesaPublica = async (
         estabelecimentoId:
           mesa.estabelecimentoId,
         mesaId: mesa._id,
+        excluido: { $ne: true },
         pagamentoStatus:
           "pendente",
         status: {
@@ -6027,6 +6234,7 @@ exports.avaliarPedidoMesa = async (
       estabelecimentoId:
         mesa.estabelecimentoId,
       mesaId: mesa._id,
+      excluido: { $ne: true },
       status: {
         $ne: "cancelado",
       },
@@ -7155,7 +7363,11 @@ exports.imprimirPedidoRemoto = async (req, res) => {
   try {
     const lojaId = String(estabelecimentoId(req));
     const [pedido, configuracao, dono] = await Promise.all([
-      Pedido.findOne({ _id: req.params.id, estabelecimentoId: lojaId }).populate("mesaId", "numero setor").lean(),
+      Pedido.findOne({
+        _id: req.params.id,
+        estabelecimentoId: lojaId,
+        excluido: { $ne: true },
+      }).populate("mesaId", "numero setor").lean(),
       Configuracao.findOne({ estabelecimentoId: lojaId }).lean(),
       registroModel.findById(lojaId).select("cpfCnpj").lean(),
     ]);

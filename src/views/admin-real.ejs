@@ -3041,7 +3041,8 @@
   const permissoesAdministrativasCriticas = [
     'funcionarios',
     'configuracoes',
-    'configurar_impressoras'
+    'configurar_impressoras',
+    'arquivar_pedidos'
   ];
 
   const podeDelegarPermissao = permissao =>
@@ -3150,6 +3151,19 @@
     </span>
   </a>
 <% } %>
+
+        <% if (pode('arquivar_pedidos')) { %>
+          <a
+            href="#pedidos-arquivados"
+            class="menu-link"
+            data-page="pedidos-arquivados"
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M4 3h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-9a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm0 2v3h16V5H4Zm2 5v9h12v-9H6Zm3 2h6v2H9v-2Z"/>
+            </svg>
+            <span>Pedidos arquivados</span>
+          </a>
+        <% } %>
 
         <% if (pode('relatorios')) { %>
           <a
@@ -3935,13 +3949,15 @@
                 </a>
               <% } %>
 
-              <button
-                type="button"
-                class="delete-order-button"
-                data-delete-order="<%= pedido._id %>"
-              >
-                🗑 Excluir pedido
-              </button>
+              <% if (pode('arquivar_pedidos')) { %>
+                <button
+                  type="button"
+                  class="delete-order-button"
+                  data-delete-order="<%= pedido._id %>"
+                >
+                  🗃 Arquivar pedido
+                </button>
+              <% } %>
 
               <% if (pode('imprimir_pedidos')) { %>
                 <button
@@ -3966,6 +3982,51 @@
     </div>
   </section>
 </section>
+      <% } %>
+
+      <% if (pode('arquivar_pedidos')) { %>
+      <section class="page" id="page-pedidos-arquivados">
+        <section class="panel">
+          <div class="section-header">
+            <div>
+              <span class="eyebrow">Auditoria</span>
+              <h2>Pedidos arquivados</h2>
+              <p>Histórico preservado e fora das listas operacionais.</p>
+            </div>
+          </div>
+
+          <% if ((pedidosArquivados || []).length === 0) { %>
+            <p class="empty-state">Nenhum pedido arquivado.</p>
+          <% } else { %>
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Pedido</th>
+                    <th>Data</th>
+                    <th>Status final</th>
+                    <th>Motivo</th>
+                    <th>Arquivado por</th>
+                    <th>Arquivado em</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <% pedidosArquivados.forEach(pedido => { %>
+                    <tr>
+                      <td>#<%= String(pedido._id).slice(-6).toUpperCase() %></td>
+                      <td><%= formatarDataPlano(pedido.createdAt) %></td>
+                      <td><%= pedido.status || '-' %></td>
+                      <td><%= pedido.motivoExclusao || '-' %></td>
+                      <td><%= pedido.excluidoPorNome || pedido.excluidoPorTipo || '-' %></td>
+                      <td><%= formatarDataPlano(pedido.excluidoEm) %></td>
+                    </tr>
+                  <% }) %>
+                </tbody>
+              </table>
+            </div>
+          <% } %>
+        </section>
+      </section>
       <% } %>
 
       <% if (pode('relatorios')) { %>
@@ -5124,7 +5185,9 @@
                   type="file"
                   id="fotoPerfil"
                   name="fotoPerfil"
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/webp"
+                  data-image-upload="perfil"
+                  data-max-bytes="3145728"
                 >
               </div>
 
@@ -5859,7 +5922,9 @@
             type="file"
             id="produtoImagem"
             name="imagem"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp"
+            data-image-upload="produto"
+            data-max-bytes="5242880"
           >
         </div>
 
@@ -6006,7 +6071,9 @@
             <input
               type="file"
               name="imagem"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/webp"
+              data-image-upload="produto"
+              data-max-bytes="5242880"
             >
           </div>
 
@@ -6389,7 +6456,9 @@
           type="file"
           id="funcionarioFoto"
           name="foto"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp"
+          data-image-upload="funcionario"
+          data-max-bytes="3145728"
         >
       </div>
 
@@ -6435,7 +6504,8 @@
             'funcionarios',
             'configuracoes',
             'imprimir_pedidos',
-            'configurar_impressoras'
+            'configurar_impressoras',
+            'arquivar_pedidos'
           ].filter(podeDelegarPermissao).forEach(permissao => { %>
             <label>
               <input
@@ -6455,7 +6525,8 @@
                 funcionarios: 'Funcionários',
                 configuracoes: 'Configurações',
                 imprimir_pedidos: 'Imprimir pedidos',
-                configurar_impressoras: 'Configurar impressoras'
+                configurar_impressoras: 'Configurar impressoras',
+                arquivar_pedidos: 'Arquivar pedidos'
               }[permissao] || permissao;
               %>
 
@@ -6623,7 +6694,9 @@
           type="file"
           id="editarFuncionarioFoto"
           name="foto"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp"
+          data-image-upload="funcionario"
+          data-max-bytes="3145728"
         >
       </div>
 
@@ -6669,7 +6742,8 @@
             'funcionarios',
             'configuracoes',
             'imprimir_pedidos',
-            'configurar_impressoras'
+            'configurar_impressoras',
+            'arquivar_pedidos'
           ].filter(podeDelegarPermissao).forEach(permissao => { %>
             <label>
               <input
@@ -6689,7 +6763,8 @@
                 funcionarios: 'Funcionários',
                 configuracoes: 'Configurações',
                 imprimir_pedidos: 'Imprimir pedidos',
-                configurar_impressoras: 'Configurar impressoras'
+                configurar_impressoras: 'Configurar impressoras',
+                arquivar_pedidos: 'Arquivar pedidos'
               }[permissao] || permissao;
               %>
 
@@ -7220,6 +7295,9 @@ const podeReceberNotificacoes =
 
 const podeImprimirPedidos =
   <%- safeJsonForHtml(pode('imprimir_pedidos')); %>;
+
+const podeArquivarPedidos =
+  <%- safeJsonForHtml(pode('arquivar_pedidos')); %>;
 
 const impressorasConfiguradas =
   <%- safeJsonForHtml(config.impressoras || []); %>;
@@ -7913,13 +7991,19 @@ function criarCardPedido(
           </a>
         ` : ''}
 
-        <button
-          type="button"
-          class="delete-order-button"
-          data-delete-order="${escaparHtml(pedido.id)}"
-        >
-          🗑 Excluir pedido
-        </button>
+        ${
+          podeArquivarPedidos
+            ? `
+              <button
+                type="button"
+                class="delete-order-button"
+                data-delete-order="${escaparHtml(pedido.id)}"
+              >
+                🗃 Arquivar pedido
+              </button>
+            `
+            : ''
+        }
 
         ${
           podeImprimirPedidos
@@ -8499,21 +8583,28 @@ document.addEventListener('click', async event => {
 
   const pedidoId = button.dataset.deleteOrder;
   const confirmou = window.confirm(
-    'Excluir este pedido definitivamente? Ele também será apagado do banco de dados.'
+    'O pedido será removido da lista operacional, mas o histórico será preservado.'
   );
   if (!confirmou) return;
+  const motivo = window.prompt('Informe o motivo do arquivamento:');
+  if (motivo === null) return;
+  if (String(motivo).trim().length < 3) {
+    alert('Informe o motivo do arquivamento.');
+    return;
+  }
 
   const original = button.textContent;
   button.disabled = true;
-  button.textContent = 'Excluindo...';
+  button.textContent = 'Arquivando...';
 
   try {
-    const response = await fetch(`/admin/pedidos/${encodeURIComponent(pedidoId)}/excluir`, {
+    const response = await fetch(`/admin/pedidos/${encodeURIComponent(pedidoId)}/arquivar`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo: String(motivo).trim() })
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.message || 'Não foi possível excluir o pedido.');
+    if (!response.ok) throw new Error(result.message || 'Não foi possível arquivar o pedido.');
 
     const card = button.closest('.order-card');
     if (card) card.remove();
@@ -8521,7 +8612,8 @@ document.addEventListener('click', async event => {
     const cardsRestantes = document.querySelectorAll('#ordersList .order-card:not(.order-filter-hidden)').length;
     const contador = document.querySelector('#ordersResultCount');
     if (contador) contador.textContent = `Exibindo ${cardsRestantes} pedido(s)`;
-    alert(result.message || 'Pedido excluído.');
+    alert(result.message || 'Pedido arquivado.');
+    window.location.reload();
   } catch (error) {
     alert(error.message);
     button.disabled = false;
@@ -8954,6 +9046,55 @@ if (podeReceberNotificacoes) {
       filterOrdersByText();
     }
 
+    document.querySelectorAll('[data-image-upload]').forEach(input => {
+      if (input.dataset.uploadListenerReady === 'true') return;
+      input.dataset.uploadListenerReady = 'true';
+      const message = document.createElement('small');
+      message.className = 'upload-feedback';
+      message.setAttribute('aria-live', 'polite');
+      input.insertAdjacentElement('afterend', message);
+
+      input.addEventListener('change', () => {
+        const file = input.files?.[0];
+        input.setCustomValidity('');
+        message.textContent = '';
+        const oldPreview = input.parentElement?.querySelector('[data-upload-preview]');
+        oldPreview?.remove();
+        if (!file) return;
+
+        const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+        const maxBytes = Number(input.dataset.maxBytes || 0);
+        if (!allowed.includes(file.type)) {
+          input.setCustomValidity('Selecione uma imagem PNG, JPEG ou WebP.');
+          message.textContent = input.validationMessage;
+          return;
+        }
+        if (!Number.isFinite(maxBytes) || file.size > maxBytes) {
+          input.setCustomValidity('A imagem excede o tamanho permitido.');
+          message.textContent = input.validationMessage;
+          return;
+        }
+
+        const previewUrl = URL.createObjectURL(file);
+        const preview = document.createElement('img');
+        preview.dataset.uploadPreview = 'true';
+        preview.alt = 'Prévia da imagem selecionada';
+        preview.style.cssText =
+          'display:block;max-width:120px;max-height:120px;margin-top:8px;border-radius:10px;object-fit:cover';
+        preview.addEventListener('load', () => URL.revokeObjectURL(previewUrl), {
+          once: true,
+        });
+        preview.addEventListener('error', () => {
+          URL.revokeObjectURL(previewUrl);
+          preview.remove();
+          input.setCustomValidity('Não foi possível visualizar esta imagem.');
+          message.textContent = input.validationMessage;
+        }, { once: true });
+        preview.src = previewUrl;
+        input.insertAdjacentElement('afterend', preview);
+      });
+    });
+
     document.querySelector('#dashboardPeriodo')?.addEventListener(
       'change',
       event => {
@@ -8968,6 +9109,32 @@ if (podeReceberNotificacoes) {
 
     document.addEventListener('submit', event => {
       const form = event.target;
+      const uploadInput = form.querySelector?.('[data-image-upload]');
+      if (
+        form.matches('form[enctype="multipart/form-data"]') &&
+        uploadInput?.files?.length
+      ) {
+        event.preventDefault();
+        const feedback = uploadInput.parentElement?.querySelector('.upload-feedback');
+        fetch(form.action, {
+          method: String(form.method || 'POST').toUpperCase(),
+          body: new FormData(form),
+          credentials: 'same-origin',
+          headers: { Accept: 'text/html,application/json' },
+        }).then(async response => {
+          const contentType = response.headers.get('content-type') || '';
+          if (!response.ok) {
+            const payload = contentType.includes('application/json')
+              ? await response.json()
+              : {};
+            throw new Error(payload.message || 'Não foi possível enviar a imagem.');
+          }
+          window.location.assign(response.url || '/admin');
+        }).catch(error => {
+          if (feedback) feedback.textContent = error.message;
+        });
+        return;
+      }
       if (form.matches('[data-confirm-finalize-pending]') &&
           form.elements.status?.value === 'finalizado' &&
           !window.confirm(

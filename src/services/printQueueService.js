@@ -33,6 +33,30 @@ function number(value) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 }
 
+function erroPedidoIndisponivel() {
+  const error = new Error("Pedido indisponível para impressão.");
+  error.code = "PEDIDO_INDISPONIVEL";
+  error.statusCode = 409;
+  return error;
+}
+
+async function validarPedidoDisponivel(pedido, { session = null } = {}) {
+  if (!pedido?._id || !pedido?.estabelecimentoId) {
+    throw erroPedidoIndisponivel();
+  }
+  const existente = await Pedido.findOne(
+    {
+      _id: pedido._id,
+      estabelecimentoId: pedido.estabelecimentoId,
+      excluido: { $ne: true },
+    },
+    null,
+    session ? { session } : {},
+  ).select("_id estabelecimentoId");
+  if (!existente) throw erroPedidoIndisponivel();
+  return existente;
+}
+
 function calcularImpressoraChave(impressora = {}) {
   const identity = impressora.tipoConexao === "rede"
     ? `rede|${text(impressora.ip, 15)}|${Number(impressora.porta || 9100)}`
@@ -128,6 +152,7 @@ async function contextoDoPedido(pedido, options = {}) {
 }
 
 async function criarJobsAutomaticos(pedido, options = {}) {
+  await validarPedidoDisponivel(pedido, { session: options.session });
   const { configuracao, dono } = await contextoDoPedido(pedido, options);
   const impressoras = (configuracao?.impressoras || []).filter(item =>
     ["automatica", "manual_automatica"].includes(item.modo));
@@ -159,7 +184,14 @@ async function criarJobsAutomaticos(pedido, options = {}) {
   return jobs;
 }
 
-async function criarJobManual({ pedido, impressora, configuracao, dono }) {
+async function criarJobManual({
+  pedido,
+  impressora,
+  configuracao,
+  dono,
+  session = null,
+}) {
+  await validarPedidoDisponivel(pedido, { session });
   const context = await contextoDoPedido(pedido, { configuracao, dono });
   const snapshot = await montarSnapshotValidado({
     pedido,
@@ -167,7 +199,7 @@ async function criarJobManual({ pedido, impressora, configuracao, dono }) {
     dono: context.dono,
     impressora,
   });
-  const job = await PrintJob.create({
+  const documento = {
     jobId: crypto.randomUUID(),
     estabelecimentoId: pedido.estabelecimentoId,
     pedidoId: pedido._id,
@@ -176,7 +208,10 @@ async function criarJobManual({ pedido, impressora, configuracao, dono }) {
     ...snapshot,
     status: "pendente",
     nextAttemptAt: new Date(),
-  });
+  };
+  const job = session
+    ? (await PrintJob.create([documento], { session }))[0]
+    : await PrintJob.create(documento);
   notifyStore(pedido.estabelecimentoId);
   return job;
 }
@@ -289,13 +324,17 @@ async function programarRetry(job, error, { permanente = false } = {}) {
 }
 
 async function atualizarStatusDoAgente(estabelecimentoId, status = {}) {
-  if (!status.jobId) return null;
+  if (!status.jobId || !status.leaseId) return null;
   const job = await PrintJob.findOne({
     jobId: status.jobId,
     estabelecimentoId,
   });
   if (!job || ["concluido", "cancelado"].includes(job.status)) return job;
-  if (job.lockedBy !== INSTANCE_ID || !job.leaseToken) return null;
+  if (
+    job.lockedBy !== INSTANCE_ID
+    || !job.leaseToken
+    || job.leaseToken !== status.leaseId
+  ) return null;
   const now = new Date();
   const update = { erro: text(status.message, 1000) };
   if (status.status === "recebido") {
@@ -344,7 +383,7 @@ async function consultarResultadoDesconhecido(job, socket) {
   }
   let result;
   try {
-    result = await transport.query(socket, job.jobId);
+    result = await transport.query(socket, job.jobId, job.leaseToken);
   } catch {
     return job;
   }
@@ -373,31 +412,72 @@ async function consultarResultadoDesconhecido(job, socket) {
   }, { returnDocument: "after" });
 }
 
+async function prepararEntrega(job) {
+  const pedidoAtivo = await Pedido.exists({
+    _id: job.pedidoId,
+    estabelecimentoId: job.estabelecimentoId,
+    excluido: { $ne: true },
+  });
+  if (!pedidoAtivo) {
+    await PrintJob.findOneAndUpdate(leaseFilter(job), {
+      $set: {
+        status: "cancelado",
+        erro: "Pedido arquivado; impressão cancelada.",
+        lockedBy: "",
+        leaseToken: "",
+        leaseExpiresAt: null,
+      },
+    });
+    return null;
+  }
+  return PrintJob.findOneAndUpdate(
+    {
+      ...leaseFilter(job),
+      status: "pendente",
+      leaseExpiresAt: { $gt: new Date() },
+    },
+    {
+      $set: {
+        status: "entregando",
+        erro: "",
+        leaseExpiresAt: new Date(Date.now() + LEASE_MS),
+      },
+    },
+    { returnDocument: "after" },
+  );
+}
+
 async function processarJob(job, socket) {
+  const entregando = await prepararEntrega(job);
+  if (!entregando) return null;
   try {
     const initial = await transport.deliver(socket, {
-      jobId: job.jobId,
-      modo: job.tipo,
-      estabelecimento: job.estabelecimento,
-      pedido: job.pedido,
-      impressoras: [job.impressora],
+      jobId: entregando.jobId,
+      leaseId: entregando.leaseToken,
+      modo: entregando.tipo,
+      estabelecimento: entregando.estabelecimento,
+      pedido: entregando.pedido,
+      impressoras: [entregando.impressora],
     });
-    await atualizarStatusDoAgente(job.estabelecimentoId, {
-      jobId: job.jobId,
+    await atualizarStatusDoAgente(entregando.estabelecimentoId, {
+      jobId: entregando.jobId,
+      leaseId: entregando.leaseToken,
       status: initial.status || "recebido",
       ...initial,
     });
   } catch (error) {
-    await PrintJob.findOneAndUpdate(leaseFilter(job), {
+    await PrintJob.findOneAndUpdate(leaseFilter(entregando), {
       $set: {
         status: "resultado_desconhecido",
         erro: text(error.message, 1000),
         leaseExpiresAt: new Date(Date.now() + LEASE_MS),
       },
     });
-    const current = await PrintJob.findById(job._id);
+    const current = await PrintJob.findOne(leaseFilter(entregando));
+    if (!current) return null;
     await consultarResultadoDesconhecido(current, socket);
   }
+  return entregando;
 }
 
 async function drenarFilaDoEstabelecimento(estabelecimentoId, socket) {
@@ -428,7 +508,9 @@ async function drenarFilaDoEstabelecimento(estabelecimentoId, socket) {
 async function recuperarLeasesExpirados() {
   const now = new Date();
   await PrintJob.updateMany({
-    status: { $in: ["recebido", "processando", "resultado_desconhecido"] },
+    status: {
+      $in: ["entregando", "recebido", "processando", "resultado_desconhecido"],
+    },
     leaseExpiresAt: { $lt: now },
   }, {
     $set: {
@@ -440,7 +522,10 @@ async function recuperarLeasesExpirados() {
 }
 
 async function reconciliarPedidosSemJob({ since = new Date(Date.now() - 24 * 60 * 60 * 1000) } = {}) {
-  const pedidos = await Pedido.find({ createdAt: { $gte: since } }).limit(500);
+  const pedidos = await Pedido.find({
+    createdAt: { $gte: since },
+    excluido: { $ne: true },
+  }).limit(500);
   for (const pedido of pedidos) await criarJobsAutomaticos(pedido);
 }
 
@@ -454,6 +539,14 @@ async function retryJob(job) {
   }
   if (job.status === "resultado_desconhecido") {
     throw new Error("O resultado desconhecido precisa ser reconciliado com o agente.");
+  }
+  const pedidoAtivo = await Pedido.exists({
+    _id: job.pedidoId,
+    estabelecimentoId: job.estabelecimentoId,
+    excluido: { $ne: true },
+  });
+  if (!pedidoAtivo) {
+    throw new Error("Pedido arquivado não pode ser reenviado para impressão.");
   }
   job.status = "pendente";
   job.nextAttemptAt = new Date();
@@ -476,6 +569,7 @@ module.exports = {
   criarPedidoComJobsAutomaticos,
   drenarFilaDoEstabelecimento,
   montarSnapshotValidado,
+  prepararEntrega,
   processarJob,
   programarRetry,
   recuperarLeasesExpirados,
@@ -483,6 +577,7 @@ module.exports = {
   reivindicarProximoJob,
   retryJob,
   setTransport,
+  validarPedidoDisponivel,
   atualizarStatusDoAgente,
   consultarResultadoDesconhecido,
 };

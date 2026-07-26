@@ -9,6 +9,22 @@ const base = {
   },
 };
 const opts = { timestamps: true };
+const imagemArmazenadaSchema = new mongoose.Schema(
+  {
+    storageKey: { type: String, required: true, trim: true },
+    url: { type: String, required: true, trim: true },
+    mimeType: {
+      type: String,
+      enum: ["image/webp"],
+      required: true,
+    },
+    largura: { type: Number, required: true, min: 1 },
+    altura: { type: Number, required: true, min: 1 },
+    tamanho: { type: Number, required: true, min: 1 },
+    atualizadoEm: { type: Date, required: true },
+  },
+  { _id: false },
+);
 
 const Categoria = mongoose.model(
   "Categoria",
@@ -88,6 +104,7 @@ const Produto = mongoose.model(
       },
       preco: { type: Number, required: true, min: 0 },
       imagem: { type: String, default: "" },
+      imagemArquivo: { type: imagemArmazenadaSchema, default: null },
 
       custo: { type: Number, default: 0, min: 0 },
 
@@ -230,6 +247,7 @@ const funcionarioSchema = new mongoose.Schema(
         type: String,
         default: '',
       },
+      fotoArquivo: { type: imagemArmazenadaSchema, default: null },
 
       funcao: {
         type: String,
@@ -268,6 +286,7 @@ const funcionarioSchema = new mongoose.Schema(
             'configuracoes',
             'imprimir_pedidos',
             'configurar_impressoras',
+            'arquivar_pedidos',
           ],
         },
       ],
@@ -290,6 +309,7 @@ const Configuracao = mongoose.model(
       telefone: { type: String, default: "", trim: true },
       endereco: { type: String, default: "", trim: true },
       fotoPerfil: { type: String, default: "" },
+      fotoPerfilArquivo: { type: imagemArmazenadaSchema, default: null },
       impressoraNome: { type: String, default: "", trim: true },
       impressoraTipo: {
         type: String,
@@ -541,6 +561,17 @@ const Pedido = mongoose.model(
       acompanhamentoTokenExpiraEm: { type: Date, default: null },
       excluido: { type: Boolean, default: false },
       excluidoEm: { type: Date, default: null },
+      excluidoPor: {
+        type: mongoose.Schema.Types.ObjectId,
+        default: null,
+      },
+      excluidoPorTipo: {
+        type: String,
+        enum: ["proprietario", "funcionario", ""],
+        default: "",
+      },
+      motivoExclusao: { type: String, default: "", trim: true, maxlength: 500 },
+      exclusaoOperationKey: { type: String, default: "", trim: true },
 
       canal: {
         type: String,
@@ -768,6 +799,10 @@ Pedido.schema.index(
     },
     name: "pedido_acompanhamento_token_hash_unico",
   },
+);
+Pedido.schema.index(
+  { estabelecimentoId: 1, excluido: 1, createdAt: -1 },
+  { name: "pedido_estabelecimento_excluido_data" },
 );
 
 
@@ -1021,6 +1056,7 @@ const printJobSchema = new mongoose.Schema({
     type: String,
     enum: [
       "pendente",
+      "entregando",
       "aguardando_retry",
       "recebido",
       "processando",
@@ -1070,6 +1106,45 @@ printJobSchema.index({
 
 const PrintJob = mongoose.model("PrintJob", printJobSchema);
 
+const auditoriaEventoSchema = new mongoose.Schema({
+  ...base,
+  entidade: { type: String, required: true, trim: true, maxlength: 80 },
+  entidadeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+    index: true,
+  },
+  acao: { type: String, required: true, trim: true, maxlength: 100 },
+  usuarioId: {
+    type: mongoose.Schema.Types.ObjectId,
+    default: null,
+  },
+  usuarioTipo: {
+    type: String,
+    enum: ["proprietario", "funcionario", "sistema"],
+    required: true,
+  },
+  dadosResumidos: { type: mongoose.Schema.Types.Mixed, default: {} },
+  operationKey: { type: String, trim: true },
+  registradoEm: { type: Date, default: Date.now, index: true },
+}, opts);
+auditoriaEventoSchema.index(
+  { operationKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { operationKey: { $type: "string" } },
+    name: "auditoria_operation_key_unico",
+  },
+);
+auditoriaEventoSchema.index(
+  { estabelecimentoId: 1, registradoEm: -1 },
+  { name: "auditoria_estabelecimento_data" },
+);
+const AuditoriaEvento = mongoose.model(
+  "AuditoriaEvento",
+  auditoriaEventoSchema,
+);
+
 const paymentEventSchema = new mongoose.Schema({
   eventKey: { type: String, required: true },
   requestId: { type: String, required: true },
@@ -1117,6 +1192,7 @@ for (const model of [
   AssinaturaTentativa,
   OAuthState,
   PaymentEvent,
+  AuditoriaEvento,
 ]) {
   model.schema.set("autoIndex", false);
 }
@@ -1169,4 +1245,5 @@ module.exports = {
   PrintAgent,
   PrintJob,
   PaymentEvent,
+  AuditoriaEvento,
 };

@@ -5,6 +5,7 @@ const mongoose = require("mongoose");
 const {
   Assinatura,
   AssinaturaTentativa,
+  AuditoriaEvento,
   Configuracao,
   Funcionario,
   OAuthState,
@@ -25,6 +26,30 @@ const definitions = [
     model: Configuracao,
     key: { estabelecimentoId: 1 },
     options: { unique: true, name: "configuracao_estabelecimento_unico" },
+    expectedType: "objectId",
+  },
+  {
+    model: Pedido,
+    key: { estabelecimentoId: 1, excluido: 1, createdAt: -1 },
+    options: { name: "pedido_estabelecimento_excluido_data" },
+    expectedType: "objectId",
+  },
+  {
+    model: AuditoriaEvento,
+    key: { operationKey: 1 },
+    options: {
+      unique: true,
+      partialFilterExpression: {
+        operationKey: { $type: "string" },
+      },
+      name: "auditoria_operation_key_unico",
+    },
+    expectedType: "string",
+  },
+  {
+    model: AuditoriaEvento,
+    key: { estabelecimentoId: 1, registradoEm: -1 },
+    options: { name: "auditoria_estabelecimento_data" },
     expectedType: "objectId",
   },
   {

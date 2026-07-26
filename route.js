@@ -1,5 +1,8 @@
 const express = require('express');
-const multer = require('multer');
+const {
+  createImageUpload,
+  imageUploadErrorHandler,
+} = require('./src/uploads/uploadMiddleware');
 
 const route = express.Router();
 
@@ -67,71 +70,9 @@ const respostaPedidoSemCache = (req, res, next) => {
   next();
 };
 
-/*
-|--------------------------------------------------------------------------
-| CONFIGURAÇÃO DO MULTER — IMAGENS NO MONGODB
-|--------------------------------------------------------------------------
-|
-| As imagens ficam temporariamente na memória durante o upload.
-| Depois, o controller converte o arquivo para uma Data URL Base64
-| e salva esse conteúdo diretamente no documento do MongoDB.
-|
-| Assim, as novas imagens não dependem da pasta public/uploads.
-|
-*/
-
-const imageFilter = (
-  req,
-  file,
-  callback
-) => {
-  const tiposPermitidos = [
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-    'image/gif',
-  ];
-
-  if (
-    !tiposPermitidos.includes(
-      file.mimetype
-    )
-  ) {
-    return callback(
-      new Error(
-        'Envie uma imagem JPG, PNG, WEBP ou GIF.'
-      )
-    );
-  }
-
-  return callback(null, true);
-};
-
-const criarUploadDeImagem = () => {
-  return multer({
-    storage: multer.memoryStorage(),
-
-    fileFilter: imageFilter,
-
-    limits: {
-      /*
-       * O MongoDB aceita no máximo 16 MB por documento.
-       * O limite de 3 MB evita que a conversão Base64 deixe
-       * o documento excessivamente grande.
-       */
-      fileSize: 3 * 1024 * 1024,
-    },
-  });
-};
-
-const produtoUpload =
-  criarUploadDeImagem();
-
-const perfilUpload =
-  criarUploadDeImagem();
-
-const funcionarioUpload =
-  criarUploadDeImagem();
+const produtoUpload = createImageUpload('produto');
+const perfilUpload = createImageUpload('perfil');
+const funcionarioUpload = createImageUpload('funcionario');
 
 /*
 |--------------------------------------------------------------------------
@@ -320,12 +261,12 @@ route.post(
 );
 
 route.post(
-  '/admin/pedidos/:id/excluir',
+  '/admin/pedidos/:id/arquivar',
   loginRequired,
   carregarAssinatura,
   assinaturaRequired,
-  permissao('pedidos'),
-  admin.excluirPedido
+  permissao('arquivar_pedidos'),
+  admin.arquivarPedido
 );
 
 route.get(
@@ -405,7 +346,8 @@ route.post(
   carregarAssinatura,
   assinaturaRequired,
   permissao('catalogo'),
-  produtoUpload.single('imagem'),
+  produtoUpload,
+  imageUploadErrorHandler,
   admin.criarProduto
 );
 
@@ -416,7 +358,8 @@ route.post(
   carregarAssinatura,
   assinaturaRequired,
   permissao('catalogo'),
-  produtoUpload.single('imagem'),
+  produtoUpload,
+  imageUploadErrorHandler,
   admin.editarProduto
 );
 
@@ -492,7 +435,8 @@ route.post(
   carregarAssinatura,
   assinaturaRequired,
   permissao('funcionarios'),
-  funcionarioUpload.single('foto'),
+  funcionarioUpload,
+  imageUploadErrorHandler,
   admin.criarFuncionario
 );
 
@@ -502,7 +446,8 @@ route.post(
   carregarAssinatura,
   assinaturaRequired,
   permissao('funcionarios'),
-  funcionarioUpload.single('foto'),
+  funcionarioUpload,
+  imageUploadErrorHandler,
   admin.editarFuncionario
 );
 
@@ -527,7 +472,8 @@ route.post(
   carregarAssinatura,
   assinaturaRequired,
   permissao('configuracoes'),
-  perfilUpload.single('fotoPerfil'),
+  perfilUpload,
+  imageUploadErrorHandler,
   admin.salvarConfiguracao
 );
 

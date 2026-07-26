@@ -994,7 +994,10 @@ async function loadWebhookResource(data) {
       resource: await mp(`/preapproval/${encodeURIComponent(data.resourceId)}`),
     };
   }
-  const pedido = await Pedido.findOne({ mercadoPagoPaymentId: data.resourceId });
+  const pedido = await Pedido.findOne({
+    mercadoPagoPaymentId: data.resourceId,
+    excluido: { $ne: true },
+  });
   if (pedido) {
     const { accessToken } = await configuracaoComToken(pedido.estabelecimentoId);
     return {

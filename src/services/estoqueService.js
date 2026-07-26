@@ -217,7 +217,7 @@ function lockExpiraEm() {
   return new Date(Date.now() + LEASE_MS);
 }
 
-async function renovarLock(pedidoId, lockId, estado) {
+async function renovarLock(pedidoId, lockId, estado, { session = null } = {}) {
   const result = await Pedido.updateOne(
     {
       _id: pedidoId,
@@ -231,6 +231,7 @@ async function renovarLock(pedidoId, lockId, estado) {
         estoqueLockExpiraEm: lockExpiraEm(),
       },
     },
+    session ? { session } : {},
   );
   if (!result.modifiedCount) {
     const error = new Error("O lease de estoque não pertence mais a este worker.");
@@ -239,7 +240,7 @@ async function renovarLock(pedidoId, lockId, estado) {
   }
 }
 
-async function adquirirLock(pedidoId, operacao) {
+async function adquirirLock(pedidoId, operacao, { session = null } = {}) {
   const lockId = novoLockId();
   const agora = new Date();
   const filtroEstado = operacao === "baixa"
@@ -248,6 +249,7 @@ async function adquirirLock(pedidoId, operacao) {
   const pedido = await Pedido.findOneAndUpdate(
     {
       _id: pedidoId,
+      excluido: { $ne: true },
       ...filtroEstado,
       $or: [
         { estoqueLockId: { $in: ["", null] } },
@@ -266,12 +268,15 @@ async function adquirirLock(pedidoId, operacao) {
         estoqueErro: "",
       },
     },
-    { returnDocument: "after" },
+    {
+      returnDocument: "after",
+      ...(session ? { session } : {}),
+    },
   );
   return { pedido, lockId };
 }
 
-async function liberarLock(pedidoId, lockId, set) {
+async function liberarLock(pedidoId, lockId, set, { session = null } = {}) {
   const result = await Pedido.updateOne(
     { _id: pedidoId, estoqueLockId: lockId },
     {
@@ -282,6 +287,7 @@ async function liberarLock(pedidoId, lockId, set) {
         estoqueProcessamentoEm: null,
       },
     },
+    session ? { session } : {},
   );
   if (!result.modifiedCount) {
     const error = new Error("Worker antigo não pode concluir o estoque.");
@@ -290,7 +296,14 @@ async function liberarLock(pedidoId, lockId, set) {
   }
 }
 
-async function marcarConsumo(pedidoId, lockId, operationKey, estado, erro = "") {
+async function marcarConsumo(
+  pedidoId,
+  lockId,
+  operationKey,
+  estado,
+  erro = "",
+  { session = null } = {},
+) {
   const result = await Pedido.updateOne(
     {
       _id: pedidoId,
@@ -303,6 +316,7 @@ async function marcarConsumo(pedidoId, lockId, operationKey, estado, erro = "") 
         "estoqueConsumos.$.erro": String(erro || "").slice(0, 500),
       },
     },
+    session ? { session } : {},
   );
   if (!result.modifiedCount) {
     const error = new Error("Não foi possível persistir o estado do consumo.");
@@ -535,8 +549,9 @@ async function baixarEstoqueDoPedido(pedidoId) {
   );
 }
 
-async function restaurarEstoqueDoPedido(pedidoId) {
-  const atual = await Pedido.findById(pedidoId);
+async function restaurarEstoqueDoPedido(pedidoId, { session = null } = {}) {
+  const queryOptions = session ? { session } : {};
+  const atual = await Pedido.findById(pedidoId, null, queryOptions);
   if (!atual) {
     return resultadoFalha(
       "falhou",
@@ -571,20 +586,25 @@ async function restaurarEstoqueDoPedido(pedidoId) {
             "Pedido legado com estoque baixado e sem snapshot de consumo.",
         },
       },
+      queryOptions,
     );
     return resultadoFalha(
       "reconciliacao_necessaria",
-      await Pedido.findById(pedidoId),
+      await Pedido.findById(pedidoId, null, queryOptions),
       "ESTOQUE_LEGADO_SEM_SNAPSHOT",
       false,
     );
   }
 
-  const { pedido, lockId } = await adquirirLock(pedidoId, "restauracao");
+  const { pedido, lockId } = await adquirirLock(
+    pedidoId,
+    "restauracao",
+    { session },
+  );
   if (!pedido) {
     return resultadoFalha(
       "lock_ocupado",
-      await Pedido.findById(pedidoId),
+      await Pedido.findById(pedidoId, null, queryOptions),
       "ESTOQUE_LOCK_OCUPADO",
     );
   }
@@ -592,7 +612,7 @@ async function restaurarEstoqueDoPedido(pedidoId) {
     for (const consumo of pedido.estoqueConsumos) {
       if (consumo.estado === "restaurado") continue;
       if (consumo.estado !== "baixado") continue;
-      await renovarLock(pedido._id, lockId, "restaurando");
+      await renovarLock(pedido._id, lockId, "restaurando", { session });
       const restoreKey = `restaura:${consumo.operationKey}`;
       const result = await Estoque.updateOne(
         {
@@ -613,12 +633,17 @@ async function restaurarEstoqueDoPedido(pedidoId) {
           },
           $addToSet: { estoqueOperacoes: restoreKey },
         },
+        queryOptions,
       );
       if (!result.modifiedCount) {
-        const estoque = await Estoque.findOne({
-          _id: consumo.estoqueId,
-          estabelecimentoId: pedido.estabelecimentoId,
-        }).select("+estoqueOperacoes");
+        const estoque = await Estoque.findOne(
+          {
+            _id: consumo.estoqueId,
+            estabelecimentoId: pedido.estabelecimentoId,
+          },
+          null,
+          queryOptions,
+        ).select("+estoqueOperacoes");
         if (!estoque) {
           throw new Error("Ingrediente do snapshot foi excluído.");
         }
@@ -631,6 +656,8 @@ async function restaurarEstoqueDoPedido(pedidoId) {
         lockId,
         consumo.operationKey,
         "restaurado",
+        "",
+        { session },
       );
     }
     await liberarLock(pedido._id, lockId, {
@@ -639,21 +666,21 @@ async function restaurarEstoqueDoPedido(pedidoId) {
       estoqueRestauradoEm: new Date(),
       estoqueProcessamento: "restaurado",
       estoqueErro: "",
-    });
+    }, { session });
     return {
       success: true,
       status: "restaurado",
-      pedido: await Pedido.findById(pedido._id),
+      pedido: await Pedido.findById(pedido._id, null, queryOptions),
       retryable: false,
     };
   } catch (error) {
     await liberarLock(pedido._id, lockId, {
       estoqueProcessamento: "reconciliacao_necessaria",
       estoqueErro: `Falha ao restaurar estoque: ${String(error.message).slice(0, 450)}`,
-    }).catch(() => {});
+    }, { session }).catch(() => {});
     return resultadoFalha(
       "reconciliacao_necessaria",
-      await Pedido.findById(pedido._id),
+      await Pedido.findById(pedido._id, null, queryOptions),
       "ESTOQUE_RECONCILIACAO_NECESSARIA",
       false,
     );

@@ -13,12 +13,14 @@ const printAgentHub = require("./src/services/printAgentHub");
 const printQueueService = require("./src/services/printQueueService");
 const { ensureCsrfToken } = require("./src/middleware/csrf");
 const { securityHeaders } = require("./src/middleware/securityHeaders");
+const { storageConfig } = require("./src/services/storageService");
 const app = express();
 const httpServer = http.createServer(app);
 const production = process.env.NODE_ENV === "production";
 
 function validateProductionConfiguration() {
   if (!production) return;
+  storageConfig(process.env);
   const validatedUrls = {};
   for (const name of ["APP_URL", "MP_REDIRECT_URI"]) {
     let url;
@@ -59,6 +61,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.set("views", path.resolve(__dirname, "src", "views"));
 app.set("view engine", "ejs");
+app.use("/uploads", (req, res, next) => {
+  res.set("X-Content-Type-Options", "nosniff");
+  res.set("Cache-Control", "public, max-age=31536000, immutable");
+  res.set("Content-Security-Policy", "default-src 'none'; img-src 'self'");
+  next();
+});
 app.use(express.static(path.resolve(__dirname, "public")));
 app.use(
   session({

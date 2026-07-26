@@ -67,6 +67,7 @@ test("criação persiste somente hash e entrega token puro fora do documento", a
   const originais = {
     startSession: Pedido.startSession,
     create: Pedido.create,
+    findOne: Pedido.findOne,
     configuracao: Configuracao.findOne,
     registro: registroModel.findById,
   };
@@ -79,11 +80,17 @@ test("criação persiste somente hash e entrega token puro fora do documento", a
     persistido = dados;
     return [{ ...dados, _id: "507f1f77bcf86cd799439012" }];
   };
+  Pedido.findOne = filtro => ({
+    async select() {
+      return { _id: filtro._id, estabelecimentoId: filtro.estabelecimentoId };
+    },
+  });
   Configuracao.findOne = () => queryLean({ impressoras: [] });
   registroModel.findById = () => queryLean({});
   t.after(() => {
     Pedido.startSession = originais.startSession;
     Pedido.create = originais.create;
+    Pedido.findOne = originais.findOne;
     Configuracao.findOne = originais.configuracao;
     registroModel.findById = originais.registro;
   });

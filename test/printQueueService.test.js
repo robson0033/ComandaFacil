@@ -4,9 +4,25 @@ const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const test = require("node:test");
 const {
+  Pedido,
   PrintJob,
 } = require("../src/models/painelModels");
 const queue = require("../src/services/printQueueService");
+
+let originalPedidoFindOne;
+test.beforeEach(() => {
+  originalPedidoFindOne = Pedido.findOne;
+  Pedido.findOne = filtro => ({
+    async select() {
+      return filtro.excluido?.$ne === true
+        ? { _id: filtro._id, estabelecimentoId: filtro.estabelecimentoId }
+        : null;
+    },
+  });
+});
+test.afterEach(() => {
+  Pedido.findOne = originalPedidoFindOne;
+});
 
 function order(overrides = {}) {
   return {
@@ -162,10 +178,14 @@ test("agente offline não é chamado nem consome tentativa", async () => {
   assert.equal(socket.connected, false);
 });
 
-test("retry mantém o mesmo jobId", async () => {
+test("retry mantém o mesmo jobId", async t => {
+  const originalExists = Pedido.exists;
+  Pedido.exists = async () => ({ _id: "pedido-ativo" });
+  t.after(() => { Pedido.exists = originalExists; });
   const id = crypto.randomUUID();
   const job = {
     jobId: id,
+    pedidoId: "507f1f77bcf86cd799439011",
     status: "falhou",
     tentativas: 5,
     estabelecimentoId: "loja",
@@ -175,6 +195,141 @@ test("retry mantém o mesmo jobId", async () => {
   assert.equal(result.jobId, id);
   assert.equal(result.status, "pendente");
   assert.equal(result.tentativas, 0);
+});
+
+test("pedido arquivado não pode receber retry de impressão", async t => {
+  const originalExists = Pedido.exists;
+  Pedido.exists = async () => null;
+  t.after(() => { Pedido.exists = originalExists; });
+  await assert.rejects(
+    queue.retryJob({
+      status: "falhou",
+      pedidoId: "507f1f77bcf86cd799439011",
+      estabelecimentoId: "507f1f77bcf86cd799439012",
+      async save() {},
+    }),
+    /arquivado não pode ser reenviado/,
+  );
+});
+
+test("pedido arquivado não cria PrintJob mesmo com objeto sem excluido", async t => {
+  Pedido.findOne = () => ({ async select() { return null; } });
+  let criou = false;
+  const originalCreate = PrintJob.create;
+  PrintJob.create = async () => { criou = true; };
+  t.after(() => { PrintJob.create = originalCreate; });
+  await assert.rejects(
+    queue.criarJobsAutomaticos(order(), {
+      configuracao: config([printer()]),
+      dono: {},
+    }),
+    error => error.code === "PEDIDO_INDISPONIVEL",
+  );
+  assert.equal(criou, false);
+});
+
+test("job vira entregando com o mesmo lease antes de transport.deliver", async t => {
+  const originalExists = Pedido.exists;
+  const originalUpdate = PrintJob.findOneAndUpdate;
+  const originalFind = PrintJob.findOne;
+  Pedido.exists = async () => ({ _id: "pedido" });
+  const job = {
+    _id: "job",
+    jobId: crypto.randomUUID(),
+    pedidoId: "507f1f77bcf86cd799439011",
+    estabelecimentoId: "507f1f77bcf86cd799439012",
+    tipo: "automatica",
+    impressora: printer(),
+    estabelecimento: {},
+    pedido: {},
+    status: "pendente",
+    lockedBy: queue.INSTANCE_ID,
+    leaseToken: crypto.randomUUID(),
+    leaseExpiresAt: new Date(Date.now() + 60_000),
+  };
+  let primeiraAtualizacao;
+  PrintJob.findOneAndUpdate = async (filtro, update) => {
+    primeiraAtualizacao ||= { filtro, update };
+    return { ...job, ...update.$set };
+  };
+  PrintJob.findOne = async () => ({ ...job, status: "entregando" });
+  const entregas = [];
+  queue.setTransport({
+    async deliver(socket, payload) {
+      entregas.push(payload);
+      return {
+        jobId: payload.jobId,
+        leaseId: payload.leaseId,
+        status: "recebido",
+      };
+    },
+  });
+  t.after(() => {
+    Pedido.exists = originalExists;
+    PrintJob.findOneAndUpdate = originalUpdate;
+    PrintJob.findOne = originalFind;
+    queue.setTransport(null);
+  });
+  await queue.processarJob(job, { connected: true });
+  assert.equal(primeiraAtualizacao.update.$set.status, "entregando");
+  assert.equal(primeiraAtualizacao.filtro.leaseToken, job.leaseToken);
+  assert.equal(entregas.length, 1);
+  assert.equal(entregas[0].leaseId, job.leaseToken);
+});
+
+test("arquivamento concorrente antes de deliver impede a entrega", async t => {
+  const originalExists = Pedido.exists;
+  const originalUpdate = PrintJob.findOneAndUpdate;
+  Pedido.exists = async () => ({ _id: "pedido" });
+  PrintJob.findOneAndUpdate = async () => null;
+  let entregou = false;
+  queue.setTransport({
+    async deliver() {
+      entregou = true;
+      return {};
+    },
+  });
+  t.after(() => {
+    Pedido.exists = originalExists;
+    PrintJob.findOneAndUpdate = originalUpdate;
+    queue.setTransport(null);
+  });
+  await queue.processarJob({
+    _id: "job",
+    jobId: crypto.randomUUID(),
+    pedidoId: "507f1f77bcf86cd799439011",
+    estabelecimentoId: "507f1f77bcf86cd799439012",
+    status: "pendente",
+    lockedBy: queue.INSTANCE_ID,
+    leaseToken: crypto.randomUUID(),
+    leaseExpiresAt: new Date(Date.now() + 60_000),
+  }, { connected: true });
+  assert.equal(entregou, false);
+});
+
+test("worker antigo não conclui job de lease novo", async t => {
+  const originalFind = PrintJob.findOne;
+  const originalUpdate = PrintJob.findOneAndUpdate;
+  let atualizou = false;
+  PrintJob.findOne = async () => ({
+    status: "entregando",
+    lockedBy: queue.INSTANCE_ID,
+    leaseToken: "lease-novo",
+  });
+  PrintJob.findOneAndUpdate = async () => {
+    atualizou = true;
+  };
+  t.after(() => {
+    PrintJob.findOne = originalFind;
+    PrintJob.findOneAndUpdate = originalUpdate;
+  });
+  const result = await queue.atualizarStatusDoAgente("loja", {
+    jobId: crypto.randomUUID(),
+    leaseId: "lease-antigo",
+    status: "enviado",
+  });
+  assert.equal(result, null);
+  assert.equal(atualizou, false);
 });
 
 test("retry é proibido para enviado e concluído", async () => {
@@ -233,6 +388,7 @@ test("eventos repetidos de job concluído são idempotentes", async t => {
   t.after(() => { PrintJob.findOne = original; });
   const result = await queue.atualizarStatusDoAgente("loja", {
     jobId: crypto.randomUUID(),
+    leaseId: "lease",
     status: "processando",
   });
   assert.equal(result.status, "concluido");
@@ -248,6 +404,7 @@ test("evento de outro estabelecimento não altera job", async t => {
   t.after(() => { PrintJob.findOne = original; });
   const result = await queue.atualizarStatusDoAgente("loja-a", {
     jobId: crypto.randomUUID(),
+    leaseId: "lease",
     status: "enviado",
   });
   assert.equal(result, null);
@@ -324,7 +481,11 @@ test("agente que não conhece resultado desconhecido libera o mesmo jobId para r
   };
   t.after(() => { PrintJob.findOneAndUpdate = original; });
   queue.setTransport({
-    query: async (socket, jobId) => ({ jobId, status: "nao_encontrado" }),
+    query: async (socket, jobId, leaseId) => ({
+      jobId,
+      leaseId,
+      status: "nao_encontrado",
+    }),
     wake() {},
   });
   const id = crypto.randomUUID();
@@ -360,7 +521,11 @@ test("agente que confirma enviado conclui sem chamar impressão novamente", asyn
     PrintJob.findOneAndUpdate = originalUpdate;
   });
   queue.setTransport({
-    query: async (socket, jobId) => ({ jobId, status: "enviado" }),
+    query: async (socket, jobId, leaseId) => ({
+      jobId,
+      leaseId,
+      status: "enviado",
+    }),
     wake() {},
   });
   await queue.consultarResultadoDesconhecido({

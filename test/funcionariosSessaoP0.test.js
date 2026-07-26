@@ -244,6 +244,14 @@ test("funcionário não concede permissão superior ou administrativa crítica",
     ),
     /Somente o proprietário/,
   );
+  req.permissoesAtuais.push("arquivar_pedidos");
+  assert.throws(
+    () => admin._testing.validarAdministracaoFuncionario(
+      req,
+      ["arquivar_pedidos"],
+    ),
+    /Somente o proprietário/,
+  );
 });
 
 test("middleware atual protege estoque, pedidos e relatórios", async () => {

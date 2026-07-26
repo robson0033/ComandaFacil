@@ -60,8 +60,8 @@ function init(io) {
   printQueueService.setTransport({
     deliver: (socket, payload) =>
       emitWithAck(socket, "print:job", payload, 5000),
-    query: (socket, jobId) =>
-      queryJobStatus(socket, jobId),
+    query: (socket, jobId, leaseId) =>
+      queryJobStatus(socket, jobId, leaseId),
     wake(estabelecimentoId) {
       const socket = sockets.get(String(estabelecimentoId));
       if (socket?.connected) {
@@ -239,9 +239,9 @@ function emitWithAck(socket, event, payload, timeout) {
   });
 }
 
-async function queryJobStatus(socket, jobId) {
+async function queryJobStatus(socket, jobId, leaseId) {
   try {
-    return await emitWithAck(socket, "job:status:get", { jobId }, 5000);
+    return await emitWithAck(socket, "job:status:get", { jobId, leaseId }, 5000);
   } catch (error) {
     if (/não encontrado/i.test(error.message)) {
       return { jobId, status: "nao_encontrado" };
