@@ -18,6 +18,11 @@ const imagemArmazenadaSchema = new mongoose.Schema(
       enum: ["image/webp"],
       required: true,
     },
+    provider: {
+      type: String,
+      enum: ["local", "cloudinary", "external", "s3"],
+      default: "local",
+    },
     largura: { type: Number, required: true, min: 1 },
     altura: { type: Number, required: true, min: 1 },
     tamanho: { type: Number, required: true, min: 1 },

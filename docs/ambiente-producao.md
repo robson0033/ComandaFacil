@@ -21,10 +21,10 @@ Em todos os ambientes:
 
 Em produção também são obrigatórias:
 
-- `STORAGE_DRIVER=external`;
-- `STORAGE_EXTERNAL_PROVIDER` (`s3` ou `cloudinary`);
-- `STORAGE_EXTERNAL_BASE_URL`;
-- `STORAGE_EXTERNAL_ADAPTER_MODULE`;
+- `STORAGE_DRIVER=cloudinary`;
+- `CLOUDINARY_CLOUD_NAME`;
+- `CLOUDINARY_API_KEY`;
+- `CLOUDINARY_API_SECRET`;
 - `MERCADO_PAGO_ACCESS_TOKEN`;
 - `MERCADO_PAGO_PUBLIC_KEY`;
 - `MERCADO_PAGO_WEBHOOK_SECRET`;
@@ -35,6 +35,11 @@ Em produção também são obrigatórias:
 
 Nunca registre os valores dessas variáveis. O nome legado `SECRETSESSION` não é
 usado no novo boot; configure `SESSION_SECRET`.
+
+Um adaptador customizado continua opcional com `STORAGE_DRIVER=external`,
+`STORAGE_EXTERNAL_PROVIDER`, `STORAGE_EXTERNAL_BASE_URL` e
+`STORAGE_EXTERNAL_ADAPTER_MODULE`. Não existe fallback para disco local em
+produção.
 
 O `MemoryStore` só pode ser usado fora de produção com
 `ALLOW_MEMORY_SESSION=true`. Quando MongoDB estiver disponível, o sistema usa o

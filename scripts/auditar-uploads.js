@@ -6,6 +6,7 @@ const EXAMPLE_LIMIT = 20;
 function createReport() {
   return {
     totalDocumentos: 0,
+    providers: { local: 0, cloudinary: 0, external: 0, legado: 0 },
     problemas: {
       legado_data_url: { quantidade: 0, exemplos: [] },
       legado_url: { quantidade: 0, exemplos: [] },
@@ -13,6 +14,8 @@ function createReport() {
       documento_sem_storage_key: { quantidade: 0, exemplos: [] },
       storage_key_inexistente: { quantidade: 0, exemplos: [] },
       arquivo_orfao: { quantidade: 0, exemplos: [] },
+      provider_invalido: { quantidade: 0, exemplos: [] },
+      url_incompativel: { quantidade: 0, exemplos: [] },
     },
   };
 }
@@ -70,6 +73,14 @@ async function auditUploads({ models, storage, output = console.log }) {
       report.totalDocumentos += 1;
       const metadata = document[metadataField];
       if (metadata?.storageKey) {
+        const provider = String(metadata.provider || "local").toLowerCase();
+        if (provider in report.providers) report.providers[provider] += 1;
+        else addIssue(report, "provider_invalido", document);
+        const url = String(metadata.url || "");
+        const urlCompativel = provider === "local"
+          ? url.startsWith("/uploads/")
+          : /^https:\/\//i.test(url);
+        if (!urlCompativel) addIssue(report, "url_incompativel", document);
         referenced.add(metadata.storageKey);
         if (!(await storage.imageExists(metadata.storageKey))) {
           addIssue(report, "storage_key_inexistente", {
@@ -81,6 +92,7 @@ async function auditUploads({ models, storage, output = console.log }) {
         addIssue(report, "documento_sem_storage_key", document);
       }
       if (!metadata?.storageKey && document[legacyField]) {
+        report.providers.legado += 1;
         addIssue(report, classifyLegacy(document[legacyField]), document);
       }
     });

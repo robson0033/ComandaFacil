@@ -7,6 +7,7 @@ function initialChecks() {
     envValid: false,
     databaseConnected: false,
     sessionStoreReady: false,
+    storageAdapterReady: false,
     httpListening: false,
     workersStarted: false,
   };
@@ -34,6 +35,7 @@ function publicReadiness() {
   return {
     database: checks.databaseConnected,
     sessionStore: checks.sessionStoreReady,
+    storage: checks.storageAdapterReady,
     http: checks.httpListening,
     workers: checks.workersStarted,
     environment: checks.envValid,

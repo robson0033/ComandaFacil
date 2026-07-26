@@ -93,7 +93,7 @@ test("storage local usa UUID, isola tenant e bloqueia traversal", async () => {
 test("produção falha sem storage externo e desenvolvimento aceita local", () => {
   assert.throws(
     () => storageConfig({ NODE_ENV: "production" }),
-    /STORAGE_DRIVER=external/,
+    /local é proibido|STORAGE_DRIVER/,
   );
   assert.throws(
     () => storageConfig({
@@ -112,12 +112,10 @@ test("produção falha sem storage externo e desenvolvimento aceita local", () =
     }),
     /STORAGE_EXTERNAL_ADAPTER_MODULE/,
   );
-  assert.deepEqual(storageConfig({ NODE_ENV: "development" }), {
-    driver: "local",
-    baseUrl: undefined,
-    provider: "",
-    adapterModule: "",
-  });
+  assert.equal(
+    storageConfig({ NODE_ENV: "development" }).driver,
+    "local",
+  );
 });
 
 function mockModel(rows) {

@@ -273,10 +273,11 @@ async function armazenarUploadImagem(file, category, idEstabelecimento, resource
   return {
     storageKey: saved.storageKey,
     url: saved.url,
-    mimeType: processed.mimeType,
-    largura: processed.width,
-    altura: processed.height,
-    tamanho: processed.size,
+    mimeType: saved.mimeType || processed.mimeType,
+    largura: saved.largura || processed.width,
+    altura: saved.altura || processed.height,
+    tamanho: saved.tamanho || processed.size,
+    provider: saved.provider,
     atualizadoEm: new Date(),
   };
 }
@@ -289,8 +290,10 @@ async function removerUploadSemOcultarErro(metadata, idEstabelecimento) {
 }
 
 function responderErroUpload(req, res, error, section, fallback) {
-  if (!(error instanceof UploadError)) return null;
-  return res.status(error.status).json({
+  const isImageError = error instanceof UploadError;
+  const isStorageError = error instanceof storageService.StorageError;
+  if (!isImageError && !isStorageError) return null;
+  return res.status(error.status || error.statusCode || 503).json({
     code: error.code,
     message: error.message || fallback,
   });

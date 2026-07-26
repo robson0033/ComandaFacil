@@ -34,6 +34,13 @@ class LocalStorageAdapter {
     const target = this.resolve(key);
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.writeFile(target, buffer, { flag: "wx", mode: 0o640 });
+    return {
+      storageKey: key,
+      url: this.publicUrl(key),
+      mimeType: "image/webp",
+      tamanho: buffer.length,
+      provider: "local",
+    };
   }
 
   async remove(key) {

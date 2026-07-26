@@ -20,7 +20,7 @@ const {
   createSessionMiddleware,
   createSessionStore,
 } = require("./src/config/sessionConfig");
-const { storageConfig } = require("./src/services/storageService");
+const { initializeStorage } = require("./src/services/storageService");
 const appState = require("./src/runtime/appState");
 const printAgentHub = require("./src/services/printAgentHub");
 const printQueueService = require("./src/services/printQueueService");
@@ -168,8 +168,9 @@ async function boot({
 
   try {
     runtime.config = validateEnvironment(env);
-    if (runtime.config.production) storageConfig(env);
+    initializeStorage(env);
     appState.setCheck("envValid", true);
+    appState.setCheck("storageAdapterReady", true);
 
     await mongoose.connect(runtime.config.mongoUri);
     appState.setCheck("databaseConnected", true);

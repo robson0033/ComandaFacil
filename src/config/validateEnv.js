@@ -1,10 +1,6 @@
 "use strict";
 
 const REQUIRED_PRODUCTION = Object.freeze([
-  "STORAGE_DRIVER",
-  "STORAGE_EXTERNAL_PROVIDER",
-  "STORAGE_EXTERNAL_BASE_URL",
-  "STORAGE_EXTERNAL_ADAPTER_MODULE",
   "MERCADO_PAGO_ACCESS_TOKEN",
   "MERCADO_PAGO_PUBLIC_KEY",
   "MERCADO_PAGO_WEBHOOK_SECRET",
@@ -66,14 +62,33 @@ function validateEnvironment(env = process.env) {
     for (const name of REQUIRED_PRODUCTION) {
       if (!nonEmpty(env, name)) invalid.push(name);
     }
-    if (env.STORAGE_DRIVER !== "external") invalid.push("STORAGE_DRIVER");
-    if (!["s3", "cloudinary"].includes(
-      String(env.STORAGE_EXTERNAL_PROVIDER || "").toLowerCase(),
-    )) {
-      invalid.push("STORAGE_EXTERNAL_PROVIDER");
-    }
-    if (!/^https:\/\//i.test(String(env.STORAGE_EXTERNAL_BASE_URL || ""))) {
-      invalid.push("STORAGE_EXTERNAL_BASE_URL");
+    const storageDriver = String(env.STORAGE_DRIVER || "").trim().toLowerCase();
+    if (!["cloudinary", "external"].includes(storageDriver)) {
+      invalid.push("STORAGE_DRIVER");
+    } else if (storageDriver === "cloudinary") {
+      for (const name of [
+        "CLOUDINARY_CLOUD_NAME",
+        "CLOUDINARY_API_KEY",
+        "CLOUDINARY_API_SECRET",
+      ]) {
+        if (!nonEmpty(env, name)) invalid.push(name);
+      }
+    } else {
+      for (const name of [
+        "STORAGE_EXTERNAL_PROVIDER",
+        "STORAGE_EXTERNAL_BASE_URL",
+        "STORAGE_EXTERNAL_ADAPTER_MODULE",
+      ]) {
+        if (!nonEmpty(env, name)) invalid.push(name);
+      }
+      if (!["s3", "cloudinary"].includes(
+        String(env.STORAGE_EXTERNAL_PROVIDER || "").toLowerCase(),
+      )) {
+        invalid.push("STORAGE_EXTERNAL_PROVIDER");
+      }
+      if (!/^https:\/\//i.test(String(env.STORAGE_EXTERNAL_BASE_URL || ""))) {
+        invalid.push("STORAGE_EXTERNAL_BASE_URL");
+      }
     }
     const smtpPort = Number(env.SMTP_PORT);
     if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
