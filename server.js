@@ -1,104 +1,284 @@
-require("dotenv").config();
+"use strict";
+
+require("dotenv").config({ quiet: true });
+
+const path = require("path");
 const express = require("express");
 const mongoose = require("mongoose");
-const { MongoStore } = require("connect-mongo");
 const flash = require("express-flash");
-const path = require("path");
-const session = require("express-session");
-const middleware = require("./src/middleware/middlewareGlobal");
-const route = require("./route");
 const http = require("http");
 const { Server } = require("socket.io");
-const printAgentHub = require("./src/services/printAgentHub");
-const printQueueService = require("./src/services/printQueueService");
+
+const route = require("./route");
+const middleware = require("./src/middleware/middlewareGlobal");
 const { ensureCsrfToken } = require("./src/middleware/csrf");
 const { securityHeaders } = require("./src/middleware/securityHeaders");
+const { stopRateLimiters } = require("./src/middleware/rateLimit");
+const { createSystemRouter } = require("./src/routes/systemRoutes");
+const { validateEnvironment } = require("./src/config/validateEnv");
+const {
+  createSessionMiddleware,
+  createSessionStore,
+} = require("./src/config/sessionConfig");
 const { storageConfig } = require("./src/services/storageService");
-const app = express();
-const httpServer = http.createServer(app);
-const production = process.env.NODE_ENV === "production";
+const appState = require("./src/runtime/appState");
+const printAgentHub = require("./src/services/printAgentHub");
+const printQueueService = require("./src/services/printQueueService");
 
-function validateProductionConfiguration() {
-  if (!production) return;
-  storageConfig(process.env);
-  const validatedUrls = {};
-  for (const name of ["APP_URL", "MP_REDIRECT_URI"]) {
-    let url;
+const SHUTDOWN_TIMEOUT_MS = 25_000;
+
+function sanitizeFatal(error) {
+  const type = String(error?.name || "Error").slice(0, 80);
+  const message = String(error?.message || error || "Erro desconhecido")
+    .replace(/mongodb(?:\+srv)?:\/\/\S+/gi, "[URI_REMOVIDA]")
+    .replace(/(token|secret|password|senha)=\S+/gi, "$1=[REMOVIDO]")
+    .slice(0, 500);
+  return `${type}: ${message}`;
+}
+
+function createBaseApplication() {
+  const app = express();
+  app.use(createSystemRouter());
+  return app;
+}
+
+function configureApplication(app, { config, sessionMiddleware }) {
+  if (config.production) app.set("trust proxy", 1);
+  app.use(securityHeaders);
+  app.use(express.urlencoded({ extended: true }));
+  app.use(express.json());
+  app.set("views", path.resolve(__dirname, "src", "views"));
+  app.set("view engine", "ejs");
+  app.use("/uploads", (req, res, next) => {
+    res.set("X-Content-Type-Options", "nosniff");
+    res.set("Cache-Control", "public, max-age=31536000, immutable");
+    res.set("Content-Security-Policy", "default-src 'none'; img-src 'self'");
+    next();
+  });
+  app.use(express.static(path.resolve(__dirname, "public")));
+  app.use(sessionMiddleware);
+  app.use(flash());
+  app.use(ensureCsrfToken);
+  app.use(middleware.middlewareGlobal);
+  app.use(route);
+  app.use((req, res) => res.status(404).render("404"));
+  return app;
+}
+
+function closeWithCallback(resource, method) {
+  return new Promise((resolve, reject) => {
+    if (!resource || typeof resource[method] !== "function") return resolve();
+    let settled = false;
+    const done = error => {
+      if (settled) return;
+      settled = true;
+      if (error && error.code !== "ERR_SERVER_NOT_RUNNING") reject(error);
+      else resolve();
+    };
     try {
-      url = new URL(process.env[name]);
-    } catch {
-      throw new Error(`${name} deve ser uma URL HTTPS válida em produção.`);
+      const result = resource[method](done);
+      if (result?.then) result.then(() => done(), done);
+    } catch (error) {
+      done(error);
     }
-    if (url.protocol !== "https:") {
-      throw new Error(`${name} deve usar HTTPS em produção.`);
+  });
+}
+
+function createShutdown(runtime, {
+  timeoutMs = SHUTDOWN_TIMEOUT_MS,
+  exit = code => process.exit(code),
+  logger = console,
+  setTimeoutFn = setTimeout,
+  clearTimeoutFn = clearTimeout,
+  database = mongoose,
+  state = appState,
+  queue = printQueueService,
+  agentHub = printAgentHub,
+  stopLimiters = stopRateLimiters,
+} = {}) {
+  let shutdownPromise = null;
+  return function shutdown(reason = "shutdown", exitCode = 0) {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
+      state.setState("shutting_down");
+      state.setCheck("httpListening", false);
+      queue.setShuttingDown(true);
+      agentHub.stop();
+      stopLimiters();
+      if (runtime.reconcileTimer) {
+        clearInterval(runtime.reconcileTimer);
+        runtime.reconcileTimer = null;
+      }
+      state.closeSseConnections();
+
+      let timeout;
+      const forced = new Promise(resolve => {
+        timeout = setTimeoutFn(() => {
+          logger.error("Shutdown excedeu o tempo máximo.");
+          runtime.httpServer?.closeAllConnections?.();
+          resolve({ forced: true });
+        }, timeoutMs);
+        timeout.unref?.();
+      });
+      const graceful = (async () => {
+        await Promise.all([
+          closeWithCallback(runtime.httpServer, "close"),
+          closeWithCallback(runtime.io, "close"),
+        ]);
+        if (runtime.sessionStore && typeof runtime.sessionStore.close === "function") {
+          await runtime.sessionStore.close();
+        }
+        if (database.connection.readyState !== 0) await database.disconnect();
+        return { forced: false };
+      })();
+
+      let result;
+      try {
+        result = await Promise.race([graceful, forced]);
+      } catch (error) {
+        logger.error(`Falha durante shutdown: ${sanitizeFatal(error)}`);
+        result = { forced: true };
+      } finally {
+        clearTimeoutFn(timeout);
+      }
+      const finalCode = result.forced ? 1 : exitCode;
+      exit(finalCode);
+      return { reason: String(reason), exitCode: finalCode, ...result };
+    })();
+    return shutdownPromise;
+  };
+}
+
+async function boot({
+  env = process.env,
+  logger = console,
+  listen = true,
+  exit,
+} = {}) {
+  appState.resetForTests();
+  const runtime = {
+    app: createBaseApplication(),
+    config: null,
+    httpServer: null,
+    io: null,
+    sessionStore: null,
+    reconcileTimer: null,
+    shutdown: null,
+  };
+
+  try {
+    runtime.config = validateEnvironment(env);
+    if (runtime.config.production) storageConfig(env);
+    appState.setCheck("envValid", true);
+
+    await mongoose.connect(runtime.config.mongoUri);
+    appState.setCheck("databaseConnected", true);
+
+    runtime.sessionStore = createSessionStore({
+      config: runtime.config,
+      mongoUri: runtime.config.mongoUri,
+      logger,
+    });
+    await runtime.sessionStore.collectionP;
+    appState.setCheck("sessionStoreReady", true);
+
+    configureApplication(runtime.app, {
+      config: runtime.config,
+      sessionMiddleware: createSessionMiddleware({
+        config: runtime.config,
+        store: runtime.sessionStore,
+      }),
+    });
+
+    runtime.httpServer = http.createServer(runtime.app);
+    runtime.io = new Server(runtime.httpServer, {
+      cors: { origin: runtime.config.appUrl, methods: ["GET", "POST"] },
+    });
+    printAgentHub.init(runtime.io);
+    await printQueueService.reconciliarPedidosSemJob();
+    runtime.reconcileTimer = setInterval(() => {
+      void printQueueService.reconciliarPedidosSemJob().catch(error =>
+        logger.error(`Erro no reconciliador: ${sanitizeFatal(error)}`));
+    }, 5 * 60 * 1000);
+    runtime.reconcileTimer.unref?.();
+    appState.setCheck("workersStarted", true);
+
+    runtime.shutdown = createShutdown(runtime, { exit, logger });
+    if (listen) {
+      await new Promise((resolve, reject) => {
+        runtime.httpServer.once("error", reject);
+        runtime.httpServer.listen(runtime.config.port, () => {
+          runtime.httpServer.off("error", reject);
+          appState.setCheck("httpListening", true);
+          appState.setState("ready");
+          logger.log(`Servidor iniciado na porta ${runtime.config.port}.`);
+          resolve();
+        });
+      });
     }
-    validatedUrls[name] = url;
-  }
-  if (validatedUrls.APP_URL.origin !== validatedUrls.MP_REDIRECT_URI.origin
-    || validatedUrls.MP_REDIRECT_URI.pathname !== "/admin/mercado-pago/callback") {
-    throw new Error("MP_REDIRECT_URI deve apontar para o callback OAuth do APP_URL.");
-  }
-  for (const name of [
-    "MERCADO_PAGO_WEBHOOK_SECRET",
-    "MERCADO_PAGO_PLATFORM_USER_ID",
-    "TOKEN_ENCRYPTION_KEY",
-  ]) {
-    if (!process.env[name]) throw new Error(`${name} é obrigatória em produção.`);
+    return runtime;
+  } catch (error) {
+    appState.setState("failed");
+    if (runtime.reconcileTimer) clearInterval(runtime.reconcileTimer);
+    try {
+      await closeWithCallback(runtime.io, "close");
+      await closeWithCallback(runtime.httpServer, "close");
+      if (runtime.sessionStore?.close) await runtime.sessionStore.close();
+      if (mongoose.connection.readyState !== 0) await mongoose.disconnect();
+    } catch (cleanupError) {
+      logger.error(`Falha ao limpar boot incompleto: ${sanitizeFatal(cleanupError)}`);
+    }
+    throw error;
   }
 }
 
-validateProductionConfiguration();
-if (production) app.set("trust proxy", 1);
-const io = new Server(httpServer, { cors: { origin: true, methods: ["GET", "POST"] } });
-printAgentHub.init(io);
-
-mongoose
-  .connect(process.env.CONNECTIONSTRING)
-  .then(() => app.emit("pronto"))
-  .catch((e) => console.error("Erro MongoDB:", e.message));
-app.use(securityHeaders);
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
-app.set("views", path.resolve(__dirname, "src", "views"));
-app.set("view engine", "ejs");
-app.use("/uploads", (req, res, next) => {
-  res.set("X-Content-Type-Options", "nosniff");
-  res.set("Cache-Control", "public, max-age=31536000, immutable");
-  res.set("Content-Security-Policy", "default-src 'none'; img-src 'self'");
-  next();
-});
-app.use(express.static(path.resolve(__dirname, "public")));
-app.use(
-  session({
-    resave: false,
-    saveUninitialized: false,
-    secret: process.env.SECRETSESSION,
-    store: MongoStore.create({
-      mongoUrl: process.env.CONNECTIONSTRING,
-      collectionName: "sessions",
-    }),
-    cookie: {
-      maxAge: 1000 * 60 * 60 * 24 * 7,
-      httpOnly: true,
-      sameSite: "lax",
-      secure: production,
+function createFatalHandlers(runtime, { logger = console } = {}) {
+  return {
+    SIGTERM: () => runtime.shutdown("SIGTERM", 0),
+    SIGINT: () => runtime.shutdown("SIGINT", 0),
+    uncaughtException: error => {
+      logger.error(`uncaughtException: ${sanitizeFatal(error)}`);
+      return runtime.shutdown("uncaughtException", 1);
     },
-  }),
-);
-app.use(flash());
-app.use(ensureCsrfToken);
-app.use(middleware.middlewareGlobal);
-app.use(route);
-app.use((req, res) => res.status(404).render("404"));
-app.on("pronto", () => {
-  void printQueueService.reconciliarPedidosSemJob().catch(error =>
-    console.error("Erro ao reconciliar fila de impressão:", error));
-  const reconcileTimer = setInterval(() => {
-    void printQueueService.reconciliarPedidosSemJob().catch(error =>
-      console.error("Erro ao reconciliar fila de impressão:", error));
-  }, 5 * 60 * 1000);
-  reconcileTimer.unref?.();
-  httpServer.listen(process.env.PORT || 3000, () =>
-    console.log(`http://localhost:${process.env.PORT || 3000}`),
-  );
-});
+    unhandledRejection: error => {
+      logger.error(`unhandledRejection: ${sanitizeFatal(error)}`);
+      return runtime.shutdown("unhandledRejection", 1);
+    },
+  };
+}
+
+function installFatalHandlers(runtime, {
+  logger = console,
+  processTarget = process,
+} = {}) {
+  const handlers = createFatalHandlers(runtime, { logger });
+  processTarget.once("SIGTERM", handlers.SIGTERM);
+  processTarget.once("SIGINT", handlers.SIGINT);
+  processTarget.once("uncaughtException", handlers.uncaughtException);
+  processTarget.once("unhandledRejection", handlers.unhandledRejection);
+  return handlers;
+}
+
+async function main() {
+  try {
+    const runtime = await boot();
+    installFatalHandlers(runtime);
+  } catch (error) {
+    console.error(`Falha ao iniciar: ${sanitizeFatal(error)}`);
+    process.exitCode = 1;
+  }
+}
+
+if (require.main === module) void main();
+
+module.exports = {
+  SHUTDOWN_TIMEOUT_MS,
+  boot,
+  configureApplication,
+  createBaseApplication,
+  createFatalHandlers,
+  createShutdown,
+  installFatalHandlers,
+  main,
+  sanitizeFatal,
+};

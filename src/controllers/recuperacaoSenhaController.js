@@ -24,7 +24,10 @@ function gerarToken() {
 }
 
 function criarHash(valor) {
-  const segredo = String(process.env.SECRETSESSION || "comandafacil");
+  const segredo = String(process.env.SESSION_SECRET || "");
+  if (segredo.length < 32) {
+    throw new Error("SESSION_SECRET não configurada.");
+  }
   return crypto
     .createHash("sha256")
     .update(`${valor}:${segredo}`)

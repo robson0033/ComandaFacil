@@ -1,5 +1,7 @@
 "use strict";
 
+const activeTimers = new Set();
+
 function createRateLimiter({
   windowMs = 60_000,
   max = 10,
@@ -15,6 +17,7 @@ function createRateLimiter({
     }
   }, Math.min(windowMs, 60_000));
   timer.unref?.();
+  activeTimers.add(timer);
 
   return (req, res, next) => {
     if (skip(req)) return next();
@@ -37,4 +40,9 @@ function createRateLimiter({
   };
 }
 
-module.exports = { createRateLimiter };
+function stopRateLimiters() {
+  for (const timer of activeTimers) clearInterval(timer);
+  activeTimers.clear();
+}
+
+module.exports = { createRateLimiter, stopRateLimiters };

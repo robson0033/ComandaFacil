@@ -47,6 +47,7 @@ const {
 } = require("../services/auditoriaService");
 const { processImage, UploadError } = require("../uploads/imageProcessor");
 const storageService = require("../services/storageService");
+const appState = require("../runtime/appState");
 
 function exigirMovimentacaoEstoqueConcluida(resultado) {
   if (resultado?.success
@@ -6498,8 +6499,11 @@ exports.streamNovosPedidos = (req, res) => {
 
   timer.unref?.();
 
+  const unregisterSse = appState.registerSse(res, () => {
+    if (timer) clearInterval(timer);
+  });
   req.on("close", () => {
-    clearInterval(timer);
+    unregisterSse();
 
     if (!res.writableEnded) {
       res.end();
@@ -7334,9 +7338,12 @@ exports.streamStatusAgente = (req, res) => {
   }, 5_000);
   heartbeat.unref?.();
 
-  req.on("close", () => {
+  const unregisterSse = appState.registerSse(res, () => {
     clearInterval(heartbeat);
     unsubscribe();
+  });
+  req.on("close", () => {
+    unregisterSse();
     if (!res.writableEnded) res.end();
   });
 };

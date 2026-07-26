@@ -5,6 +5,7 @@ const printQueueService = require("./printQueueService");
 const sockets = new Map();
 const statusListeners = new Map();
 let sweepTimer = null;
+let shuttingDown = false;
 
 function hash(value) {
   return crypto
@@ -56,6 +57,8 @@ function subscribeStatus(estabelecimentoId, listener) {
 }
 
 function init(io) {
+  shuttingDown = false;
+  printQueueService.setShuttingDown(false);
   const namespace = io.of("/print-agent");
   printQueueService.setTransport({
     deliver: (socket, payload) =>
@@ -74,6 +77,7 @@ function init(io) {
   });
 
   namespace.use(async (socket, next) => {
+    if (shuttingDown) return next(new Error("Servidor em encerramento."));
     try {
       const token = String(socket.handshake.auth?.token || "").trim();
       const codigo = normalizarCodigo(socket.handshake.auth?.code);
@@ -256,6 +260,7 @@ async function requestPrintJob(
   payload,
   timeout = 30000,
 ) {
+  if (shuttingDown) throw new Error("Servidor em encerramento.");
   const socket = sockets.get(String(estabelecimentoId));
   if (!socket?.connected) throw new Error("Agente de impressão desconectado.");
 
@@ -283,6 +288,10 @@ function request(
   timeout = 15000,
 ) {
   return new Promise((resolve, reject) => {
+    if (shuttingDown) {
+      reject(new Error("Servidor em encerramento."));
+      return;
+    }
     const socket = sockets.get(String(estabelecimentoId));
 
     if (!socket?.connected) {
@@ -306,12 +315,26 @@ function request(
   });
 }
 
+function stop() {
+  shuttingDown = true;
+  printQueueService.setShuttingDown(true);
+  if (sweepTimer) clearInterval(sweepTimer);
+  sweepTimer = null;
+  for (const [lojaId, socket] of sockets) {
+    publishStatus(lojaId, false);
+    socket.disconnect(true);
+  }
+  sockets.clear();
+  statusListeners.clear();
+}
+
 module.exports = {
   init,
   currentStatus,
   isOnline,
   request,
   requestPrintJob,
+  stop,
   subscribeStatus,
   _testing: {
     publishStatus,

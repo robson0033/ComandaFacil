@@ -19,9 +19,22 @@ const LEASE_MS = 60_000;
 const RETRY_DELAYS = [0, 5_000, 30_000, 120_000, 600_000];
 const activeStores = new Set();
 let transport = null;
+let shuttingDown = false;
 
 function setTransport(value) {
   transport = value;
+}
+
+function assertAcceptingWork() {
+  if (!shuttingDown) return;
+  const error = new Error("Serviço temporariamente indisponível.");
+  error.code = "SHUTTING_DOWN";
+  error.statusCode = 503;
+  throw error;
+}
+
+function setShuttingDown(value) {
+  shuttingDown = Boolean(value);
 }
 
 function text(value, max) {
@@ -152,6 +165,7 @@ async function contextoDoPedido(pedido, options = {}) {
 }
 
 async function criarJobsAutomaticos(pedido, options = {}) {
+  assertAcceptingWork();
   await validarPedidoDisponivel(pedido, { session: options.session });
   const { configuracao, dono } = await contextoDoPedido(pedido, options);
   const impressoras = (configuracao?.impressoras || []).filter(item =>
@@ -191,6 +205,7 @@ async function criarJobManual({
   dono,
   session = null,
 }) {
+  assertAcceptingWork();
   await validarPedidoDisponivel(pedido, { session });
   const context = await contextoDoPedido(pedido, { configuracao, dono });
   const snapshot = await montarSnapshotValidado({
@@ -217,6 +232,7 @@ async function criarJobManual({
 }
 
 async function criarPedidoComJobsAutomaticos(dados) {
+  assertAcceptingWork();
   const tokenAcompanhamento = gerarTokenAcompanhamento();
   const dadosComToken = {
     ...dados,
@@ -254,6 +270,7 @@ async function criarPedidoComJobsAutomaticos(dados) {
 }
 
 async function reivindicarProximoJob(estabelecimentoId) {
+  if (shuttingDown) return null;
   const now = new Date();
   const leaseToken = crypto.randomUUID();
   return PrintJob.findOneAndUpdate({
@@ -481,6 +498,7 @@ async function processarJob(job, socket) {
 }
 
 async function drenarFilaDoEstabelecimento(estabelecimentoId, socket) {
+  if (shuttingDown) return;
   const key = String(estabelecimentoId);
   if (activeStores.has(key) || !socket?.connected || !transport) return;
   activeStores.add(key);
@@ -506,6 +524,7 @@ async function drenarFilaDoEstabelecimento(estabelecimentoId, socket) {
 }
 
 async function recuperarLeasesExpirados() {
+  if (shuttingDown) return;
   const now = new Date();
   await PrintJob.updateMany({
     status: {
@@ -522,6 +541,7 @@ async function recuperarLeasesExpirados() {
 }
 
 async function reconciliarPedidosSemJob({ since = new Date(Date.now() - 24 * 60 * 60 * 1000) } = {}) {
+  if (shuttingDown) return;
   const pedidos = await Pedido.find({
     createdAt: { $gte: since },
     excluido: { $ne: true },
@@ -530,10 +550,11 @@ async function reconciliarPedidosSemJob({ since = new Date(Date.now() - 24 * 60 
 }
 
 function notifyStore(estabelecimentoId) {
-  if (transport) transport.wake(String(estabelecimentoId));
+  if (!shuttingDown && transport) transport.wake(String(estabelecimentoId));
 }
 
 async function retryJob(job) {
+  assertAcceptingWork();
   if (!["falhou", "resultado_desconhecido"].includes(job.status)) {
     throw new Error("Este trabalho não pode ser reenviado.");
   }
@@ -576,6 +597,7 @@ module.exports = {
   reconciliarPedidosSemJob,
   reivindicarProximoJob,
   retryJob,
+  setShuttingDown,
   setTransport,
   validarPedidoDisponivel,
   atualizarStatusDoAgente,

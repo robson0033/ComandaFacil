@@ -2,6 +2,10 @@ const bcrypt = require("bcryptjs");
 const validator = require("validator");
 const { registroModel } = require("../models/registroModel");
 const { Funcionario } = require("../models/painelModels");
+const {
+  SESSION_MAX_AGE_MS,
+  clearSessionCookie,
+} = require("../config/sessionConfig");
 
 const TRINTA_DIAS = 1000 * 60 * 60 * 24 * 30;
 
@@ -11,9 +15,7 @@ function configurarDuracaoDaSessao(req, lembrar) {
     return;
   }
 
-  // Sem "Lembrar meu acesso", o cookie termina ao fechar o navegador.
-  req.session.cookie.maxAge = null;
-  req.session.cookie.expires = false;
+  req.session.cookie.maxAge = SESSION_MAX_AGE_MS;
 }
 
 function autenticarComNovaSessao(req, res, user, lembrar) {
@@ -94,5 +96,8 @@ exports.login = async (req, res) => {
 exports._testing = { autenticarComNovaSessao };
 
 exports.logout = (req, res) => {
-  req.session.destroy(() => res.redirect("/"));
+  req.session.destroy(() => {
+    clearSessionCookie(res, process.env.NODE_ENV === "production");
+    res.redirect("/");
+  });
 };
