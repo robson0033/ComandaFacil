@@ -9,6 +9,9 @@ const {
   PrintJob,
 } = require("../models/painelModels");
 const { registroModel } = require("../models/registroModel");
+const {
+  gerarTokenAcompanhamento,
+} = require("./pedidoPublicoTokenService");
 
 const INSTANCE_ID = `${os.hostname()}:${process.pid}:${crypto.randomUUID()}`;
 const MAX_ATTEMPTS = 5;
@@ -179,12 +182,23 @@ async function criarJobManual({ pedido, impressora, configuracao, dono }) {
 }
 
 async function criarPedidoComJobsAutomaticos(dados) {
+  const tokenAcompanhamento = gerarTokenAcompanhamento();
+  const dadosComToken = {
+    ...dados,
+    acompanhamentoTokenHash: tokenAcompanhamento.hash,
+    acompanhamentoTokenCriadoEm: tokenAcompanhamento.criadoEm,
+    acompanhamentoTokenExpiraEm: tokenAcompanhamento.expiraEm,
+  };
   const session = await Pedido.startSession();
   try {
     let pedido;
     await session.withTransaction(async () => {
-      [pedido] = await Pedido.create([dados], { session });
+      [pedido] = await Pedido.create([dadosComToken], { session });
       await criarJobsAutomaticos(pedido, { session });
+    });
+    Object.defineProperty(pedido, "acompanhamentoToken", {
+      value: tokenAcompanhamento.token,
+      enumerable: false,
     });
     return pedido;
   } catch (error) {
@@ -192,8 +206,12 @@ async function criarPedidoComJobsAutomaticos(dados) {
       .test(String(error?.message || ""));
     if (!unsupported) throw error;
     console.warn("MongoDB sem transações; usando criação idempotente com reconciliador.");
-    const pedido = await Pedido.create(dados);
+    const pedido = await Pedido.create(dadosComToken);
     await criarJobsAutomaticos(pedido);
+    Object.defineProperty(pedido, "acompanhamentoToken", {
+      value: tokenAcompanhamento.token,
+      enumerable: false,
+    });
     return pedido;
   } finally {
     await session.endSession();

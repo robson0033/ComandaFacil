@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer">
 <title>Plano ComandaMix</title>
 <link rel="icon" href="/assets/imgs/comanda.png" type="image/x-png">
 <style>
@@ -15,5 +15,5 @@
 <article class="card"><h2>Cartão de crédito</h2><p>Cobrança recorrente automática todos os meses.</p><div class="price"><%= valorPlano.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) %> <small>/mês</small></div><div class="features"><span>✓ Renovação automática</span><span>✓ Acesso contínuo</span><span>✓ Gestão pela conta Mercado Pago</span></div><form action="/assinatura/cartao" method="POST"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="btn">Assinar com cartão</button></form></article>
 <article class="card"><h2>Pix mensal</h2><p>Gere um Pix e renove manualmente por 30 dias.</p><div class="price"><%= valorPlano.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) %> <small>/30 dias</small></div><div class="features"><span>✓ QR Code e Copia e Cola</span><span>✓ Confirmação automática</span><span>✓ Sem renovação automática</span></div><form action="/assinatura/pix" method="POST"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="btn pix">Gerar Pix</button></form></article>
 </div>
-<% if(pix){ %><section class="card pixbox"><h2>Escaneie para pagar</h2><% if(pix.qrCodeBase64){ %><img src="data:image/png;base64,<%= pix.qrCodeBase64 %>" alt="QR Code Pix"><% } %><textarea class="copy" readonly id="pixCode"><%= pix.copiaCola %></textarea><button class="btn pix" type="button" onclick="navigator.clipboard.writeText(document.querySelector('#pixCode').value);this.textContent='Código copiado'">Copiar código Pix</button></section><% } %>
-</main></body></html>
+<% if(pix){ %><section class="card pixbox"><h2>Escaneie para pagar</h2><% if(pix.qrCodeBase64){ %><img src="<%= safePublicUrl(`data:image/png;base64,${pix.qrCodeBase64}`, { allowDataImage: true }) %>" alt="QR Code Pix"><% } %><textarea class="copy" readonly id="pixCode"><%= pix.copiaCola %></textarea><button class="btn pix" id="copyPixCode" type="button">Copiar código Pix</button></section><% } %>
+</main><script nonce="<%= cspNonce %>">document.querySelector('#copyPixCode')?.addEventListener('click',async event=>{await navigator.clipboard.writeText(document.querySelector('#pixCode').value);event.currentTarget.textContent='Código copiado';});</script></body></html>

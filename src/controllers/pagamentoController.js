@@ -13,6 +13,10 @@ const {
   consultarAcessoVenda,
   respostaLojaIndisponivel,
 } = require("../services/assinaturaAcessoService");
+const {
+  buscarPedidoPorToken,
+  extrairBearerToken,
+} = require("../services/pedidoPublicoTokenService");
 const { baixarEstoqueDoPedido, restaurarEstoqueDoPedido } = require("../services/estoqueService");
 const { registroModel } = require("../models/registroModel");
 const {
@@ -561,13 +565,21 @@ async function configuracaoComToken(estabelecimento) {
 
 exports.gerarPixPedido = async (req, res) => {
   try {
+    const token = extrairBearerToken(req);
+    if (!token) {
+      return res.status(404).json({
+        success: false,
+        message: "Pedido não encontrado.",
+      });
+    }
     const cfgPublica = await Configuracao.findOne({ slug: req.params.slug }).lean();
     if (!cfgPublica) {
       return res.status(404).json({ success: false, message: "Estabelecimento não encontrado." });
     }
-    const pedido = await Pedido.findOne({
-      _id: req.params.pedidoId,
+    const pedido = await buscarPedidoPorToken({
       estabelecimentoId: cfgPublica.estabelecimentoId,
+      token,
+      lean: false,
     });
     if (!pedido) return res.status(404).json({ success: false, message: "Pedido não encontrado." });
     if (pedido.pagamentoStatus === "pago") return res.json({ success: true, aprovado: true });
@@ -634,17 +646,23 @@ exports.gerarPixPedido = async (req, res) => {
 };
 
 exports.statusPagamentoPedido = async (req, res) => {
+  const token = extrairBearerToken(req);
+  if (!token) {
+    return res.status(404).json({
+      success: false,
+      message: "Pedido não encontrado.",
+    });
+  }
   const cfg = await Configuracao.findOne({ slug: req.params.slug }).lean();
   if (!cfg) return res.status(404).json({ success: false, message: "Estabelecimento não encontrado." });
-  const pedido = await Pedido.findOne({
-    _id: req.params.pedidoId,
+  const pedido = await buscarPedidoPorToken({
     estabelecimentoId: cfg.estabelecimentoId,
-  }).lean();
+    token,
+  });
   if (!pedido) return res.status(404).json({ success: false, message: "Pedido não encontrado." });
   return res.json({
     success: true,
     pagamentoStatus: pedido.pagamentoStatus,
-    mercadoPagoStatus: pedido.mercadoPagoStatus,
   });
 };
 

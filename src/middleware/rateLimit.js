@@ -5,6 +5,7 @@ function createRateLimiter({
   max = 10,
   key = req => req.ip,
   skip = () => false,
+  onLimit = null,
 } = {}) {
   const buckets = new Map();
   const timer = setInterval(() => {
@@ -29,6 +30,7 @@ function createRateLimiter({
     res.set("RateLimit-Remaining", String(Math.max(0, max - bucket.count)));
     if (bucket.count > max) {
       res.set("Retry-After", String(Math.ceil((bucket.resetAt - now) / 1000)));
+      if (typeof onLimit === "function") return onLimit(req, res);
       return res.status(429).send("Muitas solicitações. Tente novamente em instantes.");
     }
     return next();

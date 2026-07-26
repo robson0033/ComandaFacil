@@ -52,6 +52,20 @@ const limiteOauth = createRateLimiter({ windowMs: 60_000, max: 10 });
 const limitePixPedido = createRateLimiter({ windowMs: 60_000, max: 12 });
 const limiteStatusPagamento = createRateLimiter({ windowMs: 60_000, max: 60 });
 const limiteWebhook = createRateLimiter({ windowMs: 60_000, max: 300 });
+const limiteAcompanhamentoPedido = createRateLimiter({
+  windowMs: 60_000,
+  max: 30,
+  key: req => `${req.ip}|${String(req.params.slug || "").toLowerCase()}`,
+  onLimit: (req, res) => res.status(429).json({
+    code: "MUITAS_TENTATIVAS",
+    message: "Muitas tentativas. Aguarde e tente novamente.",
+  }),
+});
+const respostaPedidoSemCache = (req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  res.set("Pragma", "no-cache");
+  next();
+};
 
 /*
 |--------------------------------------------------------------------------
@@ -554,11 +568,16 @@ route.get(
 );
 
 route.get('/catalogo/:slug/produtos-status', admin.statusProdutosCatalogo);
-route.post('/catalogo/:slug/pedidos', admin.criarPedidoCatalogo);
-route.post('/catalogo/:slug/pedidos/:pedidoId/pix', limitePixPedido, pagamento.gerarPixPedido);
-route.get('/catalogo/:slug/pedidos/:pedidoId/pagamento-status', limiteStatusPagamento, pagamento.statusPagamentoPedido);
-route.get('/catalogo/:slug/meus-pedidos', admin.buscarPedidosCatalogo);
-route.post('/catalogo/:slug/produtos/:produtoId/avaliacoes', admin.avaliarProdutoCatalogo);
+route.post('/catalogo/:slug/pedidos', respostaPedidoSemCache, admin.criarPedidoCatalogo);
+route.post(
+  '/catalogo/:slug/pedido/consultar',
+  respostaPedidoSemCache,
+  limiteAcompanhamentoPedido,
+  admin.acompanharPedidoCatalogo
+);
+route.post('/catalogo/:slug/pedido/pix', respostaPedidoSemCache, limitePixPedido, pagamento.gerarPixPedido);
+route.post('/catalogo/:slug/pedido/pagamento-status', respostaPedidoSemCache, limiteStatusPagamento, pagamento.statusPagamentoPedido);
+route.post('/catalogo/:slug/pedido/avaliacao', respostaPedidoSemCache, limiteAcompanhamentoPedido, admin.avaliarProdutoCatalogo);
 
 route.get(
   '/mesa/:token',
@@ -567,6 +586,7 @@ route.get(
 
 route.post(
   '/mesa/:token/pedidos',
+  respostaPedidoSemCache,
   admin.criarPedidoMesa
 );
 

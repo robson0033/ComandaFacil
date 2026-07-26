@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const {
   auditDefinitions,
+  definitions,
   equivalentIndex,
   inspectUniqueData,
 } = require("../scripts/create-mercado-pago-indexes");
@@ -69,6 +70,25 @@ function fakeCollection({
 function silentLog() {
   return { log() {}, error() {} };
 }
+
+test("índice controlado inclui hash único do token de acompanhamento", () => {
+  const indice = definitions.find(item =>
+    item.options.name === "pedido_acompanhamento_token_hash_unico");
+  assert.ok(indice);
+  assert.deepEqual(indice.key, { acompanhamentoTokenHash: 1 });
+  assert.equal(indice.options.unique, true);
+  assert.deepEqual(indice.options.partialFilterExpression, {
+    acompanhamentoTokenHash: { $type: "string" },
+  });
+  assert.equal(equivalentIndex({
+    name: "hash_legado_1",
+    key: { acompanhamentoTokenHash: 1 },
+    unique: true,
+    partialFilterExpression: {
+      acompanhamentoTokenHash: { $type: "string" },
+    },
+  }, indice), true);
+});
 
 test("índice com o mesmo nome e opções é reconhecido", async () => {
   const collection = fakeCollection({

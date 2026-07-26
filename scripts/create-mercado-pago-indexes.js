@@ -29,6 +29,18 @@ const definitions = [
   },
   {
     model: Pedido,
+    key: { acompanhamentoTokenHash: 1 },
+    options: {
+      unique: true,
+      partialFilterExpression: {
+        acompanhamentoTokenHash: { $type: "string" },
+      },
+      name: "pedido_acompanhamento_token_hash_unico",
+    },
+    expectedType: "string",
+  },
+  {
+    model: Pedido,
     key: { mercadoPagoPaymentId: 1 },
     options: {
       unique: true,

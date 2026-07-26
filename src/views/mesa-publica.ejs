@@ -6,6 +6,7 @@
     name="viewport"
     content="width=device-width, initial-scale=1.0"
   >
+  <meta name="referrer" content="no-referrer">
   <link rel="icon" href="/assets/imgs/comanda.png" type="image/x-png">
 
   <title>
@@ -1317,7 +1318,7 @@
       <div class="brand-logo">
         <% if (configuracao?.fotoPerfil) { %>
           <img
-            src="<%= configuracao.fotoPerfil %>"
+            src="<%= safePublicUrl(configuracao.fotoPerfil, { allowDataImage: true }) %>"
             alt="<%= configuracao.nomeEstabelecimento %>"
           >
         <% } else { %>
@@ -1472,7 +1473,7 @@
 
             <% if (produto.imagem) { %>
               <img
-                src="<%= produto.imagem %>"
+                src="<%= safePublicUrl(produto.imagem, { allowDataImage: true }) %>"
                 alt="<%= produto.nome %>"
               >
             <% } else { %>
@@ -1550,8 +1551,8 @@
                   data-id="<%= produto._id %>"
                   data-name="<%= produto.nome %>"
                   data-price="<%= produto.preco %>"
-                  data-image="<%= produto.imagem || '' %>"
-                  data-additionals='<%- JSON.stringify(
+                  data-image="<%= safePublicUrl(produto.imagem, { allowDataImage: true }) %>"
+                  data-additionals='<%= safeJsonForHtml(
                     (produto.adicionais || [])
                       .filter(adicional => adicional.ativo !== false)
                       .map(adicional => ({
@@ -1811,10 +1812,10 @@
 
   <div class="success-toast" id="successToast"></div>
 
-  <script>
+  <script nonce="<%= cspNonce %>">
     const cart = [];
     let lojaDisponivelPublica =
-      <%- JSON.stringify(lojaDisponivel !== false) %>;
+      <%- safeJsonForHtml(lojaDisponivel !== false) %>;
 
     const cartElement =
       document.querySelector('#cart');
@@ -1845,6 +1846,30 @@
 
     let currentPedidoId = null;
     let currentRatingItems = [];
+
+    function escaparHtml(value) {
+      return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    function urlImagemSegura(value) {
+      const text = String(value ?? '').trim();
+      if (/[\u0000-\u001F\u007F]/.test(text)) return '';
+      if (text.startsWith('/') && !text.startsWith('//')) return text;
+      if (/^data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+$/i.test(text)) {
+        return text;
+      }
+      try {
+        const url = new URL(text);
+        return url.protocol === 'https:' ? url.href : '';
+      } catch {
+        return '';
+      }
+    }
 
     function money(value) {
       return Number(value || 0).toLocaleString(
@@ -1963,22 +1988,22 @@
           ).textContent =
             `Adicionais de ${product.nome}`;
 
-          addonOptions.innerHTML =
-            additionals.map(adicional => `
-              <div class="addon-option">
-                <label>
-                  <input
-                    type="checkbox"
-                    value="${adicional._id}"
-                  >
-                  ${adicional.nome}
-                </label>
-
-                <strong>
-                  + ${money(adicional.preco)}
-                </strong>
-              </div>
-            `).join('');
+          addonOptions.replaceChildren();
+          additionals.forEach(adicional => {
+            const option = document.createElement('div');
+            option.className = 'addon-option';
+            const label = document.createElement('label');
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.value = String(adicional._id || '');
+            label.append(input, document.createTextNode(
+              ` ${String(adicional.nome || '')}`
+            ));
+            const price = document.createElement('strong');
+            price.textContent = `+ ${money(adicional.preco)}`;
+            option.append(label, price);
+            addonOptions.appendChild(option);
+          });
 
           addonModal.classList.add('open');
           document.body.style.overflow = 'hidden';
@@ -2031,11 +2056,13 @@
     }
 
     function renderCart() {
-      cartItems.innerHTML = '';
+      cartItems.replaceChildren();
 
       if (!cart.length) {
-        cartItems.innerHTML =
-          '<div class="empty">Seu carrinho está vazio.</div>';
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.textContent = 'Seu carrinho está vazio.';
+        cartItems.appendChild(empty);
       }
 
       cart.forEach((item, index) => {
@@ -2044,59 +2071,36 @@
 
         element.className = 'cart-item';
 
-        element.innerHTML = `
-          <div class="cart-item-image">
-            ${
-              item.imagem
-                ? `<img src="${item.imagem}" alt="${item.nome}">`
-                : '🍽️'
-            }
-          </div>
-
-          <div>
-            <div class="cart-item-top">
-              <div>
-                <strong>${item.nome}</strong>
-                ${
-                  item.adicionais?.length
-                    ? `<small style="display:block;margin-top:4px;color:#756a65;">
-                        ${item.adicionais.map(
-                          adicional =>
-                            `+ ${adicional.nome} (${money(adicional.preco)})`
-                        ).join('<br>')}
-                      </small>`
-                    : ''
-                }
-              </div>
-              <strong>
-                ${money(
-                  (
-                    item.preco +
-                    (item.adicionais || []).reduce(
-                      (sum, adicional) =>
-                        sum + Number(adicional.preco || 0),
-                      0
-                    )
-                  ) *
-                  item.quantidade
-                )}
-              </strong>
-            </div>
-
-            <div class="quantity">
-              <button type="button" data-action="minus">−</button>
-              <span>${item.quantidade}</span>
-              <button type="button" data-action="plus">+</button>
-            </div>
-
-            <input
-              class="item-note"
-              placeholder="Observação deste item"
-              maxlength="250"
-              value="${item.observacao.replaceAll('"', '&quot;')}"
-            >
-          </div>
-        `;
+        element.innerHTML = '<div class="cart-item-image"></div><div><div class="cart-item-top"><div><strong class="cart-item-name"></strong><small class="cart-item-addons" style="display:block;margin-top:4px;color:#756a65"></small></div><strong class="cart-item-price"></strong></div><div class="quantity"><button type="button" data-action="minus">−</button><span></span><button type="button" data-action="plus">+</button></div><input class="item-note" placeholder="Observação deste item" maxlength="250"></div>';
+        const imageBox = element.querySelector('.cart-item-image');
+        const imageUrl = urlImagemSegura(item.imagem);
+        if (imageUrl) {
+          const image = document.createElement('img');
+          image.src = imageUrl;
+          image.alt = String(item.nome || '');
+          imageBox.appendChild(image);
+        } else {
+          imageBox.textContent = '🍽️';
+        }
+        element.querySelector('.cart-item-name').textContent =
+          String(item.nome || '');
+        const addons = element.querySelector('.cart-item-addons');
+        addons.textContent = (item.adicionais || [])
+          .map(adicional => `+ ${adicional.nome} (${money(adicional.preco)})`)
+          .join('\n');
+        element.querySelector('.cart-item-price').textContent = money(
+          (
+            Number(item.preco || 0) +
+            (item.adicionais || []).reduce(
+              (sum, adicional) => sum + Number(adicional.preco || 0),
+              0
+            )
+          ) * Number(item.quantidade || 0)
+        );
+        element.querySelector('.quantity span').textContent =
+          String(item.quantidade);
+        element.querySelector('.item-note').value =
+          String(item.observacao || '');
 
         element
           .querySelector('[data-action="minus"]')
@@ -2207,7 +2211,7 @@
     }
 
     function renderRatingProducts() {
-      ratingProducts.innerHTML = '';
+      ratingProducts.replaceChildren();
 
       currentRatingItems.forEach(
         (item, itemIndex) => {
@@ -2217,31 +2221,24 @@
           wrapper.className =
             'rating-product';
 
-          wrapper.innerHTML = `
-            <strong>${item.nome}</strong>
-
-            <div class="stars">
-              ${[1,2,3,4,5].map(value => `
-                <button
-                  type="button"
-                  class="star-button ${
-                    value <= item.nota
-                      ? 'active'
-                      : ''
-                  }"
-                  data-value="${value}"
-                >
-                  ★
-                </button>
-              `).join('')}
-            </div>
-
-            <textarea
-              class="rating-comment"
-              placeholder="Conte o que achou (opcional)"
-              maxlength="500"
-            >${item.comentario}</textarea>
-          `;
+          const title = document.createElement('strong');
+          title.textContent = String(item.nome || '');
+          const stars = document.createElement('div');
+          stars.className = 'stars';
+          [1, 2, 3, 4, 5].forEach(value => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `star-button ${value <= item.nota ? 'active' : ''}`;
+            button.dataset.value = String(value);
+            button.textContent = '★';
+            stars.appendChild(button);
+          });
+          const comment = document.createElement('textarea');
+          comment.className = 'rating-comment';
+          comment.placeholder = 'Conte o que achou (opcional)';
+          comment.maxLength = 500;
+          comment.value = String(item.comentario || '');
+          wrapper.append(title, stars, comment);
 
           wrapper
             .querySelectorAll('.star-button')

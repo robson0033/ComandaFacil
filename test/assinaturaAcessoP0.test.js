@@ -210,7 +210,10 @@ test("Pix novo é bloqueado antes de consultar credencial ou criar cobrança", a
   const response = res();
   try {
     await pagamento.gerarPixPedido(
-      { params: { slug: "loja", pedidoId: PEDIDO } },
+      {
+        params: { slug: "loja" },
+        headers: { authorization: `Bearer ${"A".repeat(43)}` },
+      },
       response,
     );
     assert.equal(response.statusCode, 403);

@@ -12,6 +12,7 @@ const { Server } = require("socket.io");
 const printAgentHub = require("./src/services/printAgentHub");
 const printQueueService = require("./src/services/printQueueService");
 const { ensureCsrfToken } = require("./src/middleware/csrf");
+const { securityHeaders } = require("./src/middleware/securityHeaders");
 const app = express();
 const httpServer = http.createServer(app);
 const production = process.env.NODE_ENV === "production";
@@ -53,6 +54,7 @@ mongoose
   .connect(process.env.CONNECTIONSTRING)
   .then(() => app.emit("pronto"))
   .catch((e) => console.error("Erro MongoDB:", e.message));
+app.use(securityHeaders);
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.set("views", path.resolve(__dirname, "src", "views"));

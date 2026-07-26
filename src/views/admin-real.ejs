@@ -3291,7 +3291,7 @@
         <% if (config.fotoPerfil) { %>
           <img
             class="mobile-profile-image"
-            src="<%= config.fotoPerfil %>"
+            src="<%= safePublicUrl(config.fotoPerfil, { allowDataImage: true }) %>"
             alt="<%= config.nomeEstabelecimento || 'Perfil' %>"
           >
         <% } else { %>
@@ -3314,7 +3314,7 @@
           <div class="profile-name">
             <% if (config.fotoPerfil) { %>
               <img
-                src="<%= config.fotoPerfil %>"
+                src="<%= safePublicUrl(config.fotoPerfil, { allowDataImage: true }) %>"
                 alt="<%= config.nomeEstabelecimento %>"
               >
             <% } else { %>
@@ -3377,14 +3377,6 @@
               <label for="dashboardPeriodo">Período rápido</label>
               <select
                 id="dashboardPeriodo"
-                onchange="
-                  if (this.value) {
-                    window.location.href =
-                      '/admin?dashboardFiltro=' +
-                      encodeURIComponent(this.value) +
-                      '#dashboard';
-                  }
-                "
               >
                 <option value="">Selecionar</option>
                 <option value="hoje" <%= painelDashboard.filtroAtual === 'hoje' ? 'selected' : '' %>>Hoje</option>
@@ -3840,7 +3832,7 @@
                   pedido.pagamentoStatus !== 'pago' &&
                   ['dinheiro', 'cartao'].includes(pedido.formaPagamento)
                 ) { %>
-                  onsubmit="if(this.status.value === 'finalizado') return confirm('Finalizar este pedido? O pagamento continuará pendente até você usar Confirmar pagamento.');"
+                  data-confirm-finalize-pending
                 <% } %>
               >
                 <select name="status">
@@ -3921,7 +3913,7 @@
                 <form
                   action="/admin/pedidos/<%= pedido._id %>/confirmar-pagamento"
                   method="POST"
-                  onsubmit="return confirm('Confirmar o recebimento deste pedido por <%= pedido.formaPagamento === 'dinheiro' ? 'dinheiro' : pedido.formaPagamento === 'cartao' ? 'cartão' : 'forma já registrada' %>?');"
+                  data-confirm-payment
                 >
                   <button
                     type="submit"
@@ -4496,7 +4488,7 @@
               <a
                 target="_blank"
                 class="button secondary"
-                href="<%= linkCatalogo %>"
+                href="<%= safePublicUrl(linkCatalogo) %>"
               >
                 Abrir catálogo
               </a>
@@ -4604,7 +4596,7 @@
                 <div class="product-cover">
                   <% if (produto.imagem) { %>
                     <img
-                      src="<%= produto.imagem %>"
+                      src="<%= safePublicUrl(produto.imagem, { allowDataImage: true }) %>"
                       alt="<%= produto.nome %>"
                     >
                   <% } else { %>
@@ -4756,7 +4748,7 @@
                 <% if (mesa.qrCode) { %>
                   <img
                     class="qr"
-                    src="<%= mesa.qrCode %>"
+                    src="<%= safePublicUrl(mesa.qrCode, { allowDataImage: true }) %>"
                     alt="QR Code da mesa <%= mesa.numero %>"
                   >
                 <% } %>
@@ -4772,7 +4764,7 @@
                     <a
                       target="_blank"
                       class="mini-button"
-                      href="<%= mesa.link %>"
+                      href="<%= safePublicUrl(mesa.link) %>"
                     >
                       Abrir cardápio da mesa
                     </a>
@@ -4958,7 +4950,7 @@
             <div class="employee-avatar">
               <% if (funcionario.foto) { %>
                 <img
-                  src="<%= funcionario.foto %>"
+                  src="<%= safePublicUrl(funcionario.foto, { allowDataImage: true }) %>"
                   alt="<%= funcionario.nome %>"
                 >
               <% } else { %>
@@ -5065,7 +5057,7 @@
               data-salario="<%= funcionario.salario || 0 %>"
               data-funcao="<%= funcionario.funcao %>"
               data-ativo="<%= funcionario.ativo ? 'true' : 'false' %>"
-              data-foto="<%= funcionario.foto || '' %>"
+              data-foto="<%= safePublicUrl(funcionario.foto, { allowDataImage: true }) %>"
               data-permissoes="<%= (funcionario.permissoes || []).join(',') %>"
             >
               Editar funcionário
@@ -5117,7 +5109,7 @@
                 <% if (config.fotoPerfil) { %>
                   <img
                     class="profile-preview"
-                    src="<%= config.fotoPerfil %>"
+                    src="<%= safePublicUrl(config.fotoPerfil, { allowDataImage: true }) %>"
                     alt="Foto do estabelecimento"
                   >
                 <% } %>
@@ -5249,7 +5241,7 @@
             </div>
             <% if (config.mercadoPago && config.mercadoPago.conectado) { %>
               <div class="link-box" style="margin-bottom:14px">✅ Conta conectada — Pix automático disponível no catálogo.</div>
-              <form action="/admin/mercado-pago/desconectar" method="POST" onsubmit="return confirm('Desconectar a conta Mercado Pago?')">
+              <form action="/admin/mercado-pago/desconectar" method="POST" data-confirm-mercado-pago-disconnect>
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                 <button type="submit" class="button" style="background:#777">Desconectar Mercado Pago</button>
               </form>
@@ -6725,7 +6717,7 @@
   id="orderToastContainer"
 ></div>
 
-  <script>
+  <script nonce="<%= cspNonce %>">
     const pageInfo = {
       dashboard: [
         'Visão geral',
@@ -7224,13 +7216,13 @@ showCustomOrdersFilter?.addEventListener('click', () => {
 });
 
 const podeReceberNotificacoes =
-  <%- JSON.stringify(menuCompleto); %>;
+  <%- safeJsonForHtml(menuCompleto); %>;
 
 const podeImprimirPedidos =
-  <%- JSON.stringify(pode('imprimir_pedidos')); %>;
+  <%- safeJsonForHtml(pode('imprimir_pedidos')); %>;
 
 const impressorasConfiguradas =
-  <%- JSON.stringify(config.impressoras || []); %>;
+  <%- safeJsonForHtml(config.impressoras || []); %>;
 
 const printAgentUrl = '/admin/agente';
 
@@ -7897,7 +7889,7 @@ function criarCardPedido(
               <form
                 action="/admin/pedidos/${encodeURIComponent(pedido.id)}/confirmar-pagamento"
                 method="POST"
-                onsubmit="return confirm('Confirmar o recebimento deste pedido?');"
+                data-confirm-payment
               >
                 <button
                   type="submit"
@@ -8728,7 +8720,7 @@ if (podeReceberNotificacoes) {
   );
 }
   
-    const itensEstoqueFicha = <%- JSON.stringify((estoque || []).map(item => ({
+    const itensEstoqueFicha = <%- safeJsonForHtml((estoque || []).map(item => ({
       id: String(item._id),
       nome: item.nome,
       quantidade: Number(item.quantidade || 0),
@@ -8765,8 +8757,8 @@ if (podeReceberNotificacoes) {
 
     function opcoesEstoqueHtml() {
       return itensEstoqueFicha.map(item => `
-        <option value="${item.id}" data-unidade="${item.unidade}" data-custo="${item.custoUnitario}">
-          ${item.nome} — ${item.quantidade} ${item.unidade} em estoque
+        <option value="${escaparHtml(item.id)}" data-unidade="${escaparHtml(item.unidade)}" data-custo="${Number(item.custoUnitario) || 0}">
+          ${escaparHtml(item.nome)} — ${Number(item.quantidade) || 0} ${escaparHtml(item.unidade)} em estoque
         </option>
       `).join('');
     }
@@ -8802,7 +8794,7 @@ if (podeReceberNotificacoes) {
       const unidadeAnterior = unidadeSelect.value;
       const permitidas = unidadesPermitidas(item?.unidade || 'un');
       unidadeSelect.innerHTML = permitidas.map(unidade =>
-        `<option value="${unidade}">${unidade}</option>`
+        `<option value="${escaparHtml(unidade)}">${escaparHtml(unidade)}</option>`
       ).join('');
       if (permitidas.includes(unidadeAnterior)) unidadeSelect.value = unidadeAnterior;
       atualizarCustoFormulario(row.closest('form'));
@@ -8961,6 +8953,39 @@ if (podeReceberNotificacoes) {
       ordersTextSearch.addEventListener("search", filterOrdersByText);
       filterOrdersByText();
     }
+
+    document.querySelector('#dashboardPeriodo')?.addEventListener(
+      'change',
+      event => {
+        if (event.currentTarget.value) {
+          window.location.href =
+            '/admin?dashboardFiltro=' +
+            encodeURIComponent(event.currentTarget.value) +
+            '#dashboard';
+        }
+      }
+    );
+
+    document.addEventListener('submit', event => {
+      const form = event.target;
+      if (form.matches('[data-confirm-finalize-pending]') &&
+          form.elements.status?.value === 'finalizado' &&
+          !window.confirm(
+            'Finalizar este pedido? O pagamento continuará pendente até você usar Confirmar pagamento.'
+          )) {
+        event.preventDefault();
+        return;
+      }
+      if (form.matches('[data-confirm-payment]') &&
+          !window.confirm('Confirmar o recebimento deste pedido?')) {
+        event.preventDefault();
+        return;
+      }
+      if (form.matches('[data-confirm-mercado-pago-disconnect]') &&
+          !window.confirm('Desconectar a conta Mercado Pago?')) {
+        event.preventDefault();
+      }
+    });
 
   </script>
 

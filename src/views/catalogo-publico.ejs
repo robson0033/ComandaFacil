@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
 
   <title><%= configuracao.nomeEstabelecimento %> | Cardápio</title>
   <link rel="icon" href="/assets/imgs/comanda.png" type="image/x-png">
@@ -1092,7 +1093,7 @@
         <div class="hero-avatar">
           <% if (configuracao.fotoPerfil) { %>
             <img
-              src="<%= configuracao.fotoPerfil %>"
+              src="<%= safePublicUrl(configuracao.fotoPerfil, { allowDataImage: true }) %>"
               alt="<%= configuracao.nomeEstabelecimento %>"
             >
           <% } else { %>
@@ -1136,7 +1137,7 @@
             <% if (configuracao.telefone) { %>
               <a
                 class="hero-chip"
-                href="<%= whatsappLoja ? `https://wa.me/${whatsappLoja}` : "#" %>"
+                href="<%= safePublicUrl(whatsappLoja ? `https://wa.me/${whatsappLoja}` : "#", { allowHash: true }) %>"
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -1165,11 +1166,11 @@
         <div class="hero-food">
           <% if (configuracao.fotoPerfil) { %>
             <img
-              src="<%= configuracao.fotoPerfil %>"
+              src="<%= safePublicUrl(configuracao.fotoPerfil, { allowDataImage: true }) %>"
               alt="<%= configuracao.nomeEstabelecimento %>"
             >
           <% } else if (heroProduto?.imagem) { %>
-            <img src="<%= heroProduto.imagem %>" alt="<%= heroProduto.nome %>">
+            <img src="<%= safePublicUrl(heroProduto.imagem, { allowDataImage: true }) %>" alt="<%= heroProduto.nome %>">
           <% } else { %>
             <div class="hero-food-placeholder">🍔</div>
           <% } %>
@@ -1257,8 +1258,8 @@
                 data-id="<%= produto._id %>"
                 data-product-name="<%= produto.nome %>"
                 data-product-price="<%= Number(produto.preco || 0) %>"
-                data-product-image="<%= produto.imagem || "" %>"
-                data-product-additionals='<%- JSON.stringify(
+                data-product-image="<%= safePublicUrl(produto.imagem, { allowDataImage: true }) %>"
+                data-product-additionals='<%= safeJsonForHtml(
                   (produto.adicionais || [])
                     .filter(adicional => adicional.ativo !== false)
                     .map(adicional => ({
@@ -1271,7 +1272,7 @@
                 <div class="product-cover">
                   <% if (produto.imagem) { %>
                     <img
-                      src="<%= produto.imagem %>"
+                      src="<%= safePublicUrl(produto.imagem, { allowDataImage: true }) %>"
                       alt="<%= produto.nome %>"
                     >
                   <% } else { %>
@@ -1306,7 +1307,6 @@
                     </div>
 
                     <div style="display:flex;gap:7px">
-                      <button type="button" class="add-btn" data-rate-product data-product-id="<%= produto._id %>" data-product-name="<%= produto.nome %>"><span>Avaliar</span></button>
                       <button type="button" class="add-btn" data-add-cart><span>Pedir</span></button>
                     </div>
                   </div>
@@ -1675,20 +1675,20 @@
     Cardápio digital
   </footer>
 
-  <script>
+  <script nonce="<%= cspNonce %>">
     const storeSlug =
-      <%- JSON.stringify(configuracao.slug || "") %>;
+      <%- safeJsonForHtml(configuracao.slug || "") %>;
     const lojaDisponivelInicial =
-      <%- JSON.stringify(lojaDisponivel !== false) %>;
+      <%- safeJsonForHtml(lojaDisponivel !== false) %>;
 
     const horarioAbertura =
-      <%- JSON.stringify(horarioAbertura) %>;
+      <%- safeJsonForHtml(horarioAbertura) %>;
 
     const horarioFechamento =
-      <%- JSON.stringify(horarioFechamento) %>;
+      <%- safeJsonForHtml(horarioFechamento) %>;
 
     const diasFuncionamento =
-      <%- JSON.stringify(diasFuncionamento) %>;
+      <%- safeJsonForHtml(diasFuncionamento) %>;
 
     const storageKey =
       `catalogo-cart-${storeSlug}`;
@@ -1796,6 +1796,21 @@
           currency: "BRL"
         }
       );
+    }
+
+    function urlImagemSegura(value) {
+      const text = String(value ?? '').trim();
+      if (/[\u0000-\u001F\u007F]/.test(text)) return '';
+      if (text.startsWith('/') && !text.startsWith('//')) return text;
+      if (/^data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+$/i.test(text)) {
+        return text;
+      }
+      try {
+        const url = new URL(text);
+        return url.protocol === 'https:' ? url.href : '';
+      } catch {
+        return '';
+      }
     }
 
     function escapeHtml(value) {
@@ -1924,7 +1939,7 @@
     }
 
     function renderCart() {
-      cartList.innerHTML = "";
+      cartList.replaceChildren();
 
       cartEmpty.classList.toggle(
         "hidden",
@@ -1938,67 +1953,35 @@
         element.className =
           "cart-item";
 
-        element.innerHTML = `
-          <div class="cart-thumb">
-            ${
-              item.image
-                ? `<img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}">`
-                : "🍔"
-            }
-          </div>
-
-          <div>
-            <h3 class="cart-name">
-              ${escapeHtml(item.name)}
-            </h3>
-
-            <div class="cart-price">
-              ${currency(
-                Number(item.price || 0) +
-                (item.adicionais || []).reduce(
-                  (sum, adicional) => sum + Number(adicional.preco || 0), 0
-                )
-              )}
-            </div>
-            ${item.adicionais?.length ? `<div class="cart-addons">${item.adicionais.map(a => `+ ${escapeHtml(a.nome)} (${currency(a.preco)})`).join("<br>")}</div>` : ""}
-
-            <div class="cart-actions">
-              <div class="qty-box">
-                <button
-                  type="button"
-                  class="qty-btn"
-                  data-action="decrease"
-                  data-id="${escapeHtml(item.cartId || item.id)}"
-                >
-                  −
-                </button>
-
-                <span class="qty-number">
-                  ${Number(item.quantity)}
-                </span>
-
-                <button
-                  type="button"
-                  class="qty-btn"
-                  data-action="increase"
-                  data-id="${escapeHtml(item.cartId || item.id)}"
-                >
-                  +
-                </button>
-              </div>
-
-              <button
-                type="button"
-                class="remove-btn"
-                data-action="remove"
-                data-id="${escapeHtml(item.cartId || item.id)}"
-                aria-label="Remover"
-              >
-                ×
-              </button>
-            </div>
-          </div>
-        `;
+        element.innerHTML = '<div class="cart-thumb"></div><div><h3 class="cart-name"></h3><div class="cart-price"></div><div class="cart-addons"></div><div class="cart-actions"><div class="qty-box"><button type="button" class="qty-btn" data-action="decrease">−</button><span class="qty-number"></span><button type="button" class="qty-btn" data-action="increase">+</button></div><button type="button" class="remove-btn" data-action="remove" aria-label="Remover">×</button></div></div>';
+        const imageUrl = urlImagemSegura(item.image);
+        const thumb = element.querySelector('.cart-thumb');
+        if (imageUrl) {
+          const image = document.createElement('img');
+          image.src = imageUrl;
+          image.alt = String(item.name || '');
+          thumb.appendChild(image);
+        } else {
+          thumb.textContent = '🍔';
+        }
+        element.querySelector('.cart-name').textContent =
+          String(item.name || '');
+        element.querySelector('.cart-price').textContent = currency(
+          Number(item.price || 0) +
+          (item.adicionais || []).reduce(
+            (sum, adicional) => sum + Number(adicional.preco || 0),
+            0
+          )
+        );
+        element.querySelector('.cart-addons').textContent =
+          (item.adicionais || [])
+            .map(adicional => `+ ${adicional.nome} (${currency(adicional.preco)})`)
+            .join('\n');
+        element.querySelector('.qty-number').textContent =
+          String(Number(item.quantity) || 0);
+        element.querySelectorAll('[data-action]').forEach(button => {
+          button.dataset.id = String(item.cartId || item.id || '');
+        });
 
         cartList.appendChild(element);
       });
@@ -2239,12 +2222,22 @@
 
             pendingProduct = { product, adicionais };
             addonTitle.textContent = `Adicionais de ${product.name}`;
-            addonList.innerHTML = adicionais.map(adicional => `
-              <div class="addon-option">
-                <label><input type="checkbox" value="${escapeHtml(adicional._id)}"> ${escapeHtml(adicional.nome)}</label>
-                <strong>+ ${currency(adicional.preco)}</strong>
-              </div>
-            `).join("");
+            addonList.replaceChildren();
+            adicionais.forEach(adicional => {
+              const option = document.createElement('div');
+              option.className = 'addon-option';
+              const label = document.createElement('label');
+              const input = document.createElement('input');
+              input.type = 'checkbox';
+              input.value = String(adicional._id || '');
+              label.append(input, document.createTextNode(
+                ` ${String(adicional.nome || '')}`
+              ));
+              const price = document.createElement('strong');
+              price.textContent = `+ ${currency(adicional.preco)}`;
+              option.append(label, price);
+              addonList.appendChild(option);
+            });
             addonModal.classList.add("open");
             document.body.classList.add("modal-open");
           }
@@ -2698,12 +2691,23 @@
         fecharModalTroco();
         formMessage.className = "form-message success";
         formMessage.textContent =
-          `Pedido #${result.numeroPedido} enviado. Acompanhe pelo WhatsApp informado.`;
+          `Pedido #${result.numeroPedido} enviado. Use “Meus pedidos” para acompanhar.`;
+        window.registrarPedidoAcompanhamento?.({
+          codigoPublico: result.numeroPedido,
+          token: result.acompanhamentoToken,
+          criadoEm: new Date().toISOString()
+        });
 
         if (payload.formaPagamento === "pix") {
           const pixResponse = await fetch(
-            `/catalogo/${encodeURIComponent(storeSlug)}/pedidos/${encodeURIComponent(result.pedidoId)}/pix`,
-            { method: "POST", headers: { "Content-Type": "application/json" } }
+            `/catalogo/${encodeURIComponent(storeSlug)}/pedido/pix`,
+            {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${result.acompanhamentoToken}`,
+                "Content-Type": "application/json"
+              }
+            }
           );
           const pixResult = await pixResponse.json();
           if (!pixResponse.ok) {
@@ -2725,7 +2729,13 @@
 
           const interval = setInterval(async () => {
             const statusResponse = await fetch(
-              `/catalogo/${encodeURIComponent(storeSlug)}/pedidos/${encodeURIComponent(result.pedidoId)}/pagamento-status`
+              `/catalogo/${encodeURIComponent(storeSlug)}/pedido/pagamento-status`,
+              {
+                method: "POST",
+                headers: {
+                  "Authorization": `Bearer ${result.acompanhamentoToken}`
+                }
+              }
             );
             const statusResult = await statusResponse.json();
             if (statusResult.pagamentoStatus === "pago") {
@@ -2965,10 +2975,9 @@
       <button type="button" id="closeMyOrders" class="my-orders-close" aria-label="Fechar">✕</button>
     </header>
     <div class="my-orders-body">
-      <form id="myOrdersForm" class="my-orders-form">
-        <input id="ordersPhone" required inputmode="tel" autocomplete="tel" placeholder="Seu telefone/WhatsApp">
-        <button type="submit">Consultar</button>
-      </form>
+      <p style="margin-top:0;color:#74645d">
+        Somente pedidos realizados neste navegador aparecem aqui.
+      </p>
       <div id="myOrdersResult" class="my-orders-result"></div>
     </div>
   </div>
@@ -2995,13 +3004,14 @@
 </a>
 </dialog>
 
-<script>
+<script nonce="<%= cspNonce %>" src="/js/pedidoTrackingStorage.js"></script>
+<script nonce="<%= cspNonce %>">
 (() => {
-  const slug = <%- JSON.stringify(configuracao.slug) %>;
+  const slug = <%- safeJsonForHtml(configuracao.slug) %>;
+  const trackingStorageKey = `pedidos-acompanhamento:${slug}`;
   const dialog = document.querySelector('#myOrdersDialog');
   const resultBox = document.querySelector('#myOrdersResult');
-  const phoneInput = document.querySelector('#ordersPhone');
-
+  const tokensDosPedidos = new Map();
   const money = value => `R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`;
   const escapeHtml = value => String(value ?? '')
     .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
@@ -3014,139 +3024,200 @@
 
   const paymentText = status => ({ pendente: 'Pendente', pago: 'Pago', cancelado: 'Cancelado' }[status] || status || 'Pendente');
 
-  function openPixFromOrder(pix, pedidoId) {
-    const orderModal = document.querySelector('#orderModal');
-    const pixModal = document.querySelector('#pixPaymentModal');
-    const qr = document.querySelector('#pixQrImage');
-    const code = document.querySelector('#pixCopyCode');
-    const status = document.querySelector('#pixPaymentStatus');
-    const copyButton = document.querySelector('#copyPixButton');
-
-    if (!pixModal || !qr || !code) throw new Error('Tela do Pix não foi encontrada.');
-    if (orderModal) orderModal.classList.remove('open');
-    dialog.close();
-    qr.src = `data:image/png;base64,${pix.qrCodeBase64 || ''}`;
-    code.value = pix.copiaCola || '';
-    status.textContent = 'Aguardando pagamento...';
-    copyButton.textContent = 'Copiar código Pix';
-    copyButton.onclick = async () => {
-      await navigator.clipboard.writeText(code.value);
-      copyButton.textContent = 'Código copiado';
-    };
-    pixModal.classList.add('open');
-    document.body.classList.add('modal-open');
-
-    const interval = setInterval(async () => {
-      try {
-        const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/pedidos/${encodeURIComponent(pedidoId)}/pagamento-status`);
-        const data = await response.json();
-        if (data.pagamentoStatus === 'pago') {
-          clearInterval(interval);
-          status.textContent = '✅ Pagamento aprovado. Pedido confirmado!';
-        }
-      } catch (_) {}
-    }, 5000);
+  function referenciasLocais() {
+    try {
+      const value = JSON.parse(localStorage.getItem(trackingStorageKey) || '[]');
+      const normalizadas = window.PedidoTrackingStorage.normalizar(value);
+      salvarReferencias(normalizadas);
+      return normalizadas;
+    } catch {
+      return [];
+    }
   }
 
-  async function finishPendingPix(button) {
-    const pedidoId = button.dataset.orderId;
-    button.disabled = true;
-    const oldText = button.textContent;
-    button.textContent = 'Gerando Pix...';
-    try {
-      const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/pedidos/${encodeURIComponent(pedidoId)}/pix`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'Não foi possível gerar o Pix.');
-      if (data.aprovado) {
-        alert('Este pedido já está pago.');
-        return;
-      }
-      openPixFromOrder(data, pedidoId);
-    } catch (error) {
-      alert(error.message);
-    } finally {
-      button.disabled = false;
-      button.textContent = oldText;
-    }
+  function salvarReferencias(value) {
+    localStorage.setItem(trackingStorageKey, JSON.stringify(value));
+  }
+
+  window.registrarPedidoAcompanhamento = referencia => {
+    if (!referencia?.codigoPublico || !referencia?.token) return;
+    const value = referenciasLocais()
+      .filter(item =>
+        item.token !== referencia.token &&
+        item.codigoPublico !== String(referencia.codigoPublico)
+      );
+    value.unshift({
+      codigoPublico: String(referencia.codigoPublico),
+      token: String(referencia.token),
+      criadoEm: String(referencia.criadoEm || new Date().toISOString())
+    });
+    salvarReferencias(value.slice(0, 50));
+    document.querySelector('#openMyOrders').textContent = '📦 Acompanhar pedido';
+  };
+
+  function mostrarMensagemPedidos(className, mensagem) {
+    const box = document.createElement('div');
+    box.className = className;
+    box.textContent = String(mensagem || '');
+    resultBox.replaceChildren(box);
   }
 
   function renderOrders(orders) {
+    tokensDosPedidos.clear();
     if (!orders.length) {
-      resultBox.innerHTML = '<div class="orders-empty">Nenhum pedido encontrado para este telefone.</div>';
+      mostrarMensagemPedidos(
+        'orders-empty',
+        'Nenhum pedido acompanhado neste navegador.'
+      );
       return;
     }
 
-    resultBox.innerHTML = orders.map(order => {
-      const pendingPix = order.formaPagamento === 'pix' && order.pagamentoStatus === 'pendente';
-      const items = (order.itens || []).map(item => {
-        const extras = (item.adicionais || []).map(extra => escapeHtml(extra.nome)).join(', ');
-        return `<div class="customer-order-item">
-          <span>${Number(item.quantidade || 1)}x</span>
-          <div><strong>${escapeHtml(item.nome || 'Item')}</strong>${extras ? `<small>Adicionais: ${extras}</small>` : ''}${item.observacao ? `<small>Observação: ${escapeHtml(item.observacao)}</small>` : ''}</div>
-          <strong class="customer-order-item-price">${money(item.subtotal || (Number(item.preco || 0) * Number(item.quantidade || 1)))}</strong>
-        </div>`;
-      }).join('');
-
-      return `<article class="customer-order-card">
-        <div class="customer-order-head">
-          <div><div class="customer-order-number">Pedido #${escapeHtml(order.numero)}</div><div class="customer-order-date">${new Date(order.createdAt).toLocaleString('pt-BR')}</div></div>
-          <div class="customer-order-badges">
-            <span class="customer-order-badge">${escapeHtml(statusText(order.status))}</span>
-            <span class="customer-order-badge ${order.pagamentoStatus === 'pago' ? 'paid' : 'pending'}">Pagamento: ${escapeHtml(paymentText(order.pagamentoStatus))}</span>
-          </div>
-        </div>
-        <div><strong>Forma de pagamento:</strong> ${order.formaPagamento === 'pix' ? 'Pix online' : escapeHtml(order.formaPagamento || 'Não informada')}</div>
-        ${order.observacao ? `<div><strong>Observação do pedido:</strong> ${escapeHtml(order.observacao)}</div>` : ''}
-        <div class="customer-order-items">${items || '<div>Itens não informados.</div>'}</div>
-        <div class="customer-order-footer">
-          <div class="customer-order-total">Total: ${money(order.total)}</div>
-          ${pendingPix ? `<button type="button" class="finish-pix-button" data-finish-pix data-order-id="${escapeHtml(order.id)}">Concluir pagamento Pix</button>` : ''}
-        </div>
-      </article>`;
-    }).join('');
+    const cards = orders.map(order => {
+      tokensDosPedidos.set(
+        String(order.codigoPublico),
+        order.acompanhamentoTokenLocal
+      );
+      const card = document.createElement('article');
+      card.className = 'customer-order-card';
+      card.innerHTML = '<div class="customer-order-head"><div><div class="customer-order-number"></div><div class="customer-order-date"></div></div><div class="customer-order-badges"><span class="customer-order-badge order-status"></span><span class="customer-order-badge payment-status"></span></div></div><div class="customer-order-delivery"><strong>Entrega: </strong><span></span></div><div class="customer-order-message"></div><div class="customer-order-items"></div><div class="customer-order-footer"><div class="customer-order-total"></div></div>';
+      card.querySelector('.customer-order-number').textContent =
+        `Pedido #${String(order.codigoPublico || '')}`;
+      card.querySelector('.customer-order-date').textContent =
+        new Date(order.data).toLocaleString('pt-BR');
+      card.querySelector('.order-status').textContent =
+        statusText(order.status);
+      const payment = card.querySelector('.payment-status');
+      payment.classList.add(
+        order.pagamentoStatus === 'pago' ? 'paid' : 'pending'
+      );
+      payment.textContent =
+        `Pagamento: ${paymentText(order.pagamentoStatus)}`;
+      card.querySelector('.customer-order-delivery span').textContent =
+        String(order.formaEntrega || 'Não informada');
+      card.querySelector('.customer-order-message').textContent =
+        String(order.mensagem || '');
+      card.querySelector('.customer-order-total').textContent =
+        `Total: ${money(order.total)}`;
+      const itemsBox = card.querySelector('.customer-order-items');
+      if (!(order.itens || []).length) {
+        const empty = document.createElement('div');
+        empty.textContent = 'Itens não informados.';
+        itemsBox.appendChild(empty);
+      }
+      (order.itens || []).forEach(item => {
+        const itemRow = document.createElement('div');
+        itemRow.className = 'customer-order-item';
+        const quantity = document.createElement('span');
+        quantity.textContent = `${Number(item.quantidade || 1)}x`;
+        const nameBox = document.createElement('div');
+        const name = document.createElement('strong');
+        name.textContent = String(item.nome || 'Item');
+        nameBox.appendChild(name);
+        itemRow.append(quantity, nameBox);
+        if (order.pagamentoStatus === 'pago' && item.produtoId) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'finish-pix-button';
+          button.dataset.rateProduct = '';
+          button.dataset.orderCode = String(order.codigoPublico || '');
+          button.dataset.productId = String(item.produtoId);
+          button.textContent = 'Avaliar';
+          itemRow.appendChild(button);
+        }
+        itemsBox.appendChild(itemRow);
+      });
+      return card;
+    });
+    resultBox.replaceChildren(...cards);
   }
 
-  document.querySelector('#openMyOrders').onclick = () => dialog.showModal();
+  async function carregarPedidos() {
+    const referencias = referenciasLocais();
+    if (!referencias.length) return renderOrders([]);
+    mostrarMensagemPedidos('orders-loading', 'Atualizando pedidos...');
+    const validas = [];
+    const pedidos = [];
+    for (const referencia of referencias) {
+      try {
+        const response = await fetch(
+          `/catalogo/${encodeURIComponent(slug)}/pedido/consultar`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${referencia.token}`
+            }
+          }
+        );
+        if (response.status === 404) continue;
+        const data = await response.json();
+        if (!response.ok) throw new Error(
+          data.message || 'Não foi possível consultar o pedido.'
+        );
+        validas.push(referencia);
+        pedidos.push({
+          ...data.pedido,
+          acompanhamentoTokenLocal: referencia.token
+        });
+      } catch (error) {
+        salvarReferencias(referencias);
+        mostrarMensagemPedidos('orders-error', error.message);
+        return;
+      }
+    }
+    salvarReferencias(validas);
+    renderOrders(pedidos);
+  }
+
+  document.querySelector('#openMyOrders').onclick = async () => {
+    dialog.showModal();
+    await carregarPedidos();
+  };
   document.querySelector('#closeMyOrders').onclick = () => dialog.close();
   dialog.addEventListener('click', event => {
     if (event.target === dialog) dialog.close();
   });
-
-  resultBox.addEventListener('click', event => {
-    const button = event.target.closest('[data-finish-pix]');
-    if (button) finishPendingPix(button);
-  });
-
-  document.addEventListener('click', async event => {
+  resultBox.addEventListener('click', async event => {
     const button = event.target.closest('[data-rate-product]');
     if (!button) return;
-    const telefone = prompt('Informe o telefone usado no pedido:');
-    if (!telefone) return;
     const nota = Number(prompt('Nota de 1 a 5:'));
-    if (!Number.isInteger(nota) || nota < 1 || nota > 5) return alert('Nota inválida.');
-    const comentario = prompt('Comentário (opcional):') || '';
-    const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/produtos/${encodeURIComponent(button.dataset.productId)}/avaliacoes`, {
-      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ telefone, nota, comentario })
-    });
-    const data = await response.json();
-    alert(data.message || (response.ok ? 'Avaliação salva.' : 'Falha ao avaliar.'));
-    if (response.ok) location.reload();
-  });
-
-  document.querySelector('#myOrdersForm').onsubmit = async event => {
-    event.preventDefault();
-    resultBox.innerHTML = '<div class="orders-loading">Consultando pedidos...</div>';
-    try {
-      const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/meus-pedidos?telefone=${encodeURIComponent(phoneInput.value)}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'Não foi possível consultar os pedidos.');
-      renderOrders(data.pedidos || []);
-    } catch (error) {
-      resultBox.innerHTML = `<div class="orders-error">${escapeHtml(error.message)}</div>`;
+    if (!Number.isInteger(nota) || nota < 1 || nota > 5) {
+      alert('Nota inválida.');
+      return;
     }
-  };
+    const comentario = prompt('Comentário (opcional):') || '';
+    const token = tokensDosPedidos.get(button.dataset.orderCode);
+    if (!token) {
+      alert('Não foi possível validar este pedido.');
+      return;
+    }
+    button.disabled = true;
+    try {
+      const response = await fetch(
+        `/catalogo/${encodeURIComponent(slug)}/pedido/avaliacao`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            produtoId: button.dataset.productId,
+            nota,
+            comentario
+          })
+        }
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(
+        data.message || 'Não foi possível salvar a avaliação.'
+      );
+      alert(data.message);
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
 })();
 </script>
 </body>

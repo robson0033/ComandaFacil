@@ -26,6 +26,11 @@ const {
   respostaLojaIndisponivel,
 } = require("../services/assinaturaAcessoService");
 const {
+  buscarPedidoPorToken,
+  extrairBearerToken,
+  serializarPedidoPublico,
+} = require("../services/pedidoPublicoTokenService");
+const {
   carregarIdentidadeAtual,
   encerrarSessao,
 } = require("../middleware/auth");
@@ -5574,6 +5579,10 @@ const criarPedidoCatalogoAnterior = async (
         String(pedido._id)
           .slice(-6)
           .toUpperCase(),
+      acompanhamentoToken:
+        pedido.acompanhamentoToken,
+      acompanhamentoTokenExpiraEm:
+        pedido.acompanhamentoTokenExpiraEm,
 
       total,
     });
@@ -5968,6 +5977,10 @@ exports.criarPedidoMesa = async (
         String(pedido._id)
           .slice(-6)
           .toUpperCase(),
+      acompanhamentoToken:
+        pedido.acompanhamentoToken,
+      acompanhamentoTokenExpiraEm:
+        pedido.acompanhamentoTokenExpiraEm,
       total,
       itens: itens.map((item) => ({
         produtoId: item.produtoId,
@@ -6824,12 +6837,14 @@ exports.criarPedidoCatalogo =
         message:
           "Pedido enviado com sucesso.",
 
-        pedidoId: pedido._id,
-
         numeroPedido:
           String(pedido._id)
             .slice(-6)
             .toUpperCase(),
+        acompanhamentoToken:
+          pedido.acompanhamentoToken,
+        acompanhamentoTokenExpiraEm:
+          pedido.acompanhamentoTokenExpiraEm,
 
         canal,
 
@@ -6855,65 +6870,157 @@ function normalizarTelefonePublico(value = "") {
   return String(value).replace(/\D/g, "").slice(-11);
 }
 
-exports.buscarPedidosCatalogo = async (req, res) => {
+exports.acompanharPedidoCatalogo = async (req, res) => {
   try {
-    const configuracao = await Configuracao.findOne({ slug: req.params.slug }).lean();
-    if (!configuracao) return res.status(404).json({ success: false, message: "Loja não encontrada." });
-    const telefone = normalizarTelefonePublico(req.query.telefone);
-    if (telefone.length < 10) return res.status(400).json({ success: false, message: "Informe um telefone válido." });
-    const telefoneRegex = new RegExp(
-      telefone.split("").join("\\D*"),
-    );
-
-    const pedidos = await Pedido.find({
+    const token = extrairBearerToken(req);
+    if (!token) {
+      return res.status(404).json({
+        success: false,
+        message: "Pedido não encontrado.",
+      });
+    }
+    const configuracao = await Configuracao.findOne({
+      slug: req.params.slug,
+    }).select("estabelecimentoId").lean();
+    if (!configuracao) {
+      return res.status(404).json({
+        success: false,
+        message: "Pedido não encontrado.",
+      });
+    }
+    const pedido = await buscarPedidoPorToken({
       estabelecimentoId: configuracao.estabelecimentoId,
-      $or: [
-        { telefoneNormalizado: telefone },
-        { telefoneCliente: telefoneRegex },
-      ],
-    }).sort({ createdAt: -1 }).limit(30).lean();
-    return res.json({ success: true, pedidos: pedidos.map(p => ({
-      id: String(p._id),
-      numero: String(p._id).slice(-6).toUpperCase(),
-      cliente: p.cliente,
-      canal: p.canal,
-      itens: p.itens || [],
-      observacao: p.observacao || "",
-      total: p.total,
-      status: p.status,
-      pagamentoStatus: p.pagamentoStatus,
-      formaPagamento: p.formaPagamento,
-      createdAt: p.createdAt,
-    })) });
+      token,
+    });
+    if (!pedido) {
+      return res.status(404).json({
+        success: false,
+        message: "Pedido não encontrado.",
+      });
+    }
+    return res.json({
+      success: true,
+      pedido: serializarPedidoPublico(pedido),
+    });
   } catch (error) {
-    console.error("Erro ao consultar pedidos do catálogo:", error);
-    return res.status(500).json({ success: false, message: "Não foi possível consultar os pedidos." });
+    console.error("Erro ao acompanhar pedido público:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Não foi possível acompanhar o pedido.",
+    });
   }
 };
 
 exports.avaliarProdutoCatalogo = async (req, res) => {
   try {
-    const configuracao = await Configuracao.findOne({ slug: req.params.slug }).lean();
-    if (!configuracao) return res.status(404).json({ success: false, message: "Loja não encontrada." });
-    const telefone = normalizarTelefonePublico(req.body.telefone);
-    const nota = Number(req.body.nota);
-    if (telefone.length < 10 || nota < 1 || nota > 5) return res.status(400).json({ success: false, message: "Telefone ou nota inválida." });
-    const pedido = await Pedido.findOne({
+    const token = extrairBearerToken(req);
+    if (!token) {
+      return res.status(404).json({
+        success: false,
+        message: "Pedido não encontrado.",
+      });
+    }
+    const configuracao = await Configuracao.findOne({
+      slug: req.params.slug,
+    }).select("estabelecimentoId").lean();
+    if (!configuracao) {
+      return res.status(404).json({
+        success: false,
+        message: "Pedido não encontrado.",
+      });
+    }
+    const pedido = await buscarPedidoPorToken({
       estabelecimentoId: configuracao.estabelecimentoId,
-      telefoneNormalizado: telefone,
-      pagamentoStatus: "pago",
-      "itens.produtoId": req.params.produtoId,
-    }).sort({ createdAt: -1 });
-    if (!pedido) return res.status(403).json({ success: false, message: "A avaliação é liberada após uma compra paga deste produto." });
-    await Avaliacao.findOneAndUpdate(
-      { pedidoId: pedido._id, produtoId: req.params.produtoId },
-      { $set: { estabelecimentoId: configuracao.estabelecimentoId, pedidoId: pedido._id, produtoId: req.params.produtoId, cliente: pedido.cliente, nota, comentario: String(req.body.comentario || "").trim() } },
-      { upsert: true, returnDocument: "after", runValidators: true }
-    );
-    return res.json({ success: true, message: "Avaliação salva." });
+      token,
+      lean: false,
+    });
+    if (!pedido) {
+      return res.status(404).json({
+        success: false,
+        message: "Pedido não encontrado.",
+      });
+    }
+    if (pedido.pagamentoStatus !== "pago") {
+      return res.status(403).json({
+        success: false,
+        message: "A avaliação é liberada após a confirmação do pagamento.",
+      });
+    }
+
+    const produtoId = String(req.body?.produtoId || "").trim();
+    const notaRecebida = Number(req.body?.nota);
+    const nota = Number.isInteger(notaRecebida) ? notaRecebida : 0;
+    if (!mongoose.isValidObjectId(produtoId) || nota < 1 || nota > 5) {
+      return res.status(400).json({
+        success: false,
+        message: "Avaliação inválida.",
+      });
+    }
+    const itemComprado = (pedido.itens || []).some(item =>
+      String(item.produtoId) === produtoId);
+    if (!itemComprado) {
+      return res.status(403).json({
+        success: false,
+        message: "Este produto não pertence ao pedido informado.",
+      });
+    }
+    const produtoDaLoja = await Produto.exists({
+      _id: produtoId,
+      estabelecimentoId: configuracao.estabelecimentoId,
+    });
+    if (!produtoDaLoja) {
+      return res.status(404).json({
+        success: false,
+        message: "Produto não encontrado.",
+      });
+    }
+
+    const comentario = String(req.body?.comentario || "").trim().slice(0, 500);
+    const filtroAvaliacao = {
+      estabelecimentoId: configuracao.estabelecimentoId,
+      pedidoId: pedido._id,
+      produtoId,
+    };
+    const atualizacaoAvaliacao = {
+      $set: {
+        estabelecimentoId: configuracao.estabelecimentoId,
+        pedidoId: pedido._id,
+        produtoId,
+        cliente: pedido.cliente || "Cliente",
+        nota,
+        comentario,
+      },
+    };
+    try {
+      await Avaliacao.findOneAndUpdate(
+        filtroAvaliacao,
+        atualizacaoAvaliacao,
+        {
+          upsert: true,
+          returnDocument: "after",
+          runValidators: true,
+          setDefaultsOnInsert: true,
+        },
+      );
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      const resultado = await Avaliacao.updateOne(
+        filtroAvaliacao,
+        atualizacaoAvaliacao,
+        { runValidators: true },
+      );
+      if (!resultado?.matchedCount) throw error;
+    }
+    return res.json({
+      success: true,
+      message: "Obrigado pela sua avaliação!",
+    });
   } catch (error) {
-    console.error("Erro ao avaliar produto:", error);
-    return res.status(500).json({ success: false, message: "Não foi possível salvar a avaliação." });
+    console.error("Erro ao avaliar produto do catálogo:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Não foi possível salvar a avaliação.",
+    });
   }
 };
 

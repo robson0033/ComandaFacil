@@ -533,6 +533,14 @@ const Pedido = mongoose.model(
       telefoneNormalizado: { type: String, default: "", trim: true, index: true },
       emailCliente: { type: String, default: "", trim: true, lowercase: true },
       enderecoEntrega: { type: String, default: "", trim: true },
+      acompanhamentoTokenHash: {
+        type: String,
+        select: false,
+      },
+      acompanhamentoTokenCriadoEm: { type: Date, default: null },
+      acompanhamentoTokenExpiraEm: { type: Date, default: null },
+      excluido: { type: Boolean, default: false },
+      excluidoEm: { type: Date, default: null },
 
       canal: {
         type: String,
@@ -749,6 +757,17 @@ const Pedido = mongoose.model(
     },
     opts,
   ),
+);
+
+Pedido.schema.index(
+  { acompanhamentoTokenHash: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      acompanhamentoTokenHash: { $type: "string" },
+    },
+    name: "pedido_acompanhamento_token_hash_unico",
+  },
 );
 
 
