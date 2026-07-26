@@ -2971,6 +2971,11 @@
     typeof produtos !== 'undefined' && Array.isArray(produtos)
       ? produtos
       : [];
+  const listaIngredientesDesativadosReferenciados =
+    typeof ingredientesDesativadosReferenciados !== 'undefined' &&
+    Array.isArray(ingredientesDesativadosReferenciados)
+      ? ingredientesDesativadosReferenciados
+      : [];
 
   const listaMesas =
     typeof mesas !== 'undefined' && Array.isArray(mesas)
@@ -3032,6 +3037,19 @@
       usuario.permissoes?.includes(modulo)
     );
   };
+
+  const permissoesAdministrativasCriticas = [
+    'funcionarios',
+    'configuracoes',
+    'configurar_impressoras'
+  ];
+
+  const podeDelegarPermissao = permissao =>
+    usuario.tipo === 'proprietario' ||
+    (
+      usuario.permissoes?.includes(permissao) &&
+      !permissoesAdministrativasCriticas.includes(permissao)
+    );
 
   const modulosMenuCompleto = [
     'dashboard',
@@ -4371,25 +4389,38 @@
                     </td>
 
                     <%
-                      const quantidadeRestante = Number(item.quantidade || 0);
-                      const quantidadeCadastrada = Number(
-                        item.quantidadeInicial ?? quantidadeRestante
-                      );
-                      const quantidadeConsumida = Math.max(
-                        quantidadeCadastrada - quantidadeRestante,
-                        0
-                      );
+                      const numeroSeguro = valor => {
+                        const numero = Number(valor);
+                        return Number.isFinite(numero) ? numero : 0;
+                      };
+                      const formatarQuantidade = valor =>
+                        numeroSeguro(valor).toLocaleString('pt-BR', {
+                          maximumFractionDigits: 3
+                        });
+                      const quantidadeRestante = numeroSeguro(item.quantidade);
+                      const possuiAcumuladores =
+                        item.totalEntradas !== undefined &&
+                        item.totalConsumido !== undefined;
+                      const quantidadeCadastrada = possuiAcumuladores
+                        ? numeroSeguro(item.totalEntradas)
+                        : null;
+                      const quantidadeConsumida = possuiAcumuladores
+                        ? Math.max(0, numeroSeguro(item.totalConsumido))
+                        : null;
                       const percentualRestante = quantidadeCadastrada > 0
                         ? Math.max(0, Math.min(100, (quantidadeRestante / quantidadeCadastrada) * 100))
                         : 0;
                     %>
 
                     <td data-label="Cadastrado">
-                      <strong><%= quantidadeCadastrada %> <%= item.unidade %></strong>
+                      <strong>
+                        <%= quantidadeCadastrada === null ? 'Revisar' : formatarQuantidade(quantidadeCadastrada) %>
+                        <%= quantidadeCadastrada === null ? '' : item.unidade %>
+                      </strong>
                     </td>
 
                     <td data-label="Restante">
-                      <strong><%= quantidadeRestante %> <%= item.unidade %></strong>
+                      <strong><%= formatarQuantidade(quantidadeRestante) %> <%= item.unidade %></strong>
                       <div style="margin-top:6px;height:7px;background:#eee;border-radius:999px;overflow:hidden;min-width:110px;">
                         <div style="height:100%;width:<%= percentualRestante.toFixed(1) %>%;background:<%= percentualRestante <= 20 ? '#dc2626' : percentualRestante <= 40 ? '#f59e0b' : '#16a34a' %>;border-radius:999px;"></div>
                       </div>
@@ -4397,7 +4428,8 @@
                     </td>
 
                     <td data-label="Consumido">
-                      <%= quantidadeConsumida %> <%= item.unidade %>
+                      <%= quantidadeConsumida === null ? 'Revisar' : formatarQuantidade(quantidadeConsumida) %>
+                      <%= quantidadeConsumida === null ? '' : item.unidade %>
                     </td>
 
                     <td data-label="Mínimo">
@@ -4428,6 +4460,7 @@
                       <form
                         action="/admin/estoque/<%= item._id %>/excluir"
                         method="POST"
+                        data-delete-stock
                       >
                         <button
                           type="submit"
@@ -5998,9 +6031,27 @@
 
             <div class="technical-list" data-technical-list>
               <% (produto.fichaTecnica || []).forEach(ingrediente => { %>
+                <%
+                  const ingredienteIdAtual = String(
+                    ingrediente.estoqueId?._id || ingrediente.estoqueId
+                  );
+                  const ingredienteDesativado =
+                    listaIngredientesDesativadosReferenciados.find(
+                      item => String(item._id) === ingredienteIdAtual
+                    );
+                %>
                 <div class="technical-row">
                   <select name="fichaEstoqueId[]" class="technical-stock" required>
                     <option value="">Selecione o ingrediente</option>
+                    <% if (ingredienteDesativado) { %>
+                      <option
+                        value="<%= ingredienteDesativado._id %>"
+                        data-desativado="true"
+                        selected
+                      >
+                        <%= ingredienteDesativado.nome %> — desativado
+                      </option>
+                    <% } %>
                     <% estoque.forEach(item => { %>
                       <option
                         value="<%= item._id %>"
@@ -6393,7 +6444,7 @@
             'configuracoes',
             'imprimir_pedidos',
             'configurar_impressoras'
-          ].forEach(permissao => { %>
+          ].filter(podeDelegarPermissao).forEach(permissao => { %>
             <label>
               <input
                 type="checkbox"
@@ -6627,7 +6678,7 @@
             'configuracoes',
             'imprimir_pedidos',
             'configurar_impressoras'
-          ].forEach(permissao => { %>
+          ].filter(podeDelegarPermissao).forEach(permissao => { %>
             <label>
               <input
                 type="checkbox"
@@ -8486,6 +8537,43 @@ document.addEventListener('click', async event => {
   }
 });
 
+document.addEventListener('submit', async event => {
+  const form = event.target.closest('[data-delete-stock]');
+  if (!form) return;
+  event.preventDefault();
+
+  if (!window.confirm('Excluir este ingrediente do estoque?')) return;
+
+  const button = form.querySelector('button[type="submit"]');
+  const original = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Excluindo...';
+  }
+
+  try {
+    const response = await fetch(form.action, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.message || 'Não foi possível excluir o ingrediente.');
+    }
+    form.closest('tr')?.remove();
+    alert(result.message || 'Ingrediente excluído.');
+  } catch (error) {
+    alert(error.message);
+    if (button) {
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+});
+
 document.addEventListener(
   'click',
   async event => {
@@ -8704,6 +8792,13 @@ if (podeReceberNotificacoes) {
       const estoqueSelect = row.querySelector('.technical-stock');
       const unidadeSelect = row.querySelector('.technical-unit');
       const item = itensEstoqueFicha.find(i => i.id === estoqueSelect.value);
+      if (
+        !item &&
+        estoqueSelect.selectedOptions[0]?.dataset.desativado === 'true'
+      ) {
+        atualizarCustoFormulario(row.closest('form'));
+        return;
+      }
       const unidadeAnterior = unidadeSelect.value;
       const permitidas = unidadesPermitidas(item?.unidade || 'un');
       unidadeSelect.innerHTML = permitidas.map(unidade =>

@@ -530,67 +530,29 @@ test("sessão: login regenera sessão e preserva usuário e duração", async ()
   assert.equal(req.session.cookie.maxAge, 30 * 24 * 60 * 60 * 1000);
 });
 
-test("estoque: duas solicitações simultâneas aplicam uma única baixa", async () => {
+test("estoque: duas solicitações simultâneas adquirem um único lock", async () => {
   const originals = {
     pedidoFindOneAndUpdate: models.Pedido.findOneAndUpdate,
-    pedidoFindById: models.Pedido.findById,
-    pedidoUpdateOne: models.Pedido.updateOne,
-    produtoFind: models.Produto.find,
-    estoqueFind: models.Estoque.find,
-    estoqueFindOne: models.Estoque.findOne,
-    estoqueUpdateOne: models.Estoque.updateOne,
   };
   let claimed = false;
-  let stockUpdates = 0;
   const pedido = {
     _id: "507f1f77bcf86cd799439011",
     estabelecimentoId: "507f191e810c19729de860ea",
     itens: [{ produtoId: "507f191e810c19729de860eb", quantidade: 2 }],
   };
-  models.Pedido.findOneAndUpdate = async () => {
+  models.Pedido.findOneAndUpdate = async (filter, update) => {
     if (claimed) return null;
     claimed = true;
-    return pedido;
-  };
-  models.Pedido.findById = async () => pedido;
-  models.Pedido.updateOne = async () => ({ modifiedCount: 1 });
-  models.Produto.find = () => ({
-    lean: async () => [{
-      _id: "507f191e810c19729de860eb",
-      receita: [{
-        estoqueId: "507f191e810c19729de860ec",
-        quantidade: 1,
-        unidade: "unidade",
-      }],
-    }],
-  });
-  const estoque = {
-    _id: "507f191e810c19729de860ec",
-    nome: "Ingrediente",
-    unidade: "unidade",
-    quantidade: 10,
-    estoqueOperacoes: [],
-  };
-  models.Estoque.find = () => ({ select: async () => [estoque] });
-  models.Estoque.findOne = () => ({ select: async () => estoque });
-  models.Estoque.updateOne = async () => {
-    stockUpdates += 1;
-    return { modifiedCount: 1 };
+    return { ...pedido, estoqueLockId: update.$set.estoqueLockId };
   };
   try {
-    await Promise.all([
-      estoqueService.baixarEstoqueDoPedido(pedido._id),
-      estoqueService.baixarEstoqueDoPedido(pedido._id),
+    const [primeiro, segundo] = await Promise.all([
+      estoqueService._testing.adquirirLock(pedido._id, "baixa"),
+      estoqueService._testing.adquirirLock(pedido._id, "baixa"),
     ]);
-    assert.equal(stockUpdates, 1);
+    assert.equal([primeiro, segundo].filter(item => item.pedido).length, 1);
   } finally {
     models.Pedido.findOneAndUpdate = originals.pedidoFindOneAndUpdate;
-    models.Pedido.findById = originals.pedidoFindById;
-    models.Pedido.updateOne = originals.pedidoUpdateOne;
-    models.Produto.find = originals.produtoFind;
-    models.Estoque.find = originals.estoqueFind;
-    models.Estoque.findOne = originals.estoqueFindOne;
-    models.Estoque.updateOne = originals.estoqueUpdateOne;
   }
 });
 

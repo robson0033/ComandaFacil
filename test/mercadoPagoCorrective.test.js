@@ -63,11 +63,17 @@ test("estoque: restauração concorrente também expõe lock", async () => {
   };
   models.Pedido.findOneAndUpdate = async () => null;
   models.Pedido.findById = async () => ({
+    _id: "507f1f77bcf86cd799439011",
     estoqueBaixado: true,
-    estoqueProcessamento: "processando",
+    estoqueRestaurado: false,
+    estoqueSnapshotCriado: true,
+    estoqueConsumos: [],
+    estoqueProcessamento: "restaurando",
   });
   try {
-    const result = await estoque.restaurarEstoqueDoPedido("pedido-1");
+    const result = await estoque.restaurarEstoqueDoPedido(
+      "507f1f77bcf86cd799439011",
+    );
     assert.equal(result.status, "lock_ocupado");
     assert.equal(result.retryable, true);
   } finally {
@@ -76,75 +82,25 @@ test("estoque: restauração concorrente também expõe lock", async () => {
   }
 });
 
-test("estoque: falha no marcador permite retry sem baixar ingrediente duas vezes", async () => {
+test("estoque: worker sem lock não consegue concluir marcador", async () => {
   const originals = {
-    pedidoFindOneAndUpdate: models.Pedido.findOneAndUpdate,
-    pedidoFindById: models.Pedido.findById,
     pedidoUpdateOne: models.Pedido.updateOne,
-    produtoFind: models.Produto.find,
-    estoqueFind: models.Estoque.find,
-    estoqueFindOne: models.Estoque.findOne,
-    estoqueUpdateOne: models.Estoque.updateOne,
   };
-  let marcador = false;
-  let movimentos = 0;
-  let marcadorCalls = 0;
-  const pedido = {
-    _id: "507f1f77bcf86cd799439011",
-    estabelecimentoId: "507f191e810c19729de860ea",
-    itens: [{ produtoId: "507f191e810c19729de860eb", quantidade: 1 }],
-  };
-  const itemEstoque = {
-    _id: "507f191e810c19729de860ec",
-    nome: "Ingrediente",
-    unidade: "unidade",
-    estoqueOperacoes: [],
-  };
-  models.Pedido.findOneAndUpdate = async filter => {
-    assert.ok(filter.$or.some(condition => condition.estoqueProcessamentoEm?.$lt));
-    return pedido;
-  };
-  models.Pedido.findById = async () => ({ ...pedido, estoqueBaixado: marcador });
-  models.Pedido.updateOne = async (filter, update) => {
-    if (update.$set?.estoqueBaixado === true) {
-      marcadorCalls += 1;
-      if (marcadorCalls > 1) marcador = true;
-    }
-    return { modifiedCount: 1 };
-  };
-  models.Produto.find = () => ({ lean: async () => [{
-    _id: "507f191e810c19729de860eb",
-    receita: [{
-      estoqueId: itemEstoque._id,
-      quantidade: 1,
-      unidade: "unidade",
-    }],
-  }] });
-  models.Estoque.find = () => ({ select: async () => [itemEstoque] });
-  models.Estoque.findOne = () => ({ select: async () => itemEstoque });
-  models.Estoque.updateOne = async () => {
-    if (itemEstoque.estoqueOperacoes.length) return { modifiedCount: 0 };
-    movimentos += 1;
-    itemEstoque.estoqueOperacoes.push(
-      `baixa:${pedido._id}:${itemEstoque._id}`,
-    );
-    return { modifiedCount: 1 };
+  models.Pedido.updateOne = async filter => {
+    assert.equal(filter.estoqueLockId, "worker-antigo");
+    return { modifiedCount: 0 };
   };
   try {
-    const first = await estoque.baixarEstoqueDoPedido(pedido._id);
-    const retry = await estoque.baixarEstoqueDoPedido(pedido._id);
-    assert.equal(first.status, "falhou");
-    assert.equal(first.retryable, true);
-    assert.equal(retry.status, "concluido");
-    assert.equal(movimentos, 1);
+    await assert.rejects(
+      estoque._testing.liberarLock(
+        "507f1f77bcf86cd799439011",
+        "worker-antigo",
+        { estoqueProcessamento: "concluido" },
+      ),
+      error => error.code === "ESTOQUE_LOCK_PERDIDO",
+    );
   } finally {
-    models.Pedido.findOneAndUpdate = originals.pedidoFindOneAndUpdate;
-    models.Pedido.findById = originals.pedidoFindById;
     models.Pedido.updateOne = originals.pedidoUpdateOne;
-    models.Produto.find = originals.produtoFind;
-    models.Estoque.find = originals.estoqueFind;
-    models.Estoque.findOne = originals.estoqueFindOne;
-    models.Estoque.updateOne = originals.estoqueUpdateOne;
   }
 });
 
@@ -185,12 +141,13 @@ test("tentativa: dois cliques concorrentes elegem uma única criação externa",
   }
 });
 
-test("tentativa: índice impede duas tentativas ativas por loja e método", () => {
+test("tentativa: índice impede duas tentativas ativas por loja, independentemente do método", () => {
   const found = models.AssinaturaTentativa.schema.indexes().some(([key, options]) =>
     key.estabelecimentoId === 1
-    && key.metodo === 1
+    && key.metodo === undefined
     && options.unique === true
-    && options.partialFilterExpression?.ativa === true);
+    && options.partialFilterExpression?.ativa === true
+    && options.name === "assinatura_tentativa_ativa_global_unica");
   assert.equal(found, true);
 });
 

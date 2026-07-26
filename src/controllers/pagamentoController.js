@@ -9,6 +9,10 @@ const {
   PaymentEvent,
   Pedido,
 } = require("../models/painelModels");
+const {
+  consultarAcessoVenda,
+  respostaLojaIndisponivel,
+} = require("../services/assinaturaAcessoService");
 const { baixarEstoqueDoPedido, restaurarEstoqueDoPedido } = require("../services/estoqueService");
 const { registroModel } = require("../models/registroModel");
 const {
@@ -65,7 +69,6 @@ async function obterOuCriarTentativa(assinatura, metodo) {
   await AssinaturaTentativa.updateMany(
     {
       estabelecimentoId: assinatura.estabelecimentoId,
-      metodo,
       ativa: true,
       expiresAt: { $lte: now },
     },
@@ -79,11 +82,19 @@ async function obterOuCriarTentativa(assinatura, metodo) {
   );
   const existing = await AssinaturaTentativa.findOne({
     estabelecimentoId: assinatura.estabelecimentoId,
-    metodo,
     ativa: true,
     expiresAt: { $gt: now },
   });
-  if (existing) return { attempt: existing, created: false };
+  if (existing) {
+    if (existing.metodo !== metodo) {
+      const error = new Error(
+        `Já existe uma tentativa ativa por ${existing.metodo}. Aguarde a expiração ou cancele-a antes de trocar o método.`,
+      );
+      error.code = "TENTATIVA_METODO_DIFERENTE";
+      throw error;
+    }
+    return { attempt: existing, created: false };
+  }
 
   const attemptId = crypto.randomUUID();
   try {
@@ -106,10 +117,16 @@ async function obterOuCriarTentativa(assinatura, metodo) {
     if (error?.code !== 11000) throw error;
     const attempt = await AssinaturaTentativa.findOne({
       estabelecimentoId: assinatura.estabelecimentoId,
-      metodo,
       ativa: true,
     });
     if (!attempt) throw error;
+    if (attempt.metodo !== metodo) {
+      const conflict = new Error(
+        `Já existe uma tentativa ativa por ${attempt.metodo}. Aguarde a expiração ou cancele-a antes de trocar o método.`,
+      );
+      conflict.code = "TENTATIVA_METODO_DIFERENTE";
+      throw conflict;
+    }
     return { attempt, created: false };
   }
 }
@@ -275,7 +292,7 @@ exports.assinarCartao = async (req, res) => {
     await assinatura.save();
     return res.redirect(data.init_point);
   } catch (error) {
-    if (error?.code !== "ASSINATURA_ATIVA") {
+    if (!["ASSINATURA_ATIVA", "TENTATIVA_METODO_DIFERENTE"].includes(error?.code)) {
       await AssinaturaTentativa.updateOne(
         {
           estabelecimentoId: estabelecimentoId(req),
@@ -373,7 +390,7 @@ exports.gerarPix = async (req, res) => {
       },
     });
   } catch (error) {
-    if (error?.code !== "ASSINATURA_ATIVA") {
+    if (!["ASSINATURA_ATIVA", "TENTATIVA_METODO_DIFERENTE"].includes(error?.code)) {
       await AssinaturaTentativa.updateOne(
         {
           estabelecimentoId: estabelecimentoId(req),
@@ -446,7 +463,7 @@ async function consumeOauthState(req) {
       expiresAt: { $gt: new Date() },
     },
     { $set: { consumedAt: new Date() } },
-    { new: true },
+    { returnDocument: "after" },
   );
   delete req.session.mpOauthStateHash;
   await new Promise((resolve, reject) =>
@@ -563,6 +580,11 @@ exports.gerarPixPedido = async (req, res) => {
         expiraEm: pedido.pixExpiraEm,
       });
     }
+    const acessoVenda = await consultarAcessoVenda({
+      estabelecimentoId: cfgPublica.estabelecimentoId,
+      estabelecimento: cfgPublica,
+    });
+    if (!acessoVenda.permitido) return respostaLojaIndisponivel(res);
 
     const { accessToken } = await configuracaoComToken(cfgPublica.estabelecimentoId);
     const emailCliente = String(pedido.emailCliente || "").trim().toLowerCase();
@@ -715,7 +737,7 @@ async function claimEvent(eventDocument) {
       $set: { status: "processando", processandoEm: new Date(), erro: "" },
       $inc: { tentativas: 1 },
     },
-    { new: true },
+    { returnDocument: "after" },
   );
 }
 

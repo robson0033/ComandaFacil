@@ -34,10 +34,36 @@ const Estoque = mongoose.model(
         required: true,
       },
       quantidade: { type: Number, default: 0, min: 0 },
-      quantidadeInicial: { type: Number, default: 0, min: 0 },
+      quantidadeInicial: { type: Number, min: 0 },
+      totalEntradas: { type: Number, min: 0 },
+      totalConsumido: { type: Number, min: 0 },
       minimo: { type: Number, default: 0, min: 0 },
       unidade: { type: String, default: "unidade", trim: true },
       custoUnitario: { type: Number, default: 0, min: 0 },
+      ativo: { type: Boolean, default: true },
+      desativadoEm: { type: Date, default: null },
+      desativadoPor: {
+        type: mongoose.Schema.Types.ObjectId,
+        default: null,
+      },
+      motivoDesativacao: { type: String, default: "", maxlength: 300 },
+      auditoria: [{
+        tipo: {
+          type: String,
+          enum: ["ingrediente_desativado"],
+          required: true,
+        },
+        ingredienteId: {
+          type: mongoose.Schema.Types.ObjectId,
+          required: true,
+        },
+        usuarioId: {
+          type: mongoose.Schema.Types.ObjectId,
+          default: null,
+        },
+        registradoEm: { type: Date, required: true },
+        operationKey: { type: String, required: true },
+      }],
       estoqueOperacoes: {
         type: [String],
         default: [],
@@ -159,9 +185,7 @@ const Mesa = mongoose.model(
   ),
 );
 
-const Funcionario = mongoose.model(
-  'Funcionario',
-  new mongoose.Schema(
+const funcionarioSchema = new mongoose.Schema(
     {
       ...base,
 
@@ -248,9 +272,13 @@ const Funcionario = mongoose.model(
         },
       ],
     },
-    opts
-  )
+    opts,
+  );
+funcionarioSchema.index(
+  { email: 1 },
+  { unique: true, name: "funcionario_email_global_unico" },
 );
+const Funcionario = mongoose.model("Funcionario", funcionarioSchema);
 
 const Configuracao = mongoose.model(
   "Configuracao",
@@ -282,6 +310,9 @@ const Configuracao = mongoose.model(
         default: "80mm",
       },
       impressaoAutomatica: { type: Boolean, default: false },
+      ativo: { type: Boolean, default: true },
+      bloqueado: { type: Boolean, default: false },
+      vendasBloqueadas: { type: Boolean, default: false },
       slug: {
         type: String,
         required: true,
@@ -618,6 +649,43 @@ const Pedido = mongoose.model(
       },
       estoqueBaixado: { type: Boolean, default: false },
       estoqueBaixadoEm: { type: Date, default: null },
+      estoqueRestaurado: { type: Boolean, default: false },
+      estoqueRestauradoEm: { type: Date, default: null },
+      estoqueLockId: { type: String, default: "" },
+      estoqueLockExpiraEm: { type: Date, default: null },
+      estoqueSnapshotCriado: { type: Boolean, default: false },
+      estoqueConsumos: [{
+        estoqueId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Estoque",
+          required: true,
+          immutable: true,
+        },
+        nomeIngrediente: { type: String, required: true, immutable: true },
+        produtoId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Produto",
+          required: true,
+          immutable: true,
+        },
+        itemPedidoIndice: { type: Number, required: true, immutable: true },
+        quantidadeProduto: { type: Number, required: true, immutable: true },
+        quantidadeConsumida: { type: Number, required: true, immutable: true },
+        unidadeFicha: { type: String, required: true, immutable: true },
+        quantidadeNaUnidadeEstoque: {
+          type: Number,
+          required: true,
+          immutable: true,
+        },
+        unidadeEstoque: { type: String, required: true, immutable: true },
+        operationKey: { type: String, required: true, immutable: true },
+        estado: {
+          type: String,
+          enum: ["pendente", "baixado", "restaurado", "falhou"],
+          default: "pendente",
+        },
+        erro: { type: String, default: "" },
+      }],
 
       precisaTroco: {
         type: Boolean,
@@ -643,8 +711,19 @@ const Pedido = mongoose.model(
       pixExpiraEm: { type: Date, default: null },
       estoqueProcessamento: {
         type: String,
-        enum: ["pendente", "processando", "concluido", "falhou"],
-        default: "pendente",
+        enum: [
+          "nao_iniciado",
+          "preparando",
+          "baixando",
+          "concluido",
+          "restaurando",
+          "restaurado",
+          "falhou",
+          "reconciliacao_necessaria",
+          "processando",
+          "pendente",
+        ],
+        default: "nao_iniciado",
       },
       estoqueProcessamentoEm: { type: Date, default: null },
       estoqueErro: { type: String, default: "" },
@@ -653,6 +732,17 @@ const Pedido = mongoose.model(
       historicoFinanceiro: [{
         paymentId: { type: String, default: "" },
         status: { type: String, default: "" },
+        tipo: { type: String, default: "" },
+        statusAnterior: { type: String, default: "" },
+        statusNovo: { type: String, default: "" },
+        formaPagamento: { type: String, default: "" },
+        valor: { type: Number, default: 0 },
+        usuarioId: {
+          type: mongoose.Schema.Types.ObjectId,
+          default: null,
+        },
+        motivo: { type: String, default: "" },
+        operationKey: { type: String, default: "" },
         registradoEm: { type: Date, default: Date.now },
       }],
 
@@ -739,6 +829,8 @@ const Assinatura = mongoose.model(
           "cancelada",
           "expirada",
           "reembolsada",
+          "suspensa",
+          "bloqueada",
         ],
         default: "teste",
         index: true,
@@ -823,11 +915,11 @@ assinaturaTentativaSchema.index(
   { unique: true, name: "assinatura_tentativa_attempt_unico" },
 );
 assinaturaTentativaSchema.index(
-  { estabelecimentoId: 1, metodo: 1 },
+  { estabelecimentoId: 1 },
   {
     unique: true,
     partialFilterExpression: { ativa: true },
-    name: "assinatura_tentativa_ativa_unica",
+    name: "assinatura_tentativa_ativa_global_unica",
   },
 );
 const AssinaturaTentativa = mongoose.model(
@@ -853,19 +945,39 @@ oauthStateSchema.index(
 const OAuthState = mongoose.model("OAuthState", oauthStateSchema);
 
 
-const PrintAgent = mongoose.model(
-  "PrintAgent",
-  new mongoose.Schema({
+const printAgentSchema = new mongoose.Schema({
     ...base,
-    tokenHash: { type: String, default: "", index: true },
+    tokenHash: { type: String, default: "" },
     codigoVinculacao: { type: String, default: "" },
     codigoExpiraEm: { type: Date, default: null },
     nomeComputador: { type: String, default: "" },
     impressoras: { type: Array, default: [] },
     ultimaConexao: { type: Date, default: null },
     ativo: { type: Boolean, default: true },
-  }, opts),
+  }, opts);
+printAgentSchema.index(
+  { estabelecimentoId: 1 },
+  { unique: true, name: "print_agent_estabelecimento_unico" },
 );
+printAgentSchema.index(
+  { tokenHash: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { tokenHash: { $type: "string", $gt: "" } },
+    name: "print_agent_token_hash_unico",
+  },
+);
+printAgentSchema.index(
+  { codigoVinculacao: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      codigoVinculacao: { $type: "string", $gt: "" },
+    },
+    name: "print_agent_codigo_ativo_unico",
+  },
+);
+const PrintAgent = mongoose.model("PrintAgent", printAgentSchema);
 
 const printJobSchema = new mongoose.Schema({
   jobId: { type: String, required: true, unique: true, immutable: true },

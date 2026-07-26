@@ -1178,7 +1178,16 @@
     </div>
   </header>
 
-  <div class="toolbar-wrap">
+  <% if (lojaDisponivel === false) { %>
+    <div
+      role="status"
+      style="max-width:1180px;margin:24px auto;padding:22px;border:1px solid #eadfd7;border-radius:16px;background:#fff;color:#431712;text-align:center;font-weight:800;"
+    >
+      Esta loja está temporariamente indisponível para novos pedidos.
+    </div>
+  <% } %>
+
+  <div class="toolbar-wrap" <%- lojaDisponivel === false ? 'style="display:none"' : '' %>>
     <div class="toolbar">
       <input
         id="search"
@@ -1189,7 +1198,7 @@
     </div>
   </div>
 
-  <main class="content-shell">
+  <main class="content-shell" <%- lojaDisponivel === false ? 'style="display:none"' : '' %>>
     <div>
       <nav class="categories">
         <button
@@ -1381,6 +1390,7 @@
     type="button"
     class="mobile-cart-toggle"
     id="mobileCartToggle"
+    <%- lojaDisponivel === false ? 'style="display:none"' : '' %>
   >
     Meu pedido
     <span
@@ -1668,6 +1678,8 @@
   <script>
     const storeSlug =
       <%- JSON.stringify(configuracao.slug || "") %>;
+    const lojaDisponivelInicial =
+      <%- JSON.stringify(lojaDisponivel !== false) %>;
 
     const horarioAbertura =
       <%- JSON.stringify(horarioAbertura) %>;
@@ -1770,6 +1782,9 @@
     let selectedCategory = "todos";
     let storeIsOpen = false;
     let cart = [];
+    let lojaBloqueada = !lojaDisponivelInicial;
+    let sincronizacaoCarrinhoEmAndamento = null;
+    let avisoProdutosRemovidosExibido = false;
 
     function currency(value) {
       return Number(
@@ -2004,6 +2019,127 @@
         currency(subtotal());
 
       atualizarBotoesPedido();
+    }
+
+    function avisarCarrinho(mensagem) {
+      if (!mensagem) return;
+      formMessage.className = "form-message error";
+      formMessage.textContent = mensagem;
+    }
+
+    function bloquearLojaPublica() {
+      lojaBloqueada = true;
+      storeIsOpen = false;
+      checkoutBtn.disabled = true;
+      checkoutBtn.textContent = "Loja indisponível";
+      document.querySelectorAll("[data-add-cart]").forEach(button => {
+        button.disabled = true;
+      });
+      avisarCarrinho(
+        "Esta loja está temporariamente indisponível para novos pedidos."
+      );
+    }
+
+    function aplicarProdutosAtuais(produtosAtuais) {
+      const mapaProdutos = new Map(
+        (produtosAtuais || []).map(produto => [String(produto.id), produto])
+      );
+      const idsRemovidos = [];
+      let precoAlterado = false;
+
+      cart = cart.flatMap(item => {
+        const produto = mapaProdutos.get(String(item.id));
+        if (!produto) {
+          idsRemovidos.push(String(item.id));
+          return [];
+        }
+
+        if (Math.abs(Number(item.price || 0) - Number(produto.preco || 0)) > 0.001) {
+          precoAlterado = true;
+        }
+
+        const adicionaisAtuais = new Map(
+          (produto.adicionais || []).map(adicional => [
+            String(adicional.id),
+            adicional
+          ])
+        );
+        const adicionais = (item.adicionais || []).flatMap(adicional => {
+          const atual = adicionaisAtuais.get(String(adicional._id || adicional.id));
+          return atual ? [{
+            _id: atual.id,
+            nome: atual.nome,
+            preco: Number(atual.preco || 0)
+          }] : [];
+        });
+        const addonsKey = adicionais
+          .map(adicional => String(adicional._id))
+          .sort()
+          .join(",");
+
+        return [{
+          ...item,
+          cartId: `${produto.id}:${addonsKey}`,
+          id: produto.id,
+          name: produto.nome,
+          price: Number(produto.preco || 0),
+          image: produto.imagem || "",
+          adicionais
+        }];
+      });
+
+      saveCart();
+      renderCart();
+      return { idsRemovidos, precoAlterado };
+    }
+
+    async function sincronizarCarrinho({ avisar = true } = {}) {
+      if (lojaBloqueada) {
+        return { idsRemovidos: [], precoAlterado: false, lojaIndisponivel: true };
+      }
+      if (sincronizacaoCarrinhoEmAndamento) {
+        return sincronizacaoCarrinhoEmAndamento;
+      }
+
+      sincronizacaoCarrinhoEmAndamento = (async () => {
+        const response = await fetch(
+          `/catalogo/${encodeURIComponent(storeSlug)}/produtos-status`,
+          { headers: { "Accept": "application/json" } }
+        );
+        const result = await response.json();
+        if (response.status === 403 && result.code === "LOJA_INDISPONIVEL") {
+          bloquearLojaPublica();
+          return {
+            idsRemovidos: [],
+            precoAlterado: false,
+            lojaIndisponivel: true
+          };
+        }
+        if (!response.ok) {
+          throw new Error("Não foi possível conferir os produtos do carrinho.");
+        }
+        const mudancas = aplicarProdutosAtuais(result.produtos);
+        if (
+          avisar
+          && mudancas.idsRemovidos.length
+          && !avisoProdutosRemovidosExibido
+        ) {
+          avisoProdutosRemovidosExibido = true;
+          avisarCarrinho(
+            "Um ou mais produtos foram removidos do seu carrinho porque não estão mais disponíveis."
+          );
+        }
+        if (avisar && mudancas.precoAlterado) {
+          avisarCarrinho("O preço de um produto foi atualizado. Confirme o pedido novamente.");
+        }
+        return mudancas;
+      })();
+
+      try {
+        return await sincronizacaoCarrinhoEmAndamento;
+      } finally {
+        sincronizacaoCarrinhoEmAndamento = null;
+      }
     }
 
     function addToCart(product, adicionais = []) {
@@ -2298,16 +2434,25 @@
         });
 
       checkoutBtn.disabled =
+        lojaBloqueada ||
         !storeIsOpen ||
         cart.length === 0;
 
       checkoutBtn.textContent =
-        storeIsOpen
+        lojaBloqueada
+          ? "Loja indisponível"
+          : storeIsOpen
           ? "Continuar pedido"
           : "Estabelecimento fechado";
     }
 
-    function openOrderModal() {
+    async function openOrderModal() {
+      try {
+        await sincronizarCarrinho();
+      } catch (error) {
+        avisarCarrinho(error.message);
+        return;
+      }
       if (
         !storeIsOpen ||
         !cart.length
@@ -2407,7 +2552,13 @@
 
     mobileCartToggle.addEventListener(
       "click",
-      () => {
+      async () => {
+        try {
+          await sincronizarCarrinho();
+        } catch (error) {
+          avisarCarrinho(error.message);
+          return;
+        }
         sidebarCart.classList.add(
           "open"
         );
@@ -2511,6 +2662,36 @@
         const result = await response.json();
 
         if (!response.ok) {
+          if (result.code === "LOJA_INDISPONIVEL") {
+            bloquearLojaPublica();
+          }
+          if (result.code === "PRODUTO_INDISPONIVEL") {
+            const invalidos = new Set(
+              (result.produtosInvalidos || []).map(String)
+            );
+            cart = cart.filter(item => !invalidos.has(String(item.id)));
+            saveCart();
+            renderCart();
+          }
+          if (result.code === "PRECO_ATUALIZADO") {
+            const atualizados = new Map(
+              (result.produtosAtualizados || []).map(produto => [
+                String(produto.id),
+                produto
+              ])
+            );
+            cart = cart.map(item => {
+              const produto = atualizados.get(String(item.id));
+              return produto ? {
+                ...item,
+                name: produto.nome,
+                price: Number(produto.preco || 0),
+                image: produto.imagem || ""
+              } : item;
+            });
+            saveCart();
+            renderCart();
+          }
           throw new Error(result.message || "Não foi possível enviar o pedido.");
         }
 
@@ -2623,6 +2804,19 @@
       event.preventDefault();
 
       if (!storeIsOpen || !cart.length) return;
+      try {
+        const mudancas = await sincronizarCarrinho();
+        if (
+          mudancas.lojaIndisponivel
+          || mudancas.idsRemovidos.length
+          || mudancas.precoAlterado
+        ) {
+          return;
+        }
+      } catch (error) {
+        avisarCarrinho(error.message);
+        return;
+      }
 
       const formData = new FormData(orderForm);
       const payload = {
@@ -2637,6 +2831,7 @@
         trocoPara: null,
         itens: cart.map(item => ({
           produtoId: item.id,
+          preco: Number(item.price),
           quantidade: Number(item.quantity),
           adicionais: (item.adicionais || []).map(adicional => ({
             _id: adicional._id
@@ -2665,6 +2860,7 @@
 
     loadCart();
     renderCart();
+    sincronizarCarrinho().catch(error => avisarCarrinho(error.message));
     filterProducts();
     atualizarEndereco();
     verificarLojaAberta();
@@ -2673,6 +2869,16 @@
       verificarLojaAberta,
       60000
     );
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        sincronizarCarrinho().catch(error => avisarCarrinho(error.message));
+      }
+    });
+
+    window.addEventListener("pageshow", () => {
+      sincronizarCarrinho().catch(error => avisarCarrinho(error.message));
+    });
   </script>
 
 <style>

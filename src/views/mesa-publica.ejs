@@ -1376,7 +1376,15 @@
   </header>
 
   <main class="page">
-    <section class="toolbar">
+    <% if (lojaDisponivel === false) { %>
+      <div
+        role="status"
+        style="margin-bottom:20px;padding:20px;border:1px solid #eadfd7;border-radius:16px;background:#fff;color:#431712;text-align:center;font-weight:800;"
+      >
+        Esta loja está temporariamente indisponível para novos pedidos.
+      </div>
+    <% } %>
+    <section class="toolbar" <%- lojaDisponivel === false ? 'style="display:none"' : '' %>>
       <div class="search-wrap">
         <span class="search-icon">⌕</span>
         <input
@@ -1388,7 +1396,11 @@
         >
       </div>
 
-      <button class="cart-button" id="openCart">
+      <button
+        class="cart-button"
+        id="openCart"
+        <%- lojaDisponivel === false ? 'style="display:none" disabled' : '' %>
+      >
         🛒 Meu pedido
         <span id="cartTotalButton">R$ 0,00</span>
         <span class="cart-badge" id="cartCount">0</span>
@@ -1801,6 +1813,8 @@
 
   <script>
     const cart = [];
+    let lojaDisponivelPublica =
+      <%- JSON.stringify(lojaDisponivel !== false) %>;
 
     const cartElement =
       document.querySelector('#cart');
@@ -2268,6 +2282,10 @@
       .addEventListener(
         'click',
         async () => {
+          if (!lojaDisponivelPublica) {
+            alert('Esta loja está temporariamente indisponível para novos pedidos.');
+            return;
+          }
           if (!cart.length) {
             alert(
               'Adicione produtos ao carrinho.'
@@ -2311,6 +2329,11 @@
               await response.json();
 
             if (!response.ok) {
+              if (result.code === 'LOJA_INDISPONIVEL') {
+                lojaDisponivelPublica = false;
+                button.disabled = true;
+                button.textContent = 'Loja indisponível';
+              }
               throw new Error(
                 result.message
               );
@@ -2327,9 +2350,11 @@
               'Não foi possível enviar o pedido.'
             );
           } finally {
-            button.disabled = false;
-            button.textContent =
-              'Finalizar pedido';
+            if (lojaDisponivelPublica) {
+              button.disabled = false;
+              button.textContent =
+                'Finalizar pedido';
+            }
           }
         }
       );

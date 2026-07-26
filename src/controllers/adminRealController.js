@@ -21,6 +21,232 @@ const {
 
 const printAgentHub = require("../services/printAgentHub");
 const printQueueService = require("../services/printQueueService");
+const {
+  consultarAcessoVenda,
+  respostaLojaIndisponivel,
+} = require("../services/assinaturaAcessoService");
+const {
+  carregarIdentidadeAtual,
+  encerrarSessao,
+} = require("../middleware/auth");
+const {
+  baixarEstoqueDoPedido,
+  converterQuantidade,
+  restaurarEstoqueDoPedido,
+} = require("../services/estoqueService");
+
+function exigirMovimentacaoEstoqueConcluida(resultado) {
+  if (resultado?.success
+    && [
+      "concluido",
+      "ja_concluido",
+      "restaurado",
+      "ja_restaurado",
+      "nao_baixado",
+    ].includes(resultado.status)) {
+    return resultado;
+  }
+  const error = new Error(
+    resultado?.status === "lock_ocupado"
+      ? "O estoque deste pedido está sendo processado. Tente novamente."
+      : "Não foi possível concluir a movimentação de estoque.",
+  );
+  error.code = resultado?.errorCode || "ESTOQUE_NAO_CONCLUIDO";
+  error.retryable = Boolean(resultado?.retryable);
+  throw error;
+}
+
+function adicionarHistoricoFinanceiro(pedido, entrada) {
+  const operationKey = String(entrada.operationKey || "");
+  pedido.historicoFinanceiro = Array.isArray(pedido.historicoFinanceiro)
+    ? pedido.historicoFinanceiro
+    : [];
+  if (operationKey && pedido.historicoFinanceiro.some(item =>
+    String(item.operationKey || "") === operationKey)) {
+    return false;
+  }
+  pedido.historicoFinanceiro.push({
+    tipo: entrada.tipo,
+    status: entrada.statusNovo || entrada.status || "",
+    statusAnterior: entrada.statusAnterior || "",
+    statusNovo: entrada.statusNovo || "",
+    formaPagamento: entrada.formaPagamento || pedido.formaPagamento || "",
+    valor: Number(entrada.valor ?? pedido.total ?? 0),
+    usuarioId: entrada.usuarioId || null,
+    motivo: entrada.motivo || "",
+    operationKey,
+    registradoEm: new Date(),
+  });
+  return true;
+}
+
+async function confirmarPedidoComEstoque(
+  pedido,
+  {
+    formaPagamento = pedido.formaPagamento,
+    finalizar = false,
+    usuarioId = null,
+    tipo = finalizar ? "pagamento_mesa" : "pagamento_manual",
+    motivo = "",
+  } = {},
+  baixar = baixarEstoqueDoPedido,
+) {
+  const statusAnterior = pedido.pagamentoStatus || "pendente";
+  const operationKey = `${tipo}:${pedido._id}`;
+  try {
+    exigirMovimentacaoEstoqueConcluida(await baixar(pedido._id));
+  } catch (error) {
+    adicionarHistoricoFinanceiro(pedido, {
+      tipo: "falha_estoque_pagamento",
+      statusAnterior,
+      statusNovo: statusAnterior,
+      formaPagamento,
+      usuarioId,
+      motivo: error.message,
+      operationKey: `falha:${operationKey}:${error.code || "erro"}`,
+    });
+    await pedido.save();
+    throw error;
+  }
+  pedido.pagamentoStatus = "pago";
+  pedido.formaPagamento = formaPagamento || "nao_informado";
+  pedido.pagoEm = pedido.pagoEm || new Date();
+  if (finalizar) pedido.status = "finalizado";
+  adicionarHistoricoFinanceiro(pedido, {
+    tipo,
+    statusAnterior,
+    statusNovo: "pago",
+    formaPagamento: pedido.formaPagamento,
+    usuarioId,
+    motivo,
+    operationKey,
+  });
+  await pedido.save();
+  return pedido;
+}
+
+async function montarFichaTecnicaProduto(
+  body,
+  idEstabelecimento,
+  { fichaAnterior = [] } = {},
+) {
+  const ids = body.fichaEstoqueId === undefined
+    ? []
+    : [].concat(body.fichaEstoqueId);
+  const quantidades = body.fichaQuantidade === undefined
+    ? []
+    : [].concat(body.fichaQuantidade);
+  const unidades = body.fichaUnidade === undefined
+    ? []
+    : [].concat(body.fichaUnidade);
+  const tamanho = Math.max(ids.length, quantidades.length, unidades.length);
+  const linhas = [];
+  const duplicados = new Set();
+  const unidadesPermitidas = new Set(["g", "kg", "ml", "l", "un"]);
+
+  for (let indice = 0; indice < tamanho; indice += 1) {
+    const estoqueId = String(ids[indice] || "").trim();
+    const quantidadeBruta = String(quantidades[indice] || "").trim();
+    const unidade = String(unidades[indice] || "").trim().toLowerCase();
+    if (!estoqueId && !quantidadeBruta && !unidade) continue;
+    if (!estoqueId || !quantidadeBruta || !unidade) {
+      throw new Error(`Linha ${indice + 1} da ficha técnica está incompleta.`);
+    }
+    if (!mongoose.isValidObjectId(estoqueId)) {
+      throw new Error(`Ingrediente inválido na linha ${indice + 1}.`);
+    }
+    const quantidade = Number(quantidadeBruta.replace(",", "."));
+    if (!Number.isFinite(quantidade) || quantidade <= 0) {
+      throw new Error(`Quantidade inválida na linha ${indice + 1}.`);
+    }
+    if (!unidadesPermitidas.has(unidade)) {
+      throw new Error(`Unidade inválida na linha ${indice + 1}.`);
+    }
+    if (duplicados.has(estoqueId)) {
+      throw new Error("Ingredientes duplicados não são permitidos.");
+    }
+    duplicados.add(estoqueId);
+    linhas.push({ estoqueId, quantidade, unidade });
+  }
+
+  if (!linhas.length) return [];
+  const idsAnteriores = new Set(
+    fichaAnterior.map(item => String(item.estoqueId?._id || item.estoqueId)),
+  );
+  const estoques = await Estoque.find({
+    _id: { $in: linhas.map(item => item.estoqueId) },
+    estabelecimentoId: idEstabelecimento,
+  }).lean();
+  const mapa = new Map(estoques.map(item => [String(item._id), item]));
+  if (mapa.size !== linhas.length) {
+    throw new Error("Um ingrediente não pertence a este estabelecimento.");
+  }
+  return linhas.map(item => {
+    const estoque = mapa.get(item.estoqueId);
+    if (estoque.ativo === false && !idsAnteriores.has(item.estoqueId)) {
+      const error = new Error(
+        "Ingrediente desativado não pode ser adicionado à ficha técnica.",
+      );
+      error.code = "INGREDIENTE_DESATIVADO";
+      throw error;
+    }
+    return {
+      estoqueId: estoque._id,
+      nome: estoque.nome,
+      quantidade: item.quantidade,
+      unidade: item.unidade,
+      custoCalculado: Number(
+        (
+          converterQuantidade(
+            item.quantidade,
+            item.unidade,
+            estoque.unidade,
+          ) * Number(estoque.custoUnitario || 0)
+        ).toFixed(4),
+      ),
+    };
+  });
+}
+
+async function validarFichaAntesDeSalvar(
+  fichaTecnica,
+  idEstabelecimento,
+  fichaAnterior = [],
+) {
+  const idsLegados = new Set(
+    fichaAnterior.map(item => String(item.estoqueId?._id || item.estoqueId)),
+  );
+  const idsQuePrecisamEstarAtivos = [...new Set(
+    fichaTecnica
+      .map(item => String(item.estoqueId?._id || item.estoqueId))
+      .filter(id => !idsLegados.has(id)),
+  )];
+  if (!idsQuePrecisamEstarAtivos.length) return;
+  const quantidade = await Estoque.countDocuments({
+    _id: { $in: idsQuePrecisamEstarAtivos },
+    estabelecimentoId: idEstabelecimento,
+    ativo: { $ne: false },
+  });
+  if (quantidade !== idsQuePrecisamEstarAtivos.length) {
+    const error = new Error(
+      "Um ingrediente foi desativado antes da ficha ser salva.",
+    );
+    error.code = "INGREDIENTE_DESATIVADO";
+    throw error;
+  }
+}
+
+function idsDeIngredientesDesativadosReferenciados(estoque, produtos) {
+  const idsEstoqueAtivo = new Set(
+    estoque.map(item => String(item._id)),
+  );
+  return [...new Set(
+    produtos.flatMap(produto =>
+      (produto.fichaTecnica || [])
+        .map(item => String(item.estoqueId?._id || item.estoqueId))
+        .filter(id => id && !idsEstoqueAtivo.has(id))),
+  )];
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -1762,6 +1988,7 @@ exports.admin = async (req, res) => {
       );
     }
 
+    const acessoPainel = montarAcessoPainel(req.session.user);
     const {
       podeDashboard,
       podePedidos,
@@ -1773,9 +2000,7 @@ exports.admin = async (req, res) => {
       podeConfiguracoes,
       podeImprimirPedidos,
       podeConfigurarImpressoras,
-    } = montarAcessoPainel(
-      req.session.user,
-    );
+    } = acessoPainel;
 
     const assinatura =
       await obterAssinatura(
@@ -1872,6 +2097,7 @@ exports.admin = async (req, res) => {
         ? Estoque.find({
             estabelecimentoId:
               idEstabelecimento,
+            ativo: { $ne: false },
           })
             .populate(
               "categoriaId",
@@ -1933,6 +2159,19 @@ exports.admin = async (req, res) => {
             .lean()
         : Promise.resolve([]),
     ]);
+
+    const idsDesativadosReferenciados =
+      idsDeIngredientesDesativadosReferenciados(estoque, produtos);
+    const ingredientesDesativadosReferenciados =
+      idsDesativadosReferenciados.length
+        ? await Estoque.find({
+            _id: { $in: idsDesativadosReferenciados },
+            estabelecimentoId: idEstabelecimento,
+            ativo: false,
+          })
+            .select("_id nome ativo unidade custoUnitario")
+            .lean()
+        : [];
 
     const configuracaoCompleta =
       typeof configuracaoDocumento.toObject ===
@@ -2440,6 +2679,7 @@ exports.admin = async (req, res) => {
           podeEstoque ? estoque : [],
         itensEstoque:
           podeEstoque ? estoque : [],
+        ingredientesDesativadosReferenciados,
 
         produtos:
           podeCatalogo ? produtos : [],
@@ -2634,6 +2874,9 @@ exports.criarEstoque = async (
       );
     }
 
+    const quantidadeInicial = Number(
+      req.body.quantidade || 0,
+    );
     await Estoque.create({
       estabelecimentoId:
         idEstabelecimento,
@@ -2642,9 +2885,10 @@ exports.criarEstoque = async (
       ).trim(),
       categoriaId:
         req.body.categoriaId,
-      quantidade: Number(
-        req.body.quantidade || 0,
-      ),
+      quantidade: quantidadeInicial,
+      quantidadeInicial,
+      totalEntradas: quantidadeInicial,
+      totalConsumido: 0,
       minimo: Number(
         req.body.minimo || 0,
       ),
@@ -2719,9 +2963,19 @@ exports.editarEstoque = async (
       );
     }
 
-    item.quantidade = Number(
+    const quantidadeAnterior = Number(item.quantidade || 0);
+    const novaQuantidade = Number(
       req.body.quantidade ?? item.quantidade,
     );
+    item.quantidade = novaQuantidade;
+    if (
+      Number.isFinite(novaQuantidade) &&
+      novaQuantidade > quantidadeAnterior &&
+      Number.isFinite(Number(item.totalEntradas))
+    ) {
+      item.totalEntradas =
+        Number(item.totalEntradas) + (novaQuantidade - quantidadeAnterior);
+    }
 
     item.minimo = Number(
       req.body.minimo ?? item.minimo,
@@ -2761,27 +3015,122 @@ exports.excluirEstoque = async (
   res,
 ) => {
   try {
-    await Estoque.deleteOne({
-      _id: req.params.id,
-      estabelecimentoId:
-        estabelecimentoId(req),
-    });
+    const idEstabelecimento = estabelecimentoId(req);
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(404).json({
+        success: false,
+        message: "Ingrediente não encontrado.",
+      });
+    }
+    const ingredienteId = new mongoose.Types.ObjectId(req.params.id);
+    const estabelecimentoObjectId =
+      new mongoose.Types.ObjectId(String(idEstabelecimento));
+    const [referencias = { quantidadeProdutos: 0, produtos: [] }] =
+      await Produto.aggregate([
+        {
+          $match: {
+            estabelecimentoId: estabelecimentoObjectId,
+            "fichaTecnica.estoqueId": ingredienteId,
+          },
+        },
+        {
+          $facet: {
+            total: [{ $count: "quantidade" }],
+            produtos: [
+              { $sort: { nome: 1 } },
+              { $limit: 10 },
+              { $project: { _id: 0, nome: 1 } },
+            ],
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            quantidadeProdutos: {
+              $ifNull: [
+                { $arrayElemAt: ["$total.quantidade", 0] },
+                0,
+              ],
+            },
+            produtos: {
+              $map: {
+                input: "$produtos",
+                as: "produto",
+                in: "$$produto.nome",
+              },
+            },
+          },
+        },
+      ]);
 
-    return salvarERedirecionar(
-      req,
-      res,
-      "estoque",
-      "Item excluído.",
+    if (referencias.quantidadeProdutos > 0) {
+      return res.status(409).json({
+        message:
+          "Este ingrediente está sendo usado na ficha técnica de produtos. Remova-o ou substitua-o nas fichas antes de desativar.",
+        quantidadeProdutos: referencias.quantidadeProdutos,
+        produtos: referencias.produtos,
+      });
+    }
+
+    const agora = new Date();
+    const usuarioId = req.session?.user?.id || req.session?.user?._id || null;
+    const operationKey = `ingrediente_desativado:${ingredienteId}`;
+    const ingrediente = await Estoque.findOneAndUpdate(
+      {
+        _id: ingredienteId,
+        estabelecimentoId: idEstabelecimento,
+        ativo: { $ne: false },
+      },
+      {
+        $set: {
+          ativo: false,
+          desativadoEm: agora,
+          desativadoPor: usuarioId,
+          motivoDesativacao: String(
+            req.body?.motivoDesativacao || "Desativação solicitada no painel.",
+          ).trim().slice(0, 300),
+        },
+        $push: {
+          auditoria: {
+            tipo: "ingrediente_desativado",
+            ingredienteId,
+            usuarioId,
+            registradoEm: agora,
+            operationKey,
+          },
+        },
+      },
+      { returnDocument: "after", runValidators: true },
     );
+    if (!ingrediente) {
+      const existente = await Estoque.findOne({
+        _id: ingredienteId,
+        estabelecimentoId: idEstabelecimento,
+      }).select("_id ativo");
+      if (existente?.ativo === false) {
+        return res.status(200).json({
+          success: true,
+          status: "ja_desativado",
+          message: "Ingrediente já estava desativado.",
+        });
+      }
+      return res.status(404).json({
+        success: false,
+        message: "Ingrediente não encontrado.",
+      });
+    }
+    return res.json({
+      success: true,
+      status: "desativado",
+      message: "Ingrediente desativado.",
+    });
   } catch (error) {
     console.error(error);
 
-    return erroERedirecionar(
-      req,
-      res,
-      "estoque",
-      "Não foi possível excluir o item.",
-    );
+    return res.status(500).json({
+      success: false,
+      message: "Não foi possível excluir o ingrediente.",
+    });
   }
 };
 
@@ -2816,6 +3165,15 @@ exports.criarProduto = async (
       );
     }
 
+    const fichaTecnica = await montarFichaTecnicaProduto(
+      req.body,
+      idEstabelecimento,
+    );
+    await validarFichaAntesDeSalvar(
+      fichaTecnica,
+      idEstabelecimento,
+    );
+
     await Produto.create({
       estabelecimentoId:
         idEstabelecimento,
@@ -2833,6 +3191,7 @@ exports.criarProduto = async (
       custo: Number(
         req.body.custo || 0,
       ),
+      fichaTecnica,
       adicionais:
         normalizarAdicionais(req.body),
       ativo:
@@ -2923,6 +3282,13 @@ exports.editarProduto = async (
         0,
     );
 
+    const fichaTecnicaAnterior = Array.from(produto.fichaTecnica || []);
+    produto.fichaTecnica = await montarFichaTecnicaProduto(
+      req.body,
+      estabelecimentoId(req),
+      { fichaAnterior: fichaTecnicaAnterior },
+    );
+
     produto.adicionais =
       normalizarAdicionais(req.body);
 
@@ -2934,6 +3300,11 @@ exports.editarProduto = async (
         imagemParaDataUrl(req.file);
     }
 
+    await validarFichaAntesDeSalvar(
+      produto.fichaTecnica,
+      estabelecimentoId(req),
+      fichaTecnicaAnterior,
+    );
     await produto.save();
 
     return salvarERedirecionar(
@@ -2959,17 +3330,36 @@ exports.excluirProduto = async (
   res,
 ) => {
   try {
-    await Produto.deleteOne({
-      _id: req.params.id,
-      estabelecimentoId:
-        estabelecimentoId(req),
-    });
+    const produto = await Produto.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        estabelecimentoId:
+          estabelecimentoId(req),
+        ativo: { $ne: false },
+      },
+      {
+        $set: { ativo: false },
+      },
+      {
+        returnDocument: "after",
+        runValidators: true,
+      },
+    );
+
+    if (!produto) {
+      return erroERedirecionar(
+        req,
+        res,
+        "catalogo",
+        "Produto não encontrado ou já desativado.",
+      );
+    }
 
     return salvarERedirecionar(
       req,
       res,
       "catalogo",
-      "Produto excluído.",
+      "Produto desativado.",
     );
   } catch (error) {
     console.error(error);
@@ -3352,26 +3742,19 @@ exports.pagarContaMesa = async (
       req.body.formaPagamento ||
       "nao_informado";
 
-    await Pedido.updateMany(
-      {
-        estabelecimentoId:
-          idEstabelecimento,
-        mesaId: mesa._id,
-        pagamentoStatus:
-          "pendente",
-        status: {
-          $ne: "cancelado",
-        },
-      },
-      {
-        $set: {
-          pagamentoStatus: "pago",
-          formaPagamento,
-          status: "finalizado",
-          pagoEm: new Date(),
-        },
-      },
-    );
+    const pedidosPendentes = await Pedido.find({
+      estabelecimentoId: idEstabelecimento,
+      mesaId: mesa._id,
+      pagamentoStatus: "pendente",
+      status: { $ne: "cancelado" },
+    });
+    for (const pedido of pedidosPendentes) {
+      await confirmarPedidoComEstoque(pedido, {
+        formaPagamento,
+        finalizar: true,
+        usuarioId: req.session.user.id,
+      });
+    }
 
     mesa.status = "livre";
     await mesa.save();
@@ -3444,6 +3827,128 @@ function permissoesPadrao(funcao) {
   return padroes[funcao] || [];
 }
 
+const PERMISSOES_FUNCIONARIO = new Set([
+  "dashboard",
+  "pedidos",
+  "relatorios",
+  "estoque",
+  "catalogo",
+  "mesas",
+  "funcionarios",
+  "configuracoes",
+  "imprimir_pedidos",
+  "configurar_impressoras",
+]);
+
+const PERMISSOES_ADMINISTRATIVAS_CRITICAS = new Set([
+  "funcionarios",
+  "configuracoes",
+  "configurar_impressoras",
+]);
+
+function erroPermissaoFuncionario(mensagem) {
+  const error = new Error(mensagem);
+  error.code = "PERMISSAO_FUNCIONARIO_NEGADA";
+  error.statusCode = 403;
+  return error;
+}
+
+function normalizarPermissoesFuncionario(valores) {
+  const permissoes = [...new Set(
+    (valores ? [].concat(valores) : [])
+      .map(valor => String(valor || "").trim())
+      .filter(Boolean),
+  )];
+  if (permissoes.some(permissao => !PERMISSOES_FUNCIONARIO.has(permissao))) {
+    throw erroPermissaoFuncionario("Uma permissão informada não é válida.");
+  }
+  return permissoes;
+}
+
+function validarAdministracaoFuncionario(
+  req,
+  permissoes,
+  { funcionarioAlvoId = null } = {},
+) {
+  const usuarioAtual = req.usuarioAtual || req.session?.user || {};
+  const idEstabelecimento = String(
+    usuarioAtual.estabelecimentoId || usuarioAtual.id || "",
+  );
+  const estabelecimentoInformado = String(
+    req.body?.estabelecimentoId || "",
+  ).trim();
+  if (
+    estabelecimentoInformado
+    && estabelecimentoInformado !== idEstabelecimento
+  ) {
+    throw erroPermissaoFuncionario(
+      "Não é permitido alterar o estabelecimento do funcionário.",
+    );
+  }
+  if (
+    String(req.body?.tipo || "").toLowerCase() === "proprietario"
+    || String(req.body?.funcao || "").toLowerCase() === "proprietario"
+  ) {
+    throw erroPermissaoFuncionario(
+      "Funcionários não podem ser promovidos a proprietário.",
+    );
+  }
+  if (usuarioAtual.tipo === "proprietario") return permissoes;
+
+  if (
+    funcionarioAlvoId
+    && String(funcionarioAlvoId) === String(usuarioAtual.id || usuarioAtual._id)
+  ) {
+    throw erroPermissaoFuncionario(
+      "Você não pode editar suas próprias permissões ou situação.",
+    );
+  }
+  if (
+    permissoes.some(permissao =>
+      PERMISSOES_ADMINISTRATIVAS_CRITICAS.has(permissao))
+  ) {
+    throw erroPermissaoFuncionario(
+      "Somente o proprietário pode conceder permissões administrativas.",
+    );
+  }
+  const permissoesDoOperador = new Set(req.permissoesAtuais || []);
+  if (permissoes.some(permissao => !permissoesDoOperador.has(permissao))) {
+    throw erroPermissaoFuncionario(
+      "Você não pode conceder uma permissão superior às suas.",
+    );
+  }
+  return permissoes;
+}
+
+function responderErroFuncionario(req, res, error, mensagemPadrao) {
+  if (error?.code === "PERMISSAO_FUNCIONARIO_NEGADA") {
+    if (
+      req.xhr
+      || String(req.get?.("accept") || "").includes("application/json")
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: error.message,
+      });
+    }
+    res.status(403);
+    return erroERedirecionar(req, res, "funcionarios", error.message);
+  }
+  return erroERedirecionar(req, res, "funcionarios", mensagemPadrao);
+}
+
+async function emailFuncionarioEmUso(email, funcionarioId = null) {
+  const filtroFuncionario = { email };
+  if (funcionarioId) {
+    filtroFuncionario._id = { $ne: funcionarioId };
+  }
+  const [funcionario, proprietario] = await Promise.all([
+    Funcionario.exists(filtroFuncionario),
+    registroModel.exists({ email }),
+  ]);
+  return Boolean(funcionario || proprietario);
+}
+
 exports.criarFuncionario = async (
   req,
   res,
@@ -3508,30 +4013,31 @@ exports.criarFuncionario = async (
       );
     }
 
-    const duplicado =
-      await Funcionario.exists({
-        estabelecimentoId:
-          idEstabelecimento,
-        $or: [{ email }, { cpf }],
-      });
+    const [emailEmUso, cpfEmUso] = await Promise.all([
+      emailFuncionarioEmUso(email),
+      Funcionario.exists({
+        estabelecimentoId: idEstabelecimento,
+        cpf,
+      }),
+    ]);
 
-    if (duplicado) {
+    if (emailEmUso || cpfEmUso) {
       return erroERedirecionar(
         req,
         res,
         "funcionarios",
-        "Já existe um funcionário com esse e-mail ou CPF.",
+        "Este e-mail já está cadastrado ou o CPF já pertence a um funcionário desta loja.",
       );
     }
 
-    const permissoes =
-      req.body.permissoes
-        ? [].concat(
-            req.body.permissoes,
-          )
-        : permissoesPadrao(
-            req.body.funcao,
-          );
+    const permissoes = validarAdministracaoFuncionario(
+      req,
+      normalizarPermissoesFuncionario(
+        req.body.permissoes
+          ? req.body.permissoes
+          : permissoesPadrao(req.body.funcao),
+      ),
+    );
 
     await Funcionario.create({
       estabelecimentoId:
@@ -3568,11 +4074,13 @@ exports.criarFuncionario = async (
   } catch (error) {
     console.error(error);
 
-    return erroERedirecionar(
+    return responderErroFuncionario(
       req,
       res,
-      "funcionarios",
-      "Não foi possível cadastrar o funcionário.",
+      error,
+      error?.code === 11000
+        ? "Este e-mail já está cadastrado."
+        : "Não foi possível cadastrar o funcionário.",
     );
   }
 };
@@ -3600,6 +4108,12 @@ exports.editarFuncionario = async (
         "Funcionário não encontrado.",
       );
     }
+
+    const permissoes = validarAdministracaoFuncionario(
+      req,
+      normalizarPermissoesFuncionario(req.body.permissoes),
+      { funcionarioAlvoId: funcionario._id },
+    );
 
     const nome = String(
       req.body.nome || "",
@@ -3632,22 +4146,21 @@ exports.editarFuncionario = async (
       );
     }
 
-    const duplicado =
-      await Funcionario.exists({
-        estabelecimentoId:
-          idEstabelecimento,
-        _id: {
-          $ne: funcionario._id,
-        },
-        $or: [{ email }, { cpf }],
-      });
+    const [emailEmUso, cpfEmUso] = await Promise.all([
+      emailFuncionarioEmUso(email, funcionario._id),
+      Funcionario.exists({
+        estabelecimentoId: idEstabelecimento,
+        cpf,
+        _id: { $ne: funcionario._id },
+      }),
+    ]);
 
-    if (duplicado) {
+    if (emailEmUso || cpfEmUso) {
       return erroERedirecionar(
         req,
         res,
         "funcionarios",
-        "Outro funcionário já utiliza esse e-mail ou CPF.",
+        "Este e-mail já está cadastrado ou o CPF já pertence a outro funcionário desta loja.",
       );
     }
 
@@ -3670,12 +4183,7 @@ exports.editarFuncionario = async (
     funcionario.ativo =
       req.body.ativo === "on";
 
-    funcionario.permissoes =
-      req.body.permissoes
-        ? [].concat(
-            req.body.permissoes,
-          )
-        : [];
+    funcionario.permissoes = permissoes;
 
     if (req.file) {
       funcionario.foto =
@@ -3714,11 +4222,13 @@ exports.editarFuncionario = async (
   } catch (error) {
     console.error(error);
 
-    return erroERedirecionar(
+    return responderErroFuncionario(
       req,
       res,
-      "funcionarios",
-      "Não foi possível atualizar o funcionário.",
+      error,
+      error?.code === 11000
+        ? "Este e-mail já está cadastrado."
+        : "Não foi possível atualizar o funcionário.",
     );
   }
 };
@@ -3728,6 +4238,15 @@ exports.excluirFuncionario = async (
   res,
 ) => {
   try {
+    const usuarioAtual = req.usuarioAtual || req.session?.user || {};
+    if (
+      usuarioAtual.tipo === "funcionario"
+      && String(req.params.id) === String(usuarioAtual.id || usuarioAtual._id)
+    ) {
+      throw erroPermissaoFuncionario(
+        "Você não pode excluir o próprio usuário.",
+      );
+    }
     await Funcionario.deleteOne({
       _id: req.params.id,
       estabelecimentoId:
@@ -3743,10 +4262,10 @@ exports.excluirFuncionario = async (
   } catch (error) {
     console.error(error);
 
-    return erroERedirecionar(
+    return responderErroFuncionario(
       req,
       res,
-      "funcionarios",
+      error,
       "Não foi possível excluir o funcionário.",
     );
   }
@@ -4189,6 +4708,41 @@ exports.atualizarStatusPedido =
         );
       }
 
+      if (status === "cancelado") {
+        const resultadoEstoque = await restaurarEstoqueDoPedido(pedido._id);
+        if (!resultadoEstoque?.success) {
+          adicionarHistoricoFinanceiro(pedido, {
+            tipo: "falha_estoque_cancelamento",
+            statusAnterior: pedido.pagamentoStatus,
+            statusNovo: pedido.pagamentoStatus,
+            usuarioId: req.session.user.id,
+            motivo: resultadoEstoque?.errorCode || "Falha na restauração.",
+            operationKey:
+              `falha_cancelamento:${pedido._id}:${resultadoEstoque?.errorCode || "erro"}`,
+          });
+          await pedido.save();
+        }
+        exigirMovimentacaoEstoqueConcluida(resultadoEstoque);
+        if (resultadoEstoque.status !== "nao_baixado") {
+          adicionarHistoricoFinanceiro(pedido, {
+            tipo: "restauracao_estoque_manual",
+            statusAnterior: pedido.pagamentoStatus,
+            statusNovo: pedido.pagamentoStatus,
+            usuarioId: req.session.user.id,
+            operationKey: `restauracao_manual:${pedido._id}`,
+          });
+        }
+        adicionarHistoricoFinanceiro(pedido, {
+          tipo: "cancelamento_manual",
+          statusAnterior: pedido.pagamentoStatus,
+          statusNovo: "cancelado",
+          usuarioId: req.session.user.id,
+          motivo: String(req.body.motivo || "").trim(),
+          operationKey: `cancelamento_manual:${pedido._id}`,
+        });
+        pedido.pagamentoStatus = "cancelado";
+      }
+
       pedido.status = status;
 
       await pedido.save();
@@ -4277,10 +4831,7 @@ exports.confirmarPagamentoPedido =
         );
       }
 
-      if (
-        pedido.pagamentoStatus !==
-        "pago"
-      ) {
+      if (pedido.pagamentoStatus !== "pago") {
         if (
           pedido.formaPagamento ===
           "pix"
@@ -4292,16 +4843,11 @@ exports.confirmarPagamentoPedido =
             "Pagamentos Pix devem ser confirmados automaticamente pelo provedor.",
           );
         }
-
-        pedido.pagamentoStatus =
-          "pago";
-
-        if (!pedido.pagoEm) {
-          pedido.pagoEm = new Date();
-        }
-
-        await pedido.save();
       }
+
+      await confirmarPedidoComEstoque(pedido, {
+        usuarioId: req.session.user.id,
+      });
 
       return salvarERedirecionar(
         req,
@@ -4340,6 +4886,28 @@ exports.excluirPedido = async (req, res) => {
     }
 
     const mesaId = pedido.mesaId;
+    const resultadoEstoque = await restaurarEstoqueDoPedido(pedido._id);
+    if (!resultadoEstoque?.success) {
+      adicionarHistoricoFinanceiro(pedido, {
+        tipo: "exclusao_bloqueada",
+        statusAnterior: pedido.pagamentoStatus,
+        statusNovo: pedido.pagamentoStatus,
+        usuarioId: req.session.user.id,
+        motivo: resultadoEstoque?.errorCode || "Falha na restauração.",
+        operationKey:
+          `exclusao_bloqueada:${pedido._id}:${resultadoEstoque?.errorCode || "erro"}`,
+      });
+      await pedido.save();
+    }
+    exigirMovimentacaoEstoqueConcluida(resultadoEstoque);
+    adicionarHistoricoFinanceiro(pedido, {
+      tipo: "exclusao_executada",
+      statusAnterior: pedido.pagamentoStatus,
+      statusNovo: "excluido",
+      usuarioId: req.session.user.id,
+      operationKey: `exclusao_executada:${pedido._id}`,
+    });
+    await pedido.save();
     await Pedido.deleteOne({
       _id: pedido._id,
       estabelecimentoId: idEstabelecimento,
@@ -4599,14 +5167,20 @@ exports.catalogoPublico = async (req, res) => {
   try {
     const configuracao = await Configuracao.findOne({ slug: req.params.slug }).lean();
     if (!configuracao) return res.status(404).render("404");
+    const acessoVenda = await consultarAcessoVenda({
+      estabelecimentoId: configuracao.estabelecimentoId,
+      estabelecimento: configuracao,
+    });
 
     const [produtos, avaliacoesAgregadas] = await Promise.all([
-      Produto.find({ estabelecimentoId: configuracao.estabelecimentoId, ativo: true })
-        .populate("categoriaId", "nome tipo").sort({ nome: 1 }).lean(),
-      Avaliacao.aggregate([
+      acessoVenda.permitido
+        ? Produto.find({ estabelecimentoId: configuracao.estabelecimentoId, ativo: true })
+          .populate("categoriaId", "nome tipo").sort({ nome: 1 }).lean()
+        : Promise.resolve([]),
+      acessoVenda.permitido ? Avaliacao.aggregate([
         { $match: { estabelecimentoId: configuracao.estabelecimentoId } },
         { $group: { _id: "$produtoId", media: { $avg: "$nota" }, quantidade: { $sum: 1 } } },
-      ]),
+      ]) : Promise.resolve([]),
     ]);
 
     const avaliacoesPorProduto = Object.fromEntries(
@@ -4616,10 +5190,67 @@ exports.catalogoPublico = async (req, res) => {
       }])
     );
 
-    return res.render("catalogo-publico", { configuracao, produtos, avaliacoesPorProduto });
+    return res.render("catalogo-publico", {
+      configuracao,
+      produtos,
+      avaliacoesPorProduto,
+      lojaDisponivel: acessoVenda.permitido,
+    });
   } catch (error) {
     console.error("Erro ao abrir catálogo:", error);
     return res.status(500).render("404");
+  }
+};
+
+exports.statusProdutosCatalogo = async (req, res) => {
+  try {
+    const configuracao = await Configuracao.findOne({
+      slug: req.params.slug,
+    }).select(
+      "estabelecimentoId ativo bloqueado vendasBloqueadas",
+    ).lean();
+
+    if (!configuracao) {
+      return res.status(404).json({
+        success: false,
+        message: "Estabelecimento não encontrado.",
+      });
+    }
+    const acessoVenda = await consultarAcessoVenda({
+      estabelecimentoId: configuracao.estabelecimentoId,
+      estabelecimento: configuracao,
+    });
+    if (!acessoVenda.permitido) return respostaLojaIndisponivel(res);
+
+    const produtos = await Produto.find({
+      estabelecimentoId: configuracao.estabelecimentoId,
+      ativo: true,
+    })
+      .select("_id nome preco imagem adicionais")
+      .lean();
+
+    return res.json({
+      success: true,
+      produtos: produtos.map(produto => ({
+        id: String(produto._id),
+        nome: produto.nome,
+        preco: Number(produto.preco || 0),
+        imagem: produto.imagem || "",
+        adicionais: (produto.adicionais || [])
+          .filter(adicional => adicional.ativo !== false)
+          .map(adicional => ({
+            id: String(adicional._id),
+            nome: adicional.nome,
+            preco: Number(adicional.preco || 0),
+          })),
+      })),
+    });
+  } catch (error) {
+    console.error("Erro ao sincronizar produtos do catálogo:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Não foi possível atualizar o catálogo.",
+    });
   }
 };
 
@@ -4978,18 +5609,20 @@ exports.mesaPublica = async (
         .render("404");
     }
 
+    const configuracao = await Configuracao.findOne({
+      estabelecimentoId: mesa.estabelecimentoId,
+    }).lean();
+    const acessoVenda = await consultarAcessoVenda({
+      estabelecimentoId: mesa.estabelecimentoId,
+      estabelecimento: configuracao || { ativo: false },
+    });
+
     const [
-      configuracao,
       produtos,
       pedidosAbertos,
       avaliacoesAgregadas,
     ] = await Promise.all([
-      Configuracao.findOne({
-        estabelecimentoId:
-          mesa.estabelecimentoId,
-      }).lean(),
-
-      Produto.find({
+      acessoVenda.permitido ? Produto.find({
         estabelecimentoId:
           mesa.estabelecimentoId,
         ativo: true,
@@ -4999,7 +5632,7 @@ exports.mesaPublica = async (
           "nome tipo",
         )
         .sort({ nome: 1 })
-        .lean(),
+        .lean() : Promise.resolve([]),
 
       Pedido.find({
         estabelecimentoId:
@@ -5104,6 +5737,7 @@ exports.mesaPublica = async (
         avaliacoesPorProduto,
         itensPendentesMesa,
         pedidoAvaliavelPorProduto,
+        lojaDisponivel: acessoVenda.permitido,
       },
     );
   } catch (error) {
@@ -5137,6 +5771,14 @@ exports.criarPedidoMesa = async (
           "Mesa não encontrada.",
       });
     }
+    const configuracao = await Configuracao.findOne({
+      estabelecimentoId: mesa.estabelecimentoId,
+    }).lean();
+    const acessoVenda = await consultarAcessoVenda({
+      estabelecimentoId: mesa.estabelecimentoId,
+      estabelecimento: configuracao || { ativo: false },
+    });
+    if (!acessoVenda.permitido) return respostaLojaIndisponivel(res);
 
     const itensRecebidos =
       Array.isArray(req.body.itens)
@@ -5552,6 +6194,29 @@ function obterDataSaoPaulo() {
   };
 }
 
+async function validarAcessoSse(
+  req,
+  res,
+  permissaoNecessaria,
+  { forcar = true } = {},
+) {
+  const usuario = await carregarIdentidadeAtual(req, { forcar });
+  if (!usuario) {
+    encerrarSessao(req, () => {
+      if (!res.writableEnded) res.end();
+    });
+    return false;
+  }
+  if (
+    usuario.tipo !== "proprietario"
+    && !req.permissoesAtuais.includes(permissaoNecessaria)
+  ) {
+    if (!res.writableEnded) res.end();
+    return false;
+  }
+  return true;
+}
+
 exports.streamNovosPedidos = (req, res) => {
   res.setHeader(
     "Content-Type",
@@ -5570,20 +6235,42 @@ exports.streamNovosPedidos = (req, res) => {
 
   res.flushHeaders?.();
 
-  const enviarEvento = () => {
+  let validando = false;
+  let primeiraValidacao = true;
+  let timer = null;
+  const enviarEvento = async () => {
     if (res.writableEnded) return;
+    if (validando) return;
+    validando = true;
+    try {
+      const autorizado = await validarAcessoSse(
+        req,
+        res,
+        "pedidos",
+        { forcar: !primeiraValidacao },
+      );
+      primeiraValidacao = false;
+      if (!autorizado) {
+        if (timer) clearInterval(timer);
+        return;
+      }
 
-    res.write(
-      `event: novos-pedidos\n` +
-      `data: ${JSON.stringify({
-        timestamp: Date.now()
-      })}\n\n`
-    );
+      res.write(
+        `event: novos-pedidos\n` +
+        `data: ${JSON.stringify({
+          timestamp: Date.now()
+        })}\n\n`
+      );
+    } catch {
+      if (!res.writableEnded) res.end();
+    } finally {
+      validando = false;
+    }
   };
 
   enviarEvento();
 
-  const timer = setInterval(
+  timer = setInterval(
     enviarEvento,
     5000
   );
@@ -5677,6 +6364,11 @@ exports.criarPedidoCatalogo =
             "Estabelecimento não encontrado.",
         });
       }
+      const acessoVenda = await consultarAcessoVenda({
+        estabelecimentoId: configuracao.estabelecimentoId,
+        estabelecimento: configuracao,
+      });
+      if (!acessoVenda.permitido) return respostaLojaIndisponivel(res);
 
       if (
         !estabelecimentoAberto(
@@ -5841,18 +6533,20 @@ exports.criarPedidoCatalogo =
         });
       }
 
-      const idsProdutos =
-        itensRecebidos
-          .map(
-            (item) =>
-              item.produtoId,
-          )
-          .filter(Boolean);
+      const idsProdutos = [
+        ...new Set(
+          itensRecebidos
+            .map(item => String(item?.produtoId || "").trim())
+            .filter(Boolean),
+        ),
+      ];
+      const idsProdutosValidos =
+        idsProdutos.filter(id => mongoose.isValidObjectId(id));
 
       const produtos =
         await Produto.find({
           _id: {
-            $in: idsProdutos,
+            $in: idsProdutosValidos,
           },
 
           estabelecimentoId:
@@ -5861,15 +6555,87 @@ exports.criarPedidoCatalogo =
           ativo: true,
         }).lean();
 
+      const idsIngredientes = [
+        ...new Set(
+          produtos.flatMap(produto =>
+            (produto.fichaTecnica || [])
+              .map(item => String(item.estoqueId?._id || item.estoqueId || ""))
+              .filter(Boolean),
+          ),
+        ),
+      ];
+      const ingredientesAtivos = idsIngredientes.length
+        ? await Estoque.find({
+            _id: { $in: idsIngredientes },
+            estabelecimentoId: configuracao.estabelecimentoId,
+            ativo: { $ne: false },
+          }).select("_id").lean()
+        : [];
+      const idsIngredientesAtivos = new Set(
+        ingredientesAtivos.map(item => String(item._id)),
+      );
+      const produtosComIngredienteIndisponivel = new Set(
+        produtos
+          .filter(produto =>
+            (produto.fichaTecnica || []).some(item =>
+              !idsIngredientesAtivos.has(
+                String(item.estoqueId?._id || item.estoqueId || ""),
+              ),
+            ),
+          )
+          .map(produto => String(produto._id)),
+      );
       const produtosMap =
         new Map(
-          produtos.map(
+          produtos
+            .filter(produto =>
+              !produtosComIngredienteIndisponivel.has(String(produto._id)),
+            )
+            .map(
             (produto) => [
               String(produto._id),
               produto,
             ],
-          ),
+            ),
         );
+
+      const produtosInvalidos = idsProdutos.filter(
+        id => !produtosMap.has(id),
+      );
+      if (produtosInvalidos.length) {
+        return res.status(409).json({
+          success: false,
+          code: "PRODUTO_INDISPONIVEL",
+          message: "Um ou mais produtos não estão mais disponíveis.",
+          produtosInvalidos,
+        });
+      }
+
+      const produtosComPrecoAlterado = itensRecebidos
+        .filter(item => {
+          const produto = produtosMap.get(String(item?.produtoId || ""));
+          const precoRecebido = Number(item?.preco);
+          return produto
+            && Number.isFinite(precoRecebido)
+            && Math.abs(precoRecebido - Number(produto.preco || 0)) > 0.001;
+        })
+        .map(item => {
+          const produto = produtosMap.get(String(item.produtoId));
+          return {
+            id: String(produto._id),
+            nome: produto.nome,
+            preco: Number(produto.preco || 0),
+            imagem: produto.imagem || "",
+          };
+        });
+      if (produtosComPrecoAlterado.length) {
+        return res.status(409).json({
+          success: false,
+          code: "PRECO_ATUALIZADO",
+          message: "O preço de um produto foi atualizado.",
+          produtosAtualizados: produtosComPrecoAlterado,
+        });
+      }
 
       const itens = [];
       let total = 0;
@@ -5886,20 +6652,17 @@ exports.criarPedidoCatalogo =
             ),
           );
 
-        if (!produto) {
-          continue;
+        const quantidade = Number(itemRecebido.quantidade);
+        if (
+          !Number.isInteger(quantidade)
+          || quantidade < 1
+          || quantidade > 99
+        ) {
+          return res.status(400).json({
+            success: false,
+            message: "Quantidade de produto inválida.",
+          });
         }
-
-        const quantidade =
-          Math.max(
-            1,
-            Math.min(
-              99,
-              Number(
-                itemRecebido.quantidade,
-              ) || 1,
-            ),
-          );
 
         const precoBase = Number(
           produto.preco || 0,
@@ -5936,7 +6699,12 @@ exports.criarPedidoCatalogo =
 
           const adicional = adicionaisDisponiveis.get(adicionalId);
           if (!adicional) {
-            continue;
+            return res.status(409).json({
+              success: false,
+              code: "ADICIONAL_INDISPONIVEL",
+              message: "Um adicional selecionado não está mais disponível.",
+              produtoId: String(produto._id),
+            });
           }
 
           idsAdicionais.add(adicionalId);
@@ -6150,14 +6918,59 @@ exports.avaliarProdutoCatalogo = async (req, res) => {
 };
 
 /* REMOTE PRINT AGENT */
+const MAX_TENTATIVAS_CODIGO_AGENTE = 10;
+const DURACAO_CODIGO_AGENTE_MS = 15 * 60 * 1000;
+
+async function reservarCodigoAgente(lojaId, gerarCodigo = () =>
+  String(crypto.randomInt(100000, 1000000))) {
+  const agora = new Date();
+  await PrintAgent.updateMany(
+    {
+      codigoVinculacao: { $ne: "" },
+      codigoExpiraEm: { $lte: agora },
+    },
+    {
+      $set: {
+        codigoVinculacao: "",
+        codigoExpiraEm: null,
+      },
+    },
+  );
+
+  for (let tentativa = 0; tentativa < MAX_TENTATIVAS_CODIGO_AGENTE; tentativa += 1) {
+    const codigo = gerarCodigo();
+    const expiraEm = new Date(Date.now() + DURACAO_CODIGO_AGENTE_MS);
+    try {
+      await PrintAgent.findOneAndUpdate(
+        { estabelecimentoId: lojaId },
+        {
+          $set: {
+            codigoVinculacao: codigo,
+            codigoExpiraEm: expiraEm,
+            ativo: true,
+          },
+          $setOnInsert: { tokenHash: "" },
+        },
+        {
+          upsert: true,
+          returnDocument: "after",
+          setDefaultsOnInsert: true,
+          runValidators: true,
+        },
+      );
+      return { codigo, expiraEm };
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+    }
+  }
+  throw new Error("Não foi possível reservar um código de vínculo único.");
+}
+
 exports.gerarCodigoAgente = async (req, res) => {
   try {
     const lojaId = estabelecimentoId(req);
-    const codigo = String(crypto.randomInt(100000, 999999));
-    await PrintAgent.findOneAndUpdate({ estabelecimentoId: lojaId }, {
-      $set: { codigoVinculacao: codigo, codigoExpiraEm: new Date(Date.now() + 15 * 60 * 1000), ativo: true }
-    }, { upsert: true, returnDocument: "after", setDefaultsOnInsert: true });
-    return res.json({ success: true, codigo, expiraEm: new Date(Date.now() + 15 * 60 * 1000) });
+    const { codigo, expiraEm } = await reservarCodigoAgente(lojaId);
+    return res.json({ success: true, codigo, expiraEm });
   } catch (error) { return res.status(500).json({ success: false, message: "Não foi possível gerar o código." }); }
 };
 
@@ -6185,9 +6998,25 @@ exports.streamStatusAgente = (req, res) => {
   enviar(printAgentHub.currentStatus(lojaId));
 
   const unsubscribe = printAgentHub.subscribeStatus(lojaId, enviar);
-  const heartbeat = setInterval(() => {
-    if (!res.writableEnded) res.write(": heartbeat\n\n");
-  }, 20_000);
+  let validando = false;
+  const heartbeat = setInterval(async () => {
+    if (res.writableEnded || validando) return;
+    validando = true;
+    try {
+      if (!await validarAcessoSse(req, res, "configurar_impressoras")) {
+        clearInterval(heartbeat);
+        unsubscribe();
+        return;
+      }
+      res.write(": heartbeat\n\n");
+    } catch {
+      clearInterval(heartbeat);
+      unsubscribe();
+      if (!res.writableEnded) res.end();
+    } finally {
+      validando = false;
+    }
+  }, 5_000);
   heartbeat.unref?.();
 
   req.on("close", () => {
@@ -6312,3 +7141,16 @@ exports.agregarRelatorios =
   agregarRelatorios;
 exports.agregarDashboard =
   agregarDashboard;
+exports._testing = {
+  adicionarHistoricoFinanceiro,
+  confirmarPedidoComEstoque,
+  emailFuncionarioEmUso,
+  exigirMovimentacaoEstoqueConcluida,
+  montarFichaTecnicaProduto,
+  reservarCodigoAgente,
+  idsDeIngredientesDesativadosReferenciados,
+  validarFichaAntesDeSalvar,
+  normalizarPermissoesFuncionario,
+  validarAdministracaoFuncionario,
+  validarAcessoSse,
+};

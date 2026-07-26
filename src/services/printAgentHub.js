@@ -113,6 +113,19 @@ function init(io) {
 
         if (agente) {
           socket.data.newToken = novoToken;
+        } else {
+          await PrintAgent.updateMany(
+            {
+              codigoVinculacao: codigo,
+              codigoExpiraEm: { $lte: new Date() },
+            },
+            {
+              $set: {
+                codigoVinculacao: "",
+                codigoExpiraEm: null,
+              },
+            },
+          );
         }
       }
 

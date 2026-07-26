@@ -39,7 +39,9 @@ exports.registro = async (req, res) => {
 
     req.flash(
       'errors',
-      'Ocorreu um erro ao realizar o cadastro. Tente novamente.'
+      error?.code === 11000
+        ? 'E-mail, CPF ou CNPJ já cadastrado.'
+        : 'Ocorreu um erro ao realizar o cadastro. Tente novamente.'
     );
 
     return req.session.save(() => {

@@ -32,6 +32,7 @@ const {
   loginRequired,
   permissao,
   permissaoCategoria,
+  somenteProprietario,
 } = require('./src/middleware/auth');
 
 const {
@@ -203,6 +204,7 @@ route.get(
 route.get(
   '/assinatura',
   loginRequired,
+  somenteProprietario,
   carregarAssinatura,
   permissao('configuracoes'),
   pagamento.pagina
@@ -211,6 +213,7 @@ route.get(
 route.post(
   '/assinatura/cartao',
   loginRequired,
+  somenteProprietario,
   carregarAssinatura,
   permissao('configuracoes'),
   limiteAssinatura,
@@ -221,6 +224,7 @@ route.post(
 route.post(
   '/assinatura/pix',
   loginRequired,
+  somenteProprietario,
   carregarAssinatura,
   permissao('configuracoes'),
   limiteAssinatura,
@@ -231,14 +235,15 @@ route.post(
 route.get(
   '/assinatura/retorno',
   loginRequired,
+  somenteProprietario,
   carregarAssinatura,
   permissao('configuracoes'),
   pagamento.retorno
 );
 
-route.get('/admin/mercado-pago/conectar', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, pagamento.conectarMercadoPago);
-route.get('/admin/mercado-pago/callback', loginRequired, carregarAssinatura, permissao('configuracoes'), limiteOauth, pagamento.callbackMercadoPago);
-route.post('/admin/mercado-pago/desconectar', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, csrfProtection, pagamento.desconectarMercadoPago);
+route.get('/admin/mercado-pago/conectar', loginRequired, somenteProprietario, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, pagamento.conectarMercadoPago);
+route.get('/admin/mercado-pago/callback', loginRequired, somenteProprietario, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, pagamento.callbackMercadoPago);
+route.post('/admin/mercado-pago/desconectar', loginRequired, somenteProprietario, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, csrfProtection, pagamento.desconectarMercadoPago);
 
 route.post(
   '/webhook/mercado-pago',
@@ -262,6 +267,15 @@ route.get(
   carregarAssinatura,
   assinaturaRequired,
   admin.admin
+);
+
+route.get(
+  '/admin/pedidos',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissao('pedidos'),
+  (req, res) => res.redirect('/admin#pedidos')
 );
 
 route.get(
@@ -539,6 +553,7 @@ route.get(
   admin.catalogoPublico
 );
 
+route.get('/catalogo/:slug/produtos-status', admin.statusProdutosCatalogo);
 route.post('/catalogo/:slug/pedidos', admin.criarPedidoCatalogo);
 route.post('/catalogo/:slug/pedidos/:pedidoId/pix', limitePixPedido, pagamento.gerarPixPedido);
 route.get('/catalogo/:slug/pedidos/:pedidoId/pagamento-status', limiteStatusPagamento, pagamento.statusPagamentoPedido);

@@ -99,17 +99,25 @@ class Registro {
 
     this.criptografaSenha();
 
-    this.user = await registroModel.create({
-      ...this.body,
-      aceiteLegal: {
-        aceitouTermos: true,
-        aceitouPrivacidade: true,
-        aceitoEm: new Date(),
-        versao: String(this.metadata.versaoTermos || ""),
-        ip: String(this.metadata.ipAceite || "").slice(0, 120),
-        userAgent: String(this.metadata.userAgentAceite || "").slice(0, 500),
-      },
-    });
+    try {
+      this.user = await registroModel.create({
+        ...this.body,
+        aceiteLegal: {
+          aceitouTermos: true,
+          aceitouPrivacidade: true,
+          aceitoEm: new Date(),
+          versao: String(this.metadata.versaoTermos || ""),
+          ip: String(this.metadata.ipAceite || "").slice(0, 120),
+          userAgent: String(this.metadata.userAgentAceite || "").slice(0, 500),
+        },
+      });
+    } catch (error) {
+      if (error?.code === 11000) {
+        this.errors.push("E-mail, CPF ou CNPJ já cadastrado.");
+        return;
+      }
+      throw error;
+    }
   }
 
   validaCampos() {
@@ -265,11 +273,15 @@ class Registro {
   }
 
   async userExists() {
+    const { Funcionario } = require("./painelModels");
     const emailExiste = await registroModel.findOne({
       email: this.body.email,
     });
+    const funcionarioExiste = await Funcionario.exists({
+      email: this.body.email,
+    });
 
-    if (emailExiste) {
+    if (emailExiste || funcionarioExiste) {
       this.errors.push("E-mail já cadastrado.");
     }
 

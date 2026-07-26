@@ -1,4 +1,7 @@
-const { Assinatura } = require("../models/painelModels");
+const { Assinatura, Configuracao } = require("../models/painelModels");
+const {
+  avaliarAcessoVenda,
+} = require("../services/assinaturaAcessoService");
 
 const id = (req) =>
   req.session.user.estabelecimentoId || req.session.user.id;
@@ -34,20 +37,29 @@ exports.carregarAssinatura = async (req, res, next) => {
       });
     }
 
+    const estabelecimento = await Configuracao.findOne({
+      estabelecimentoId: id(req),
+    })
+      .select("ativo bloqueado vendasBloqueadas")
+      .lean();
     const agora = new Date();
-    const emTeste = testeValido(assinatura, agora);
-    const planoAtivo = planoPagoValido(assinatura, agora);
+    const testeDentroDaData = testeValido(assinatura, agora);
+    const planoDentroDaData = planoPagoValido(assinatura, agora);
     const planoComprovado = Boolean(
       assinatura.ultimoPagamentoAprovadoId &&
       assinatura.planoExpira
     );
 
     if (assinatura.status === "ativa" && !planoComprovado) {
-      assinatura.status = emTeste ? "teste" : "pendente";
+      assinatura.status = testeDentroDaData ? "teste" : "pendente";
     }
 
     // Uma tentativa de pagamento pendente nunca encerra o teste gratuito.
-    if (!emTeste && !planoAtivo && assinatura.status === "teste") {
+    if (
+      !testeDentroDaData
+      && !planoDentroDaData
+      && assinatura.status === "teste"
+    ) {
       assinatura.status = "expirada";
     }
 
@@ -60,9 +72,17 @@ exports.carregarAssinatura = async (req, res, next) => {
     }
 
     if (assinatura.isModified()) await assinatura.save();
+    const avaliacao = avaliarAcessoVenda({
+      estabelecimento,
+      assinatura,
+      agora,
+    });
+    const emTeste = avaliacao.permitido && avaliacao.status === "teste";
+    const planoAtivo = avaliacao.permitido && avaliacao.status === "ativa";
 
     req.assinatura = assinatura;
-    req.assinaturaAcessoLiberado = emTeste || planoAtivo;
+    req.assinaturaAvaliacao = avaliacao;
+    req.assinaturaAcessoLiberado = avaliacao.permitido;
     res.locals.assinatura = assinatura.toObject();
     res.locals.testeValido = emTeste;
     res.locals.planoAtivo = planoAtivo;
@@ -79,9 +99,35 @@ exports.carregarAssinatura = async (req, res, next) => {
 exports.assinaturaRequired = (req, res, next) => {
   if (req.assinaturaAcessoLiberado) return next();
 
+  const usuario = req.usuarioAtual || req.session?.user || {};
+  const aceita = String(req.get?.("accept") || "");
+  const conteudo = String(req.get?.("content-type") || "");
+  const caminho = String(req.path || req.originalUrl || "").split("?")[0];
+  const requisicaoDeApi = Boolean(
+    req.xhr
+    || caminho.includes("/api/")
+    || aceita.includes("application/json")
+    || aceita.includes("text/event-stream")
+    || conteudo.includes("application/json"),
+  );
+
+  if (requisicaoDeApi) {
+    return res.status(403).json({
+      success: false,
+      code: "ASSINATURA_NECESSARIA",
+      message: "Regularize a assinatura para acessar esta funcionalidade.",
+    });
+  }
+
+  if (usuario.tipo === "funcionario") {
+    return res.status(403).send(
+      "O acesso operacional desta loja está temporariamente indisponível.",
+    );
+  }
+
   req.flash(
     "errors",
-    "Seu período gratuito terminou. Escolha uma forma de pagamento para continuar.",
+    "Sua assinatura precisa ser regularizada para liberar novas operações.",
   );
   return req.session.save(() => res.redirect("/assinatura"));
 };
