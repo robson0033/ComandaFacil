@@ -1,7 +1,11 @@
 "use strict";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
-const KEY_PATTERN = /^estabelecimentos\/([a-f\d]{24})\/(produtos|funcionarios|perfil)\/([0-9a-f-]{36})\.webp$/i;
+const UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}";
+const KEY_PATTERN = new RegExp(
+  `^estabelecimentos/([a-f\\d]{24})/(produtos|funcionarios|perfil|testes)/(${UUID_PATTERN})\\.webp$`,
+  "i",
+);
 
 class StorageError extends Error {
   constructor(code, message, { statusCode = 503, storageKey = "" } = {}) {
@@ -187,6 +191,9 @@ class CloudinaryStorageAdapter {
       altura: Number(result.height),
       tamanho: Number(result.bytes),
       provider: "cloudinary",
+      publicId: result.public_id,
+      resourceType: result.resource_type,
+      format: result.format,
     };
   }
 

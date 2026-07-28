@@ -183,6 +183,9 @@ test("upload envia o buffer processado e usa opções Cloudinary restritas", asy
     altura: 240,
     tamanho: 1234,
     provider: "cloudinary",
+    publicId: PUBLIC_ID,
+    resourceType: "image",
+    format: "webp",
   });
   assert.deepEqual(calls.config[0], {
     cloud_name: "cloud",
