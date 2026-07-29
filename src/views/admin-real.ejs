@@ -7,6 +7,7 @@
     name="viewport"
     content="width=device-width, initial-scale=1.0"
   >
+  <meta name="csrf-token" content="<%= csrfToken %>">
 
   <title>ComandaFacíl | Painel Administrativo</title>
 
@@ -4731,16 +4732,17 @@
 
                     <form
                       action="/admin/produtos/<%= produto._id %>/excluir"
-                    method="POST"
-                    style="margin-top: 12px;"
-                  >
-                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-                    <button
-                      type="submit"
-                      class="mini-button delete"
+                      method="POST"
+                      style="margin-top: 12px;"
+                      data-product-delete
                     >
-                      Excluir produto
-                    </button>
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <button
+                        type="submit"
+                        class="mini-button delete"
+                      >
+                        Excluir produto
+                      </button>
                     </form>
                   </div>
                 </div>
@@ -6822,8 +6824,60 @@
 ></div>
 
   <script nonce="<%= cspNonce %>">
-    const adminCsrfToken = <%- safeJsonForHtml(csrfToken || '') %>;
     const mutatingAdminMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+    const secoesPainelPermitidas = new Set([
+      'dashboard',
+      'pedidos',
+      'pedidos-arquivados',
+      'relatorios',
+      'estoque',
+      'catalogo',
+      'mesas',
+      'funcionarios',
+      'configuracoes',
+    ]);
+    let sessionRedirectInProgress = false;
+    let pollingPedidosAtivo = true;
+    let pedidosStream = null;
+    let printAgentStatusStream = null;
+
+    function obterCsrfTokenAtual() {
+      return (
+        document.querySelector('meta[name="csrf-token"]')?.content ||
+        document.querySelector('input[name="_csrf"]')?.value ||
+        ''
+      ).trim();
+    }
+
+    function recarregarSecaoPainel(secaoPreferida) {
+      const secaoAtual = String(window.location.hash || '').replace(/^#/, '');
+      const secao = secoesPainelPermitidas.has(String(secaoPreferida || ''))
+        ? String(secaoPreferida)
+        : secoesPainelPermitidas.has(secaoAtual)
+          ? secaoAtual
+          : 'dashboard';
+      window.location.hash = `#${secao}`;
+      window.location.reload();
+    }
+
+    function pararPollings() {
+      pollingPedidosAtivo = false;
+    }
+
+    function fecharSse() {
+      pedidosStream?.close();
+      pedidosStream = null;
+      printAgentStatusStream?.close();
+      printAgentStatusStream = null;
+    }
+
+    function handleSessionExpired() {
+      if (sessionRedirectInProgress) return;
+      sessionRedirectInProgress = true;
+      pararPollings();
+      fecharSse();
+      window.location.assign('/login');
+    }
 
     function mostrarErroAdministrativo({ message, code, correlationId } = {}) {
       const container = document.querySelector('#orderToastContainer');
@@ -6857,7 +6911,19 @@
         target.pathname.startsWith('/admin');
       const headers = new Headers(options.headers || {});
       if (sameAdminOrigin && mutatingAdminMethods.has(method)) {
-        headers.set('X-CSRF-Token', adminCsrfToken);
+        const csrfToken = obterCsrfTokenAtual();
+        if (!csrfToken) {
+          const error = new Error('A página expirou. Atualize e tente novamente.');
+          error.code = 'CSRF_TOKEN_AUSENTE_NO_FRONTEND';
+          throw error;
+        }
+        headers.set('X-CSRF-Token', csrfToken);
+        if (options.body instanceof FormData) {
+          options.body.set('_csrf', csrfToken);
+        }
+      }
+      if (sameAdminOrigin && !headers.has('Accept')) {
+        headers.set('Accept', 'application/json');
       }
       const response = await window.fetch(resource, {
         ...options,
@@ -6867,7 +6933,7 @@
       if (response.status === 401) {
         const payload = await response.clone().json().catch(() => ({}));
         mostrarErroAdministrativo(payload);
-        window.location.assign('/login');
+        handleSessionExpired();
         return response;
       }
       if (response.status === 403) {
@@ -6897,7 +6963,16 @@
         input.name = '_csrf';
         form.appendChild(input);
       }
-      input.value = adminCsrfToken;
+      const csrfToken = obterCsrfTokenAtual();
+      if (!csrfToken) {
+        event.preventDefault();
+        mostrarErroAdministrativo({
+          code: 'CSRF_TOKEN_AUSENTE_NO_FRONTEND',
+          message: 'A página expirou. Atualize e tente novamente.',
+        });
+        return;
+      }
+      input.value = csrfToken;
     }, true);
 
     const pageInfo = {
@@ -8649,7 +8724,7 @@ if (generateAgentCodeButton) {
 }
 
 void verificarPrintAgent();
-iniciarStreamStatusAgente();
+printAgentStatusStream = iniciarStreamStatusAgente();
 
 async function imprimirPedido(
   pedidoId,
@@ -8860,7 +8935,7 @@ document.addEventListener(
 );
 
 async function verificarNovosPedidos() {
-  if (verificandoPedidos) {
+  if (!pollingPedidosAtivo || sessionRedirectInProgress || verificandoPedidos) {
     return;
   }
 
@@ -8960,13 +9035,18 @@ if (menuPedidos) {
 
 if (podeReceberNotificacoes) {
   verificarNovosPedidos();
-  const pedidosStream = new EventSource(
+  pedidosStream = new EventSource(
     '/admin/api/pedidos/stream'
   );
   pedidosStream.addEventListener(
     'novos-pedidos',
     verificarNovosPedidos
   );
+  pedidosStream.addEventListener('error', () => {
+    if (!sessionRedirectInProgress) {
+      void verificarNovosPedidos();
+    }
+  });
 }
   
     const itensEstoqueFicha = <%- safeJsonForHtml((estoque || []).map(item => ({
@@ -9299,27 +9379,53 @@ if (podeReceberNotificacoes) {
       const form = event.target;
       const uploadInput = form.querySelector?.('[data-image-upload]');
       if (
-        form.matches('form[enctype="multipart/form-data"]') &&
-        uploadInput?.files?.length
+        form.matches('form[enctype="multipart/form-data"]')
       ) {
         event.preventDefault();
-        const feedback = uploadInput.parentElement?.querySelector('.upload-feedback');
+        const feedback = uploadInput?.parentElement?.querySelector('.upload-feedback');
+        const formData = new FormData(form);
+        const csrfToken = obterCsrfTokenAtual();
+        if (!csrfToken) {
+          mostrarErroAdministrativo({
+            code: 'CSRF_TOKEN_AUSENTE_NO_FRONTEND',
+            message: 'A página expirou. Atualize e tente novamente.',
+          });
+          return;
+        }
+        formData.set('_csrf', csrfToken);
         adminFetch(form.action, {
           method: String(form.method || 'POST').toUpperCase(),
-          body: new FormData(form),
-          credentials: 'same-origin',
-          headers: { Accept: 'text/html,application/json' },
+          body: formData,
+          headers: { Accept: 'application/json' },
         }).then(async response => {
-          const contentType = response.headers.get('content-type') || '';
+          const payload = await response.clone().json().catch(() => ({}));
           if (!response.ok) {
-            const payload = contentType.includes('application/json')
-              ? await response.json()
-              : {};
             throw new Error(payload.message || 'Não foi possível enviar a imagem.');
           }
-          window.location.assign(response.url || '/admin');
+          recarregarSecaoPainel(payload.section || 'catalogo');
         }).catch(error => {
           if (feedback) feedback.textContent = error.message;
+        });
+        return;
+      }
+      if (form.matches('[data-product-delete]')) {
+        event.preventDefault();
+        if (!window.confirm('Tem certeza que deseja desativar este produto?')) {
+          return;
+        }
+        const formData = new FormData(form);
+        adminFetch(form.action, {
+          method: 'POST',
+          body: formData,
+          headers: { Accept: 'application/json' },
+        }).then(async response => {
+          const payload = await response.clone().json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(payload.message || 'Não foi possível desativar o produto.');
+          }
+          recarregarSecaoPainel(payload.section || 'catalogo');
+        }).catch(error => {
+          mostrarErroAdministrativo({ message: error.message });
         });
         return;
       }

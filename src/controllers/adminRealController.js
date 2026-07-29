@@ -627,6 +627,17 @@ function salvarERedirecionar(
   pagina,
   mensagem = "Alteração salva com sucesso.",
 ) {
+  if (
+    req.xhr
+    || String(req.get?.("accept") || "").includes("application/json")
+  ) {
+    return res.status(200).json({
+      success: true,
+      message: mensagem,
+      section: pagina,
+      correlationId: req.correlationId,
+    });
+  }
   safeFlash(req, "success", mensagem);
 
   return saveSessionOrRun(req, () => {
@@ -640,6 +651,18 @@ function erroERedirecionar(
   pagina,
   mensagem = "Não foi possível concluir a operação.",
 ) {
+  if (
+    req.xhr
+    || String(req.get?.("accept") || "").includes("application/json")
+  ) {
+    return res.status(422).json({
+      success: false,
+      code: "OPERATION_FAILED",
+      message: mensagem,
+      section: pagina,
+      correlationId: req.correlationId,
+    });
+  }
   safeFlash(req, "errors", mensagem);
 
   return saveSessionOrRun(req, () => {

@@ -369,7 +369,8 @@ test("frontend administrativo usa rotas relativas, credentials e token CSRF", ()
     "utf8",
   );
   assert.match(source, /function adminFetch/);
-  assert.match(source, /headers\.set\('X-CSRF-Token', adminCsrfToken\)/);
+  assert.match(source, /headers\.set\('X-CSRF-Token', csrfToken\)/);
+  assert.match(source, /function obterCsrfTokenAtual\(\)/);
   assert.match(source, /credentials:\s*'same-origin'/);
   assert.match(source, /input\.name = '_csrf'/);
   assert.doesNotMatch(source, /fetch\(\s*['"]https?:\/\/[^'"]+\/admin/i);

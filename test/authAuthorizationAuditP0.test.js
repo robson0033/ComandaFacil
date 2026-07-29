@@ -136,7 +136,8 @@ test("adminFetch central trata sessão, CSRF e permissão sem retry automático"
   );
   assert.match(source, /async function adminFetch/);
   assert.match(source, /credentials:\s*'same-origin'/);
-  assert.match(source, /headers\.set\('X-CSRF-Token', adminCsrfToken\)/);
+  assert.match(source, /headers\.set\('X-CSRF-Token', csrfToken\)/);
+  assert.match(source, /function obterCsrfTokenAtual\(\)/);
   assert.match(source, /response\.status === 401/);
   assert.match(source, /response\.status === 403/);
   assert.match(source, /PERMISSION_DENIED/);
