@@ -61,3 +61,25 @@ do valor de Origin, origem normalizada, origem normalizada do `APP_URL`,
 quantidade de origens permitidas e se houve correspondência. Depois da
 confirmação no Render, remova ou defina a variável como `false`; o log normal
 fica reduzido a código técnico, método e path.
+
+## Origem opaca e validação após deploy
+
+A CSP principal do projeto não contém `sandbox`; usa `frame-ancestors 'none'`
+para impedir incorporação sem transformar o documento em origem opaca. Também
+não existem meta CSP, iframe sandbox ou service worker no repositório. Respostas
+administrativas recebem `Cache-Control: no-store, private`.
+
+Após um deploy controlado:
+
+1. DevTools → Application → Service Workers → Unregister;
+2. Storage → Clear site data;
+3. feche todas as abas do sistema;
+4. abra novamente e faça login;
+5. cadastre uma categoria de teste;
+6. confira no Network que o POST envia
+   `Origin: https://comandafacil-2kot.onrender.com`;
+7. confira no GET `/admin` que existe somente uma
+   `Content-Security-Policy`, sem a diretiva `sandbox`.
+
+`Origin: null` permanece bloqueada. `Sec-Fetch-Site` não substitui Origin,
+sessão ou token CSRF.
