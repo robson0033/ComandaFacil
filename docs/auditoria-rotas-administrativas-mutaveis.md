@@ -83,3 +83,15 @@ Após um deploy controlado:
 
 `Origin: null` permanece bloqueada. `Sec-Fetch-Site` não substitui Origin,
 sessão ou token CSRF.
+
+## Referrer-Policy dos documentos
+
+A política global é `strict-origin-when-cross-origin`. Ela preserva o contexto
+completo em navegação same-origin, limita navegação HTTPS cross-origin à origem
+e não envia referência em downgrade HTTPS para HTTP. A política anterior
+`no-referrer` foi removida dos headers e metas HTML porque fazia os POSTs de
+formulário observados no Chrome/Render chegarem com origem opaca.
+
+Isso não relaxa a autorização: `Origin: null` continua proibida e operações
+mutáveis ainda exigem simultaneamente Origin ou Referer autorizado, token CSRF,
+sessão, assinatura, permissão e isolamento por estabelecimento.

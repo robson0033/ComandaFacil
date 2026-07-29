@@ -474,14 +474,14 @@ test("rotas públicas de pedido são POST, sem token no path e sem cache", () =>
   }
 });
 
-test("Referrer-Policy global e metas públicas usam no-referrer", () => {
+test("Referrer-Policy global e metas públicas usam strict-origin-when-cross-origin", () => {
   const server = fs.readFileSync("server.js", "utf8");
   assert.match(server, /app\.use\(securityHeaders\)/);
   const res = responseMock();
   let nextCalled = false;
   securityHeaders({}, res, () => { nextCalled = true; });
   assert.equal(nextCalled, true);
-  assert.equal(res.headers["Referrer-Policy"], "no-referrer");
+  assert.equal(res.headers["Referrer-Policy"], "strict-origin-when-cross-origin");
   for (const view of [
     "catalogo-publico.ejs",
     "mesa-publica.ejs",
@@ -489,6 +489,6 @@ test("Referrer-Policy global e metas públicas usam no-referrer", () => {
     "index.ejs",
   ]) {
     const source = fs.readFileSync(`src/views/${view}`, "utf8");
-    assert.match(source, /<meta name="referrer" content="no-referrer">/);
+    assert.match(source, /<meta name="referrer" content="strict-origin-when-cross-origin">/);
   }
 });

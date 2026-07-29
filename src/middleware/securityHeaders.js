@@ -53,7 +53,8 @@ function securityHeaders(req, res, next) {
   res.removeHeader?.("Content-Security-Policy");
   res.removeHeader?.("Content-Security-Policy-Report-Only");
   res.set("Content-Security-Policy", policy);
-  res.set("Referrer-Policy", "no-referrer");
+  res.removeHeader?.("Referrer-Policy");
+  res.set("Referrer-Policy", "strict-origin-when-cross-origin");
   res.set("X-Content-Type-Options", "nosniff");
   res.set("X-Frame-Options", "DENY");
   res.set("Cross-Origin-Opener-Policy", "same-origin");

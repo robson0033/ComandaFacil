@@ -50,8 +50,35 @@ test("páginas administrativas recebem uma CSP única sem sandbox e sem cache", 
     assert.equal(result.values.get("cache-control"), "no-store, private");
     assert.equal(result.values.get("cross-origin-opener-policy"), "same-origin");
     assert.equal(result.values.get("cross-origin-resource-policy"), "same-origin");
+    assert.equal(result.values.get("referrer-policy"), "strict-origin-when-cross-origin");
+    assert.equal(result.setCount.get("referrer-policy"), 1);
+    assert.ok(result.removed.includes("referrer-policy"));
     assert.ok(result.removed.includes("content-security-policy-report-only"));
   }
+});
+
+test("nenhuma view força no-referrer em navegação ou envio de formulários", () => {
+  const viewsDirectory = path.resolve(__dirname, "../src/views");
+  for (const name of fs.readdirSync(viewsDirectory).filter(file => file.endsWith(".ejs"))) {
+    const source = fs.readFileSync(path.join(viewsDirectory, name), "utf8");
+    assert.doesNotMatch(
+      source,
+      /<meta\b[^>]*\bname=["']referrer["'][^>]*\bcontent=["']no-referrer["']/i,
+      name,
+    );
+    assert.doesNotMatch(
+      source,
+      /<form\b[^>]*\breferrerpolicy=["']no-referrer["']/i,
+      name,
+    );
+  }
+
+  const adminSource = fs.readFileSync(
+    path.join(viewsDirectory, "admin-real.ejs"),
+    "utf8",
+  );
+  assert.doesNotMatch(adminSource, /\breferrerPolicy\s*:/);
+  assert.doesNotMatch(adminSource, /\breferrer\s*:\s*["']{2}/);
 });
 
 test("construtor central rejeita regressão sandbox e preserva proteções", () => {

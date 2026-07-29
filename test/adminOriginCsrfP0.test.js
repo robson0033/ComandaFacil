@@ -373,6 +373,24 @@ test("frontend administrativo usa rotas relativas, credentials e token CSRF", ()
   }
 });
 
+test("formulários de assinatura e logout usam POST relativo e token CSRF", () => {
+  const source = fs.readFileSync(
+    path.resolve(__dirname, "../src/views/assinatura.ejs"),
+    "utf8",
+  );
+  const forms = [...source.matchAll(/<form\b[\s\S]*?<\/form>/gi)];
+  assert.equal(forms.length, 3);
+  for (const match of forms) {
+    assert.match(match[0], /method\s*=\s*["']POST["']/i);
+    assert.match(match[0], /name\s*=\s*["']_csrf["']/i);
+    assert.doesNotMatch(match[0], /\btarget\s*=/i);
+    assert.doesNotMatch(match[0], /\breferrerpolicy\s*=\s*["']no-referrer["']/i);
+    assert.doesNotMatch(match[0], /\brel\s*=\s*["'][^"']*\bnoreferrer\b/i);
+    const action = match[0].match(/action\s*=\s*["']([^"']+)/i)?.[1] || "";
+    assert.ok(action.startsWith("/") && !action.startsWith("//"), action);
+  }
+});
+
 test("logout, início OAuth e descoberta de rede não permanecem em GET", () => {
   const route = fs.readFileSync(path.resolve(__dirname, "../route.js"), "utf8");
   for (const requestPath of [
