@@ -3,6 +3,9 @@
 const {
   validatePrintProtocolRollout,
 } = require("./printProtocolRollout");
+const {
+  assertCsrfConfiguration,
+} = require("../middleware/csrf");
 
 const REQUIRED_PRODUCTION = Object.freeze([
   "MERCADO_PAGO_ACCESS_TOKEN",
@@ -120,6 +123,13 @@ function validateEnvironment(env = process.env) {
     } else {
       invalid.push("PRINT_PROTOCOL_V2_ENABLED");
     }
+  }
+
+  try {
+    assertCsrfConfiguration(env);
+  } catch (error) {
+    if (/ALLOWED_ORIGINS/.test(error.message)) invalid.push("ALLOWED_ORIGINS");
+    else invalid.push("APP_URL");
   }
 
   if (invalid.length) throw new EnvironmentValidationError(invalid);

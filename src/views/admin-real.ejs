@@ -3853,6 +3853,7 @@
                   data-confirm-finalize-pending
                 <% } %>
               >
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                 <select name="status">
                   <option
                     value="novo"
@@ -3933,6 +3934,7 @@
                   method="POST"
                   data-confirm-payment
                 >
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                   <button
                     type="submit"
                     class="mini-button edit"
@@ -4346,6 +4348,7 @@
             method="POST"
             class="form-grid"
           >
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
             <input
               type="hidden"
               name="tipo"
@@ -4380,6 +4383,7 @@
                 action="/admin/categorias/<%= categoria._id %>/excluir"
                 method="POST"
               >
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                 <button
                   type="submit"
                   class="mini-button delete"
@@ -4519,6 +4523,7 @@
                         method="POST"
                         data-delete-stock
                       >
+                        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                         <button
                           type="submit"
                           class="mini-button delete"
@@ -4585,6 +4590,7 @@
             method="POST"
             class="form-grid"
           >
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
             <input
               type="hidden"
               name="tipo"
@@ -4619,6 +4625,7 @@
                 action="/admin/categorias/<%= categoria._id %>/excluir"
                 method="POST"
               >
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                 <button
                   type="submit"
                   class="mini-button delete"
@@ -4727,6 +4734,7 @@
                     method="POST"
                     style="margin-top: 12px;"
                   >
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                     <button
                       type="submit"
                       class="mini-button delete"
@@ -4839,6 +4847,7 @@
                     action="/admin/mesas/<%= mesa._id %>/solicitar-conta"
                     method="POST"
                   >
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                     <button
                       type="submit"
                       class="mini-button edit"
@@ -4852,6 +4861,7 @@
                     method="POST"
                     class="pagamento-form"
                   >
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                     <select
                       name="formaPagamento"
                       aria-label="Forma de pagamento"
@@ -4886,6 +4896,7 @@
                     method="POST"
                     class="status-form"
                   >
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                     <select
                       name="status"
                       aria-label="Status da mesa"
@@ -4964,6 +4975,7 @@
                     method="POST"
                     class="confirmar-exclusao"
                   >
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                     <button
                       type="submit"
                       class="mini-button delete"
@@ -5133,6 +5145,7 @@
               method="POST"
               class="confirmar-exclusao"
             >
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
               <button
                 type="submit"
                 class="mini-button delete"
@@ -5170,6 +5183,7 @@
               enctype="multipart/form-data"
               class="form-grid"
             >
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
               <div class="field full">
                 <% if (config.fotoPerfil) { %>
                   <img
@@ -5365,6 +5379,7 @@
               method="POST"
               class="printer-grid"
             >
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
               <% for (let indice = 0; indice < 2; indice += 1) { %>
                 <% const impressora =
                   config.impressoras?.[indice] || {
@@ -5745,6 +5760,7 @@
         method="POST"
         class="form-grid"
       >
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
         <div class="field">
           <label for="estoqueNome">Nome</label>
 
@@ -5878,6 +5894,7 @@
         enctype="multipart/form-data"
         class="form-grid"
       >
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
         <div class="field">
           <label for="produtoNome">Nome</label>
 
@@ -6036,6 +6053,7 @@
           enctype="multipart/form-data"
           class="form-grid"
         >
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <div class="field">
             <label>Nome</label>
             <input
@@ -6257,6 +6275,7 @@
         method="POST"
         class="form-grid"
       >
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
         <div class="field">
           <label for="mesaNumero">
             Número da mesa
@@ -6353,6 +6372,7 @@
       class="form-grid"
       id="formFuncionario"
     >
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <div class="field">
         <label for="funcionarioNome">
           Nome completo
@@ -6583,6 +6603,7 @@
       class="form-grid"
       id="formEditarFuncionario"
     >
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <div class="field full">
         <div
           class="employee-photo-preview"
@@ -7973,6 +7994,7 @@ function criarCardPedido(
             ? `onsubmit="if(this.status.value === 'finalizado') return confirm('Finalizar este pedido? O pagamento continuará pendente até você usar Confirmar pagamento.');"`
             : ''}
         >
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <select name="status">
             <option value="novo">
               Novo
@@ -8017,6 +8039,7 @@ function criarCardPedido(
                 method="POST"
                 data-confirm-payment
               >
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                 <button
                   type="submit"
                   class="mini-button edit"

@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const {
+  assertCsrfConfiguration,
   configuredOrigins,
   createCsrfSameOriginProtection,
   isSafeHttpMethod,
@@ -46,14 +47,16 @@ function request({
   origin,
   referer,
   token = "csrf-token",
-  supplied = token,
+  supplied = "__VALID__",
 } = {}) {
   return {
     method,
     path: requestPath,
     originalUrl: requestPath,
     session: { csrfToken: token },
-    body: supplied === undefined ? {} : { _csrf: supplied },
+    body: supplied === undefined
+      ? {}
+      : { _csrf: supplied === "__VALID__" ? token : supplied },
     get(name) {
       return {
         origin,
@@ -157,6 +160,10 @@ test("origens aproximadas, inseguras, portas e URL malformada são bloqueadas", 
 
 test("APP_URL normaliza barra, ALLOWED_ORIGINS é explícita e localhost só fora de produção", () => {
   assert.equal(normalizeOrigin(`${APP_ORIGIN}/`), APP_ORIGIN);
+  assert.equal(normalizeOrigin(null), null);
+  assert.equal(normalizeOrigin("null"), null);
+  assert.equal(normalizeOrigin("ftp://example.com"), null);
+  assert.equal(normalizeOrigin("https://user:pass@example.com"), null);
   const allowed = configuredOrigins({
     NODE_ENV: "production",
     APP_URL: `${APP_ORIGIN}/`,
@@ -181,6 +188,19 @@ test("APP_URL normaliza barra, ALLOWED_ORIGINS é explícita e localhost só for
     NODE_ENV: "development",
     APP_URL: "http://localhost:3000",
   }).has("http://localhost:3000"), true);
+  assert.equal(assertCsrfConfiguration({
+    NODE_ENV: "production",
+    APP_URL: `${APP_ORIGIN}/`,
+  }), true);
+  assert.throws(() => assertCsrfConfiguration({
+    NODE_ENV: "production",
+    APP_URL: "não-é-url",
+  }), /APP_URL/);
+  assert.throws(() => assertCsrfConfiguration({
+    NODE_ENV: "production",
+    APP_URL: APP_ORIGIN,
+    ALLOWED_ORIGINS: "http://admin.example.com",
+  }), /ALLOWED_ORIGINS/);
 });
 
 test("log de bloqueio contém apenas metadados técnicos sanitizados", () => {
@@ -190,8 +210,89 @@ test("log de bloqueio contém apenas metadados técnicos sanitizados", () => {
   req.session.cookie = "cookie-secreto";
   execute(middleware({}, logs), req);
   const serialized = JSON.stringify(logs);
-  assert.match(serialized, /CSRF_ORIGIN_BLOCKED/);
+  assert.match(serialized, /ORIGIN_NAO_AUTORIZADA/);
   assert.doesNotMatch(serialized, /segredo|cookie-secreto|csrf-token/);
+});
+
+test("classifica precisamente falhas de origem, Referer, APP_URL e CSRF", () => {
+  const cases = [
+    [{ method: "POST", origin: undefined, referer: undefined }, "ORIGIN_AUSENTE"],
+    [{ method: "POST", origin: "null" }, "ORIGIN_MALFORMADA"],
+    [{ method: "POST", origin: "não-é-url" }, "ORIGIN_MALFORMADA"],
+    [{ method: "POST", origin: "https://evil.example" }, "ORIGIN_NAO_AUTORIZADA"],
+    [{ method: "POST", referer: "não-é-url" }, "REFERER_MALFORMADO"],
+    [{ method: "POST", origin: APP_ORIGIN, supplied: null }, "CSRF_TOKEN_AUSENTE"],
+    [{ method: "POST", origin: APP_ORIGIN, supplied: "inválido" }, "CSRF_TOKEN_INVALIDO"],
+  ];
+  for (const [input, expected] of cases) {
+    const logs = [];
+    execute(middleware({}, logs), request(input));
+    assert.equal(logs[0][1].code, expected);
+  }
+  const invalidAppLogs = [];
+  execute(
+    middleware({ APP_URL: "não-é-url" }, invalidAppLogs),
+    request({ method: "POST", origin: APP_ORIGIN }),
+  );
+  assert.equal(invalidAppLogs[0][1].code, "APP_URL_INVALIDA");
+});
+
+test("diagnóstico controlado reconhece exatamente a origem Render sem Referer", () => {
+  const logs = [];
+  const handler = createCsrfSameOriginProtection({
+    env: {
+      NODE_ENV: "production",
+      APP_URL: `  ${APP_ORIGIN}/  `,
+      CSRF_ORIGIN_DIAGNOSTICS: "true",
+    },
+    logger: {
+      info: (...items) => logs.push(items),
+      warn: (...items) => logs.push(items),
+    },
+  });
+  const result = execute(handler, request({
+    method: "POST",
+    path: "/admin/categorias",
+    origin: `  ${APP_ORIGIN}  `,
+    referer: undefined,
+  }));
+  assert.equal(result.passed, true);
+  const diagnostic = logs.find(items => items[0] === "csrf_origin_diagnostic")?.[1];
+  assert.equal(diagnostic.originNormalizada, APP_ORIGIN);
+  assert.equal(diagnostic.appOriginNormalizada, APP_ORIGIN);
+  assert.equal(diagnostic.allowedOriginsCount, 1);
+  assert.equal(diagnostic.matched, true);
+  assert.equal(diagnostic.originRawType, "string");
+  assert.ok(diagnostic.originRawLength > APP_ORIGIN.length);
+});
+
+test("todas as famílias administrativas passam com Origin Render e CSRF válidos", () => {
+  const paths = [
+    "/admin/categorias",
+    "/admin/mesas",
+    "/admin/funcionarios",
+    "/admin/produtos",
+    "/admin/estoque",
+    "/admin/configuracoes",
+    "/admin/pedidos/id/status",
+    "/admin/agente/pedidos/id/imprimir",
+    "/admin/mercado-pago/conectar",
+    "/login/logout",
+  ];
+  const handler = middleware();
+  for (const requestPath of paths) {
+    const valid = input => execute(handler, request({
+      method: "POST",
+      path: requestPath,
+      ...input,
+    }));
+    assert.equal(valid({ origin: APP_ORIGIN }).passed, true, requestPath);
+    assert.equal(valid({ origin: APP_ORIGIN, supplied: null }).res.statusCode, 403);
+    assert.equal(valid({ origin: APP_ORIGIN, supplied: "inválido" }).res.statusCode, 403);
+    assert.equal(valid({ origin: "https://evil.example" }).res.statusCode, 403);
+    assert.equal(valid({ referer: `${APP_ORIGIN}/admin` }).passed, true);
+    assert.equal(valid({}).res.statusCode, 403);
+  }
 });
 
 test("aliases GET são redirects protegidos e não possuem controller mutável", () => {
@@ -228,6 +329,24 @@ test("trust proxy precede sessão e rotas na configuração do servidor", () => 
   );
 });
 
+test("middleware real é montado globalmente antes das rotas administrativas", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../route.js"), "utf8");
+  const globalOrigin = source.indexOf("route.use('/admin', csrfSameOriginProtection)");
+  const mercadoPago = source.indexOf("route.post('/admin/mercado-pago/conectar'");
+  const adminPage = source.indexOf("route.get(\n  '/admin'");
+  assert.ok(globalOrigin >= 0);
+  assert.ok(globalOrigin < mercadoPago);
+  assert.ok(globalOrigin < adminPage);
+  assert.match(source, /route\.use\('\/assinatura', csrfSameOriginProtection\)/);
+  const mutableAdminRoutes = [
+    ...source.matchAll(/route\.(?:post|put|patch|delete)\(\s*['"](\/admin[^'"]*)['"]/g),
+  ];
+  assert.ok(mutableAdminRoutes.length >= 20);
+  for (const routeMatch of mutableAdminRoutes) {
+    assert.ok(routeMatch.index > globalOrigin, routeMatch[1]);
+  }
+});
+
 test("frontend administrativo usa rotas relativas, credentials e token CSRF", () => {
   const source = fs.readFileSync(
     path.resolve(__dirname, "../src/views/admin-real.ejs"),
@@ -244,6 +363,14 @@ test("frontend administrativo usa rotas relativas, credentials e token CSRF", ()
     1,
     "somente window.fetch dentro do helper central deve permanecer",
   );
+  for (const match of source.matchAll(/<form\b[\s\S]*?<\/form>/gi)) {
+    if (!/method\s*=\s*["']POST["']/i.test(match[0])) continue;
+    assert.match(match[0], /name\s*=\s*["']_csrf["']/i);
+    assert.match(match[0], /<button\b[^>]*type\s*=\s*["']submit["']/i);
+    const action = match[0].match(/action\s*=\s*["']([^"']+)/i)?.[1] || "";
+    assert.ok(!action || action.startsWith("/"), action);
+    assert.doesNotMatch(action, /^\/\//);
+  }
 });
 
 test("logout, início OAuth e descoberta de rede não permanecem em GET", () => {

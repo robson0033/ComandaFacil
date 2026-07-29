@@ -13,28 +13,38 @@ function ensureCsrfToken(req, res, next) {
 }
 
 function csrfProtection(req, res, next) {
-  const expected = String(req.session?.csrfToken || "");
-  const supplied = String(req.body?._csrf || req.get("x-csrf-token") || "");
-  const valid = expected.length === supplied.length
-    && expected.length > 0
-    && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(supplied));
-  if (!valid) return res.status(403).send("Requisição não autorizada.");
+  if (csrfTokenStatus(req) !== "VALIDO") {
+    return res.status(403).send("Requisição não autorizada.");
+  }
   return next();
 }
 
+function csrfTokenStatus(req) {
+  const expected = String(req.session?.csrfToken || "");
+  const supplied = String(req.body?._csrf || req.get("x-csrf-token") || "");
+  if (!supplied) return "CSRF_TOKEN_AUSENTE";
+  const valid = expected.length === supplied.length
+    && expected.length > 0
+    && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(supplied));
+  return valid ? "VALIDO" : "CSRF_TOKEN_INVALIDO";
+}
+
 function normalizeOrigin(value) {
-  if (!String(value || "").trim()) return null;
+  if (typeof value !== "string") return null;
+  const clean = value.trim();
+  if (!clean || clean === "null") return null;
   try {
-    const parsed = new URL(String(value).trim());
-    if (!["http:", "https:"].includes(parsed.protocol)) return "invalida";
+    const parsed = new URL(clean);
+    if (!["http:", "https:"].includes(parsed.protocol)) return null;
+    if (parsed.username || parsed.password) return null;
     return parsed.origin;
   } catch {
-    return "invalida";
+    return null;
   }
 }
 
 function isLocalOrigin(origin) {
-  if (!origin || origin === "invalida") return false;
+  if (!origin) return false;
   const hostname = new URL(origin).hostname.toLowerCase();
   return hostname === "localhost"
     || hostname === "127.0.0.1"
@@ -50,7 +60,6 @@ function configuredOrigins(env = process.env) {
   return new Set(
     values.map(normalizeOrigin).filter(origin =>
       origin
-      && origin !== "invalida"
       && (!production || !isLocalOrigin(origin))
       && (!production || new URL(origin).protocol === "https:")
     ),
@@ -62,6 +71,9 @@ function createCsrfSameOriginProtection({
   logger = console,
 } = {}) {
   const allowed = configuredOrigins(env);
+  const appOrigin = normalizeOrigin(env.APP_URL);
+  const diagnostics = String(env.CSRF_ORIGIN_DIAGNOSTICS || "").toLowerCase()
+    === "true";
   return function csrfSameOriginProtection(req, res, next) {
     const method = String(req.method || "").toUpperCase();
     if (isSafeHttpMethod(method)) return next();
@@ -69,27 +81,61 @@ function createCsrfSameOriginProtection({
       return res.status(405).send("Método não permitido.");
     }
 
-    const originHeader = req.get?.("origin");
-    const refererHeader = req.get?.("referer");
-    const origin = normalizeOrigin(originHeader);
-    const refererOrigin = originHeader ? null : normalizeOrigin(refererHeader);
-    const sourceOrigin = origin || refererOrigin;
-    if (
-      sourceOrigin
-      && sourceOrigin !== "invalida"
-      && allowed.has(sourceOrigin)
-    ) {
-      return csrfProtection(req, res, next);
+    const path = String(req.originalUrl || req.path || "").slice(0, 300);
+    const originRaw = req.get?.("origin");
+    const originPresent = typeof originRaw === "string"
+      ? Boolean(originRaw.trim())
+      : originRaw !== undefined && originRaw !== null;
+    const refererRaw = originPresent ? undefined : req.get?.("referer");
+    const refererPresent = typeof refererRaw === "string"
+      ? Boolean(refererRaw.trim())
+      : refererRaw !== undefined && refererRaw !== null;
+    const origin = originPresent ? normalizeOrigin(originRaw) : null;
+    const refererOrigin = refererPresent ? normalizeOrigin(refererRaw) : null;
+    const sourceOrigin = originPresent ? origin : refererOrigin;
+    const matched = Boolean(sourceOrigin && allowed.has(sourceOrigin));
+
+    if (diagnostics) {
+      logger.info?.("csrf_origin_diagnostic", {
+        code: "CSRF_ORIGIN_DIAGNOSTIC",
+        method,
+        path,
+        originRawType: typeof originRaw,
+        originRawLength: typeof originRaw === "string" ? originRaw.length : 0,
+        originNormalizada: origin,
+        appOriginNormalizada: appOrigin,
+        allowedOriginsCount: allowed.size,
+        matched,
+      });
     }
 
-    logger.warn?.("csrf_origin_blocked", {
-      code: "CSRF_ORIGIN_BLOCKED",
-      method,
-      path: String(req.originalUrl || req.path || "").slice(0, 300),
-      origin: origin || "ausente",
-      refererOrigin: refererOrigin || "ausente",
-    });
-    return res.status(403).send("Origem da requisição não autorizada.");
+    let code = "";
+    if (!appOrigin) code = "APP_URL_INVALIDA";
+    else if (originPresent && !origin) code = "ORIGIN_MALFORMADA";
+    else if (originPresent && !matched) code = "ORIGIN_NAO_AUTORIZADA";
+    else if (!originPresent && refererPresent && !refererOrigin) {
+      code = "REFERER_MALFORMADO";
+    } else if (!originPresent && refererPresent && !matched) {
+      code = "ORIGIN_NAO_AUTORIZADA";
+    } else if (!originPresent && !refererPresent) code = "ORIGIN_AUSENTE";
+
+    const reject = rejectionCode => {
+      logger.warn?.("csrf_origin_blocked", {
+        code: rejectionCode,
+        method,
+        path,
+      });
+      return res.status(403).send(
+        rejectionCode.startsWith("CSRF_")
+          ? "Requisição não autorizada."
+          : "Origem da requisição não autorizada.",
+      );
+    };
+    if (code) return reject(code);
+
+    const tokenStatus = csrfTokenStatus(req);
+    if (tokenStatus !== "VALIDO") return reject(tokenStatus);
+    return next();
   };
 }
 
@@ -104,9 +150,28 @@ function isMutatingMethod(method) {
 }
 
 function assertCsrfConfiguration(env = process.env) {
-  if (!configuredOrigins(env).size) {
-    throw new Error("APP_URL ou ALLOWED_ORIGINS válido é obrigatório para CSRF.");
+  const production = String(env.NODE_ENV || "").toLowerCase() === "production";
+  const appOrigin = normalizeOrigin(env.APP_URL);
+  if (!appOrigin) throw new Error("APP_URL inválida para CSRF.");
+  if (
+    production
+    && (new URL(appOrigin).protocol !== "https:" || isLocalOrigin(appOrigin))
+  ) {
+    throw new Error("APP_URL deve usar HTTPS público em produção.");
   }
+  const configured = String(env.ALLOWED_ORIGINS || "")
+    .split(",").map(value => value.trim()).filter(Boolean);
+  for (const raw of configured) {
+    const origin = normalizeOrigin(raw);
+    if (
+      !origin
+      || (production && new URL(origin).protocol !== "https:")
+      || (production && isLocalOrigin(origin))
+    ) {
+      throw new Error("ALLOWED_ORIGINS contém origem inválida.");
+    }
+  }
+  return true;
 }
 
 module.exports = {
@@ -119,5 +184,6 @@ module.exports = {
   isLocalOrigin,
   normalizeOrigin,
   csrfProtection,
+  csrfTokenStatus,
   csrfSameOriginProtection,
 };

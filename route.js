@@ -44,7 +44,6 @@ const {
   assinaturaRequired,
 } = require('./src/middleware/assinatura');
 const {
-  csrfProtection,
   csrfSameOriginProtection,
 } = require('./src/middleware/csrf');
 const {
@@ -158,6 +157,8 @@ route.post(
 |--------------------------------------------------------------------------
 */
 
+route.use('/assinatura', csrfSameOriginProtection);
+
 route.get(
   '/assinatura',
   loginRequired,
@@ -174,7 +175,6 @@ route.post(
   carregarAssinatura,
   permissao('configuracoes'),
   limiteAssinatura,
-  csrfSameOriginProtection,
   pagamento.assinarCartao
 );
 
@@ -185,7 +185,6 @@ route.post(
   carregarAssinatura,
   permissao('configuracoes'),
   limiteAssinatura,
-  csrfSameOriginProtection,
   pagamento.gerarPix
 );
 
@@ -198,19 +197,19 @@ route.get(
   pagamento.retorno
 );
 
-route.post('/admin/mercado-pago/conectar', loginRequired, somenteProprietario, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, csrfSameOriginProtection, pagamento.conectarMercadoPago);
+// Validação global ocorre com a sessão já carregada e antes de autenticação,
+// assinatura, permissão e controllers administrativos.
+route.use('/admin', csrfSameOriginProtection);
+
+route.post('/admin/mercado-pago/conectar', loginRequired, somenteProprietario, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, pagamento.conectarMercadoPago);
 route.get('/admin/mercado-pago/callback', loginRequired, somenteProprietario, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, pagamento.callbackMercadoPago);
-route.post('/admin/mercado-pago/desconectar', loginRequired, somenteProprietario, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, csrfProtection, pagamento.desconectarMercadoPago);
+route.post('/admin/mercado-pago/desconectar', loginRequired, somenteProprietario, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, pagamento.desconectarMercadoPago);
 
 route.post(
   '/webhook/mercado-pago',
   limiteWebhook,
   pagamento.webhook
 );
-
-// Protege todas as mutações administrativas existentes sem interferir no
-// callback OAuth GET ou no webhook externo.
-route.use('/admin', csrfSameOriginProtection);
 
 /*
 |--------------------------------------------------------------------------
