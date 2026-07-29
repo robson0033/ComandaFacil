@@ -52,6 +52,15 @@ const {
 const { processImage, UploadError } = require("../uploads/imageProcessor");
 const storageService = require("../services/storageService");
 const appState = require("../runtime/appState");
+const {
+  ALL_PERMISSIONS,
+  CRITICAL_PERMISSIONS,
+} = require("../config/permissions");
+const {
+  readFlash,
+  safeFlash,
+  saveSessionOrRun,
+} = require("../utils/safeFlash");
 
 function exigirMovimentacaoEstoqueConcluida(resultado) {
   if (resultado?.success
@@ -303,6 +312,29 @@ function responderErroUpload(req, res, error, section, fallback) {
   });
 }
 
+function erroValidacao(message) {
+  const error = new Error(message);
+  error.code = "VALIDATION_ERROR";
+  error.statusCode = 422;
+  return error;
+}
+
+function responderErroValidacao(req, res, error, section) {
+  if (error?.code !== "VALIDATION_ERROR") return null;
+  if (
+    req.xhr
+    || String(req.get?.("accept") || "").includes("application/json")
+  ) {
+    return res.status(422).json({
+      success: false,
+      code: "VALIDATION_ERROR",
+      message: error.message,
+      correlationId: req.correlationId,
+    });
+  }
+  return erroERedirecionar(req, res, section, error.message);
+}
+
 
 
 /*
@@ -326,16 +358,29 @@ function normalizarAdicionais(body = {}) {
         ? [body.adicionaisPreco]
         : [];
 
-  return nomes
-    .map((nome, index) => ({
-      nome: String(nome || "").trim(),
-      preco: Math.max(
-        0,
-        Number(precos[index] || 0),
-      ),
-      ativo: true,
-    }))
-    .filter((adicional) => adicional.nome);
+  if (nomes.length !== precos.length) {
+    throw erroValidacao("Preencha o nome e o preço de todos os adicionais.");
+  }
+  if (nomes.length > 30) {
+    throw erroValidacao("Um produto pode possuir no máximo 30 adicionais.");
+  }
+  const vistos = new Set();
+  return nomes.map((nomeRecebido, index) => {
+    const nome = String(nomeRecebido || "").trim();
+    const preco = Number(precos[index]);
+    if (!nome || nome.length > 120) {
+      throw erroValidacao("O nome do adicional deve possuir entre 1 e 120 caracteres.");
+    }
+    if (!Number.isFinite(preco) || preco < 0 || preco > 100_000) {
+      throw erroValidacao("Informe um preço válido e não negativo para o adicional.");
+    }
+    const chave = nome.toLocaleLowerCase("pt-BR");
+    if (vistos.has(chave)) {
+      throw erroValidacao("Não repita o mesmo adicional no produto.");
+    }
+    vistos.add(chave);
+    return { nome, preco, ativo: true };
+  });
 }
 
 function normalizarImpressoras(body = {}) {
@@ -582,9 +627,9 @@ function salvarERedirecionar(
   pagina,
   mensagem = "Alteração salva com sucesso.",
 ) {
-  req.flash("success", mensagem);
+  safeFlash(req, "success", mensagem);
 
-  return req.session.save(() => {
+  return saveSessionOrRun(req, () => {
     return res.redirect(`/admin#${pagina}`);
   });
 }
@@ -595,9 +640,9 @@ function erroERedirecionar(
   pagina,
   mensagem = "Não foi possível concluir a operação.",
 ) {
-  req.flash("errors", mensagem);
+  safeFlash(req, "errors", mensagem);
 
-  return req.session.save(() => {
+  return saveSessionOrRun(req, () => {
     return res.redirect(`/admin#${pagina}`);
   });
 }
@@ -2775,10 +2820,10 @@ exports.admin = async (req, res) => {
         filtrosPedidos,
 
         errors:
-          req.flash("errors"),
+          readFlash(req, "errors"),
 
         success:
-          req.flash("success"),
+          readFlash(req, "success"),
       },
     );
   } catch (error) {
@@ -3219,6 +3264,9 @@ exports.criarProduto = async (
   try {
     idEstabelecimento =
       estabelecimentoId(req);
+    if (!mongoose.isValidObjectId(req.body.categoriaId)) {
+      throw erroValidacao("Categoria de catálogo inválida.");
+    }
 
     const categoriaValida =
       await Categoria.exists({
@@ -3295,6 +3343,10 @@ exports.criarProduto = async (
       req, res, error, "catalogo", "Não foi possível cadastrar o produto.",
     );
     if (uploadResponse) return uploadResponse;
+    const validationResponse = responderErroValidacao(
+      req, res, error, "catalogo",
+    );
+    if (validationResponse) return validationResponse;
 
     return erroERedirecionar(
       req,
@@ -3315,6 +3367,9 @@ exports.editarProduto = async (
   let produtoSalvo = false;
   try {
     idEstabelecimento = estabelecimentoId(req);
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      throw erroValidacao("Produto inválido.");
+    }
     const produto =
       await Produto.findOne({
         _id: req.params.id,
@@ -3344,6 +3399,9 @@ exports.editarProduto = async (
     produto.categoriaId =
       req.body.categoriaId ||
       produto.categoriaId;
+    if (!mongoose.isValidObjectId(produto.categoriaId)) {
+      throw erroValidacao("Categoria de catálogo inválida.");
+    }
 
     const categoriaValida =
       await Categoria.exists({
@@ -3428,6 +3486,10 @@ exports.editarProduto = async (
       req, res, error, "catalogo", "Não foi possível atualizar o produto.",
     );
     if (uploadResponse) return uploadResponse;
+    const validationResponse = responderErroValidacao(
+      req, res, error, "catalogo",
+    );
+    if (validationResponse) return validationResponse;
 
     return erroERedirecionar(
       req,
@@ -3942,27 +4004,6 @@ function permissoesPadrao(funcao) {
   return padroes[funcao] || [];
 }
 
-const PERMISSOES_FUNCIONARIO = new Set([
-  "dashboard",
-  "pedidos",
-  "relatorios",
-  "estoque",
-  "catalogo",
-  "mesas",
-  "funcionarios",
-  "configuracoes",
-  "imprimir_pedidos",
-  "configurar_impressoras",
-  "arquivar_pedidos",
-]);
-
-const PERMISSOES_ADMINISTRATIVAS_CRITICAS = new Set([
-  "funcionarios",
-  "configuracoes",
-  "configurar_impressoras",
-  "arquivar_pedidos",
-]);
-
 function erroPermissaoFuncionario(mensagem) {
   const error = new Error(mensagem);
   error.code = "PERMISSAO_FUNCIONARIO_NEGADA";
@@ -3976,7 +4017,7 @@ function normalizarPermissoesFuncionario(valores) {
       .map(valor => String(valor || "").trim())
       .filter(Boolean),
   )];
-  if (permissoes.some(permissao => !PERMISSOES_FUNCIONARIO.has(permissao))) {
+  if (permissoes.some(permissao => !ALL_PERMISSIONS.has(permissao))) {
     throw erroPermissaoFuncionario("Uma permissão informada não é válida.");
   }
   return permissoes;
@@ -4022,7 +4063,7 @@ function validarAdministracaoFuncionario(
   }
   if (
     permissoes.some(permissao =>
-      PERMISSOES_ADMINISTRATIVAS_CRITICAS.has(permissao))
+      CRITICAL_PERMISSIONS.has(permissao))
   ) {
     throw erroPermissaoFuncionario(
       "Somente o proprietário pode conceder permissões administrativas.",
@@ -7550,6 +7591,7 @@ exports._testing = {
   emailFuncionarioEmUso,
   exigirMovimentacaoEstoqueConcluida,
   montarFichaTecnicaProduto,
+  normalizarAdicionais,
   reservarCodigoAgente,
   idsDeIngredientesDesativadosReferenciados,
   validarFichaAntesDeSalvar,

@@ -34,10 +34,19 @@ function response() {
   return {
     statusCode: 200,
     body: "",
+    clearCookie() { return this; },
     status(code) { this.statusCode = code; return this; },
     send(value) { this.body = value; return this; },
-    redirect(value) { this.redirectedTo = value; return this; },
+    redirect(code, value) {
+      if (value === undefined) this.redirectedTo = code;
+      else {
+        this.statusCode = code;
+        this.redirectedTo = value;
+      }
+      return this;
+    },
     json(value) { this.body = value; return this; },
+    end() { this.ended = true; return this; },
   };
 }
 
@@ -48,12 +57,16 @@ function request({
   referer,
   token = "csrf-token",
   supplied = "__VALID__",
+  accept = "",
 } = {}) {
   return {
     method,
     path: requestPath,
     originalUrl: requestPath,
-    session: { csrfToken: token },
+    session: {
+      csrfToken: token,
+      user: { id: "user", tipo: "proprietario" },
+    },
     body: supplied === undefined
       ? {}
       : { _csrf: supplied === "__VALID__" ? token : supplied },
@@ -61,6 +74,7 @@ function request({
       return {
         origin,
         referer,
+        accept,
         "x-csrf-token": "",
       }[String(name).toLowerCase()] || "";
     },
@@ -107,7 +121,8 @@ test("GET continua exigindo autenticação e permissão após o middleware", asy
   req.flash = () => {};
   const unauthenticated = response();
   await loginRequired(req, unauthenticated, () => assert.fail("não deve autenticar"));
-  assert.equal(unauthenticated.redirectedTo, "/login/index");
+  assert.equal(unauthenticated.statusCode, 303);
+  assert.equal(unauthenticated.redirectedTo, "/login");
 
   const deniedReq = request();
   deniedReq.session = {
@@ -132,7 +147,7 @@ test("POST exige simultaneamente origem exata e token CSRF", () => {
     method: "POST",
     origin: APP_ORIGIN,
     supplied: "token-invalido",
-  })).res.statusCode, 403);
+  })).res.statusCode, 303);
   assert.equal(execute(handler, request({
     method: "POST",
     origin: undefined,
@@ -217,7 +232,7 @@ test("log de bloqueio contém apenas metadados técnicos sanitizados", () => {
 test("classifica precisamente falhas de origem, Referer, APP_URL e CSRF", () => {
   const cases = [
     [{ method: "POST", origin: undefined, referer: undefined }, "ORIGIN_AUSENTE"],
-    [{ method: "POST", origin: "null" }, "ORIGIN_MALFORMADA"],
+    [{ method: "POST", origin: "null" }, "ORIGIN_NULL"],
     [{ method: "POST", origin: "não-é-url" }, "ORIGIN_MALFORMADA"],
     [{ method: "POST", origin: "https://evil.example" }, "ORIGIN_NAO_AUTORIZADA"],
     [{ method: "POST", referer: "não-é-url" }, "REFERER_MALFORMADO"],
@@ -284,6 +299,7 @@ test("todas as famílias administrativas passam com Origin Render e CSRF válido
     const valid = input => execute(handler, request({
       method: "POST",
       path: requestPath,
+      accept: "application/json",
       ...input,
     }));
     assert.equal(valid({ origin: APP_ORIGIN }).passed, true, requestPath);

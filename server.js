@@ -13,6 +13,7 @@ const route = require("./route");
 const middleware = require("./src/middleware/middlewareGlobal");
 const { ensureCsrfToken } = require("./src/middleware/csrf");
 const { securityHeaders } = require("./src/middleware/securityHeaders");
+const { requestContext } = require("./src/middleware/requestContext");
 const { stopRateLimiters } = require("./src/middleware/rateLimit");
 const { createSystemRouter } = require("./src/routes/systemRoutes");
 const {
@@ -25,6 +26,7 @@ const {
 } = require("./src/config/sessionConfig");
 const { initializeStorage } = require("./src/services/storageService");
 const appState = require("./src/runtime/appState");
+const { safeFlash } = require("./src/utils/safeFlash");
 const printAgentHub = require("./src/services/printAgentHub");
 const printQueueService = require("./src/services/printQueueService");
 
@@ -52,6 +54,7 @@ function configureApplication(app, {
   env = process.env,
 }) {
   if (config.production) app.set("trust proxy", 1);
+  app.use(requestContext);
   app.use(securityHeaders);
   app.use(express.urlencoded({ extended: true }));
   app.use(express.json());
@@ -80,6 +83,33 @@ function configureApplication(app, {
   app.use(middleware.middlewareGlobal);
   app.use(route);
   app.use((req, res) => res.status(404).render("404"));
+  app.use((error, req, res, next) => {
+    if (res.headersSent) return next(error);
+    const type = String(error?.name || "Error").slice(0, 80);
+    console.error("request_failed", {
+      correlationId: req.correlationId,
+      code: "INTERNAL_ERROR",
+      type,
+      method: req.method,
+      path: String(req.path || "").slice(0, 300),
+    });
+    safeFlash(req, "errors", "Não foi possível concluir a solicitação.");
+    if (String(req.get?.("accept") || "").includes("text/event-stream")) {
+      res.status(500);
+      return res.end();
+    }
+    const acceptsJson = req.xhr
+      || String(req.get?.("accept") || "").includes("application/json")
+      || String(req.get?.("content-type") || "").includes("application/json");
+    if (acceptsJson) {
+      return res.status(500).json({
+        code: "INTERNAL_ERROR",
+        message: "Não foi possível concluir a solicitação.",
+        correlationId: req.correlationId,
+      });
+    }
+    return res.status(500).render("404");
+  });
   return app;
 }
 

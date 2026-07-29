@@ -1,8 +1,13 @@
 "use strict";
 
 const { Funcionario } = require("../models/painelModels");
-const { markSessionEnding } = require("../config/sessionConfig");
+const {
+  clearSessionCookie,
+  markSessionEnding,
+} = require("../config/sessionConfig");
 const appState = require("../runtime/appState");
+const { safeFlash } = require("../utils/safeFlash");
+const { assertKnownPermission } = require("../config/permissions");
 
 function requisicaoEsperaJson(req) {
   return Boolean(
@@ -36,7 +41,20 @@ function encerrarSessao(req, callback) {
 }
 
 function negarAutenticacao(req, res) {
+  console.warn("access_blocked", {
+    correlationId: req.correlationId,
+    code: "SESSION_INVALID",
+    method: req.method,
+    path: String(req.path || "").slice(0, 300),
+    requestType: requisicaoEsperaJson(req) ? "api" : "html",
+    sessionPresent: Boolean(req.session),
+    userAuthenticated: Boolean(req.session?.user),
+    tenantPresent: Boolean(
+      req.session?.user?.estabelecimentoId || req.session?.user?.id,
+    ),
+  });
   return encerrarSessao(req, error => {
+    clearSessionCookie(res, process.env.NODE_ENV === "production");
     if (error) {
       if (requisicaoEsperaJson(req)) {
         return res.status(500).json({
@@ -46,14 +64,20 @@ function negarAutenticacao(req, res) {
       }
       return res.status(500).render("404");
     }
+    if (String(req.get?.("accept") || "").includes("text/event-stream")) {
+      res.status(401);
+      return res.end();
+    }
     if (requisicaoEsperaJson(req)) {
       return res.status(401).json({
         success: false,
+        code: "SESSION_INVALID",
         message: "Sua sessão não é mais válida. Entre novamente.",
+        correlationId: req.correlationId,
       });
     }
-    req.flash?.("errors", "Faça login novamente para acessar o painel.");
-    return res.redirect("/login/index");
+    safeFlash(req, "errors", "Faça login novamente para acessar o painel.");
+    return res.redirect(303, "/login");
   });
 }
 
@@ -119,6 +143,30 @@ async function carregarIdentidadeAtual(req, { forcar = false } = {}) {
   return usuarioAtual;
 }
 
+function negarPermissao(req, res, message) {
+  console.warn("access_blocked", {
+    correlationId: req.correlationId,
+    code: "PERMISSION_DENIED",
+    method: req.method,
+    path: String(req.path || "").slice(0, 300),
+    requestType: requisicaoEsperaJson(req) ? "api" : "html",
+    sessionPresent: Boolean(req.session),
+    userAuthenticated: Boolean(req.session?.user),
+    tenantPresent: Boolean(
+      req.session?.user?.estabelecimentoId || req.session?.user?.id,
+    ),
+  });
+  if (requisicaoEsperaJson(req)) {
+    return res.status(403).json({
+      success: false,
+      code: "PERMISSION_DENIED",
+      message,
+      correlationId: req.correlationId,
+    });
+  }
+  return res.status(403).send(`Operação bloqueada (PERMISSION_DENIED). ${message}`);
+}
+
 exports.loginRequired = async (req, res, next) => {
   try {
     const usuario = await carregarIdentidadeAtual(req);
@@ -129,7 +177,9 @@ exports.loginRequired = async (req, res, next) => {
   }
 };
 
-exports.permissao = modulo => async (req, res, next) => {
+exports.permissao = modulo => {
+  assertKnownPermission(modulo);
+  return async (req, res, next) => {
   try {
     const usuario = await carregarIdentidadeAtual(req);
     if (!usuario) return negarAutenticacao(req, res);
@@ -139,12 +189,15 @@ exports.permissao = modulo => async (req, res, next) => {
     ) {
       return next();
     }
-    return res.status(403).send(
-      "Você não tem permissão para acessar este módulo.",
+    return negarPermissao(
+      req,
+      res,
+      "Você não possui permissão para esta ação.",
     );
   } catch (error) {
     return next(error);
   }
+  };
 };
 
 exports.permissaoCategoria = async (req, res, next) => {
@@ -184,8 +237,10 @@ exports.permissaoCategoria = async (req, res, next) => {
       return next();
     }
 
-    return res.status(403).send(
-      "Você não tem permissão para acessar este módulo.",
+    return negarPermissao(
+      req,
+      res,
+      "Você não possui permissão para esta ação.",
     );
   } catch (error) {
     return next(error);
@@ -203,8 +258,10 @@ exports.permissaoCategoriaLeitura = async (req, res, next) => {
     ) {
       return next();
     }
-    return res.status(403).send(
-      "Você não tem permissão para acessar categorias.",
+    return negarPermissao(
+      req,
+      res,
+      "Você não possui permissão para acessar categorias.",
     );
   } catch (error) {
     return next(error);
@@ -215,19 +272,18 @@ exports.somenteProprietario = (req, res, next) => {
   const usuario = req.usuarioAtual || req.session?.user;
   if (!usuario) return negarAutenticacao(req, res);
   if (usuario.tipo === "proprietario") return next();
-  if (requisicaoEsperaJson(req)) {
-    return res.status(403).json({
-      success: false,
-      message: "Esta área é exclusiva do proprietário.",
-    });
-  }
-  return res.status(403).send("Esta área é exclusiva do proprietário.");
+  return negarPermissao(
+    req,
+    res,
+    "Esta área é exclusiva do proprietário.",
+  );
 };
 
 exports._testing = {
   carregarIdentidadeAtual,
   encerrarSessao,
   negarAutenticacao,
+  negarPermissao,
   requisicaoEsperaJson,
 };
 exports.carregarIdentidadeAtual = carregarIdentidadeAtual;

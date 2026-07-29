@@ -6825,7 +6825,31 @@
     const adminCsrfToken = <%- safeJsonForHtml(csrfToken || '') %>;
     const mutatingAdminMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-    function adminFetch(resource, options = {}) {
+    function mostrarErroAdministrativo({ message, code, correlationId } = {}) {
+      const container = document.querySelector('#orderToastContainer');
+      if (!container) return;
+      const toast = document.createElement('div');
+      toast.className = 'order-toast';
+      const icon = document.createElement('div');
+      icon.className = 'order-toast-icon';
+      icon.textContent = '!';
+      const text = document.createElement('div');
+      text.className = 'order-toast-text';
+      const title = document.createElement('strong');
+      title.textContent = code === 'PERMISSION_DENIED'
+        ? 'Permissão insuficiente'
+        : 'Não foi possível concluir';
+      const detail = document.createElement('span');
+      detail.textContent = correlationId
+        ? `${message || 'Tente novamente.'} Código: ${correlationId}`
+        : (message || 'Tente novamente.');
+      text.append(title, detail);
+      toast.append(icon, text);
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 6000);
+    }
+
+    async function adminFetch(resource, options = {}) {
       const method = String(options.method || 'GET').toUpperCase();
       const target = new URL(String(resource), window.location.href);
       const sameAdminOrigin =
@@ -6835,11 +6859,25 @@
       if (sameAdminOrigin && mutatingAdminMethods.has(method)) {
         headers.set('X-CSRF-Token', adminCsrfToken);
       }
-      return window.fetch(resource, {
+      const response = await window.fetch(resource, {
         ...options,
         credentials: 'same-origin',
         headers
       });
+      if (response.status === 401) {
+        const payload = await response.clone().json().catch(() => ({}));
+        mostrarErroAdministrativo(payload);
+        window.location.assign('/login');
+        return response;
+      }
+      if (response.status === 403) {
+        const payload = await response.clone().json().catch(() => ({
+          code: 'PERMISSION_DENIED',
+          message: 'Você não possui permissão para esta ação.',
+        }));
+        mostrarErroAdministrativo(payload);
+      }
+      return response;
     }
 
     document.addEventListener('submit', event => {

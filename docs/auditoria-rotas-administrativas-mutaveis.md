@@ -108,3 +108,12 @@ conexões SSE vinculadas antes de destruir ou substituir a sessão. O adaptador 
 store absorve exclusivamente `Unable to find the session to touch`, que indica
 uma corrida com sessão já removida ou expirada, sem recriá-la. Falhas de rede,
 autenticação ou erros desconhecidos do MongoDB continuam sendo propagados.
+
+## Sessão removida antes do logout
+
+Mensagens flash são opcionais e passam pelo helper seguro, que não cria sessão
+e não chama `req.flash` quando a sessão está ausente. Se o navegador enviar um
+POST antigo depois que o cookie foi removido, a sessão anônima recém-criada não
+é considerada autenticada: os dois cookies são limpos e a navegação HTML recebe
+`303 /login`; APIs recebem `401 SESSION_REQUIRED`; SSE recebe `401` e é
+encerrado. Uma sessão autenticada continua exigindo origem e token CSRF válidos.

@@ -1,5 +1,9 @@
 const { Assinatura, Configuracao } = require("../models/painelModels");
 const {
+  safeFlash,
+  saveSessionOrRun,
+} = require("../utils/safeFlash");
+const {
   avaliarAcessoVenda,
 } = require("../services/assinaturaAcessoService");
 
@@ -125,11 +129,12 @@ exports.assinaturaRequired = (req, res, next) => {
     );
   }
 
-  req.flash(
+  safeFlash(
+    req,
     "errors",
     "Sua assinatura precisa ser regularizada para liberar novas operações.",
   );
-  return req.session.save(() => res.redirect("/assinatura"));
+  return saveSessionOrRun(req, () => res.redirect("/assinatura"));
 };
 
 exports.testeValido = testeValido;

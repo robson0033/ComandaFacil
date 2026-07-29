@@ -51,6 +51,7 @@ function response() {
     statusCode: 200,
     payload: null,
     redirectedTo: null,
+    clearCookie() { return this; },
     status(code) {
       this.statusCode = code;
       return this;
@@ -63,8 +64,16 @@ function response() {
       this.payload = payload;
       return this;
     },
-    redirect(url) {
-      this.redirectedTo = url;
+    redirect(code, url) {
+      if (url === undefined) this.redirectedTo = code;
+      else {
+        this.statusCode = code;
+        this.redirectedTo = url;
+      }
+      return this;
+    },
+    end() {
+      this.ended = true;
       return this;
     },
   };

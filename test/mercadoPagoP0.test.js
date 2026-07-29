@@ -426,7 +426,10 @@ test("OAuth: falha posterior não restaura state consumido", async () => {
 });
 
 test("CSRF: token é criado e aceito", () => {
-  const req = { session: {}, body: {} };
+  const req = {
+    session: { user: { id: "user", tipo: "proprietario" } },
+    body: {},
+  };
   const res = { locals: {} };
   ensureCsrfToken(req, res, () => {});
   req.body._csrf = req.session.csrfToken;
@@ -438,7 +441,14 @@ test("CSRF: token é criado e aceito", () => {
 });
 
 test("CSRF: token inválido é bloqueado", () => {
-  const req = { session: { csrfToken: "correto" }, body: { _csrf: "errado" }, get: () => "" };
+  const req = {
+    session: {
+      csrfToken: "correto",
+      user: { id: "user", tipo: "proprietario" },
+    },
+    body: { _csrf: "errado" },
+    get: () => "",
+  };
   const res = {
     statusCode: 0,
     status(code) { this.statusCode = code; return this; },
@@ -456,7 +466,10 @@ test("CSRF: POST administrativo de mesma origem é aceito", () => {
   const req = {
     method: "POST",
     protocol: "https",
-    session: { csrfToken: "token-correto" },
+    session: {
+      csrfToken: "token-correto",
+      user: { id: "user", tipo: "proprietario" },
+    },
     body: { _csrf: "token-correto" },
     get(name) {
       return {
@@ -478,7 +491,10 @@ test("CSRF: POST administrativo de origem externa é bloqueado", () => {
   const req = {
     method: "POST",
     protocol: "https",
-    session: {},
+    session: {
+      csrfToken: "token",
+      user: { id: "user", tipo: "proprietario" },
+    },
     body: {},
     get(name) {
       return {

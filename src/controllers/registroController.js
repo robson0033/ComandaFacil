@@ -1,4 +1,8 @@
 const { Registro } = require('../models/registroModel');
+const {
+  safeFlash,
+  saveSessionOrRun,
+} = require('../utils/safeFlash');
 
 const VERSAO_DOCUMENTOS_LEGAIS = '2026-07-24';
 
@@ -17,34 +21,35 @@ exports.registro = async (req, res) => {
     await registro.register();
 
     if (registro.errors.length > 0) {
-      req.flash('errors', registro.errors);
-      req.flash('formData', {
+      safeFlash(req, 'errors', registro.errors);
+      safeFlash(req, 'formData', {
         ...req.body,
         senha: '',
         confirmarSenha: '',
       });
 
-      return req.session.save(() => {
+      return saveSessionOrRun(req, () => {
         return res.redirect('/cadastro/index');
       });
     }
 
-    req.flash('success', 'Cadastro realizado com sucesso.');
+    safeFlash(req, 'success', 'Cadastro realizado com sucesso.');
 
-    return req.session.save(() => {
+    return saveSessionOrRun(req, () => {
       return res.redirect('/login/index');
     });
   } catch (error) {
     console.error('Erro ao realizar cadastro:', error);
 
-    req.flash(
+    safeFlash(
+      req,
       'errors',
       error?.code === 11000
         ? 'E-mail, CPF ou CNPJ já cadastrado.'
         : 'Ocorreu um erro ao realizar o cadastro. Tente novamente.'
     );
 
-    return req.session.save(() => {
+    return saveSessionOrRun(req, () => {
       return res.redirect('/cadastro/index');
     });
   }

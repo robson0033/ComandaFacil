@@ -1,10 +1,17 @@
 "use strict";
 
 const crypto = require("crypto");
+const { clearSessionCookie } = require("../config/sessionConfig");
+const { safeFlash } = require("../utils/safeFlash");
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 function ensureCsrfToken(req, res, next) {
+  res.locals ||= {};
+  if (!req.session) {
+    res.locals.csrfToken = "";
+    return next();
+  }
   if (!req.session.csrfToken) {
     req.session.csrfToken = crypto.randomBytes(32).toString("base64url");
   }
@@ -13,10 +20,48 @@ function ensureCsrfToken(req, res, next) {
 }
 
 function csrfProtection(req, res, next) {
+  if (!req.session?.user) {
+    return respondSessionRequired(req, res);
+  }
   if (csrfTokenStatus(req) !== "VALIDO") {
-    return res.status(403).send("Requisição não autorizada.");
+    return res.status(403).send(
+      `Operação bloqueada (${csrfTokenStatus(req)}).`,
+    );
   }
   return next();
+}
+
+function requestKind(req) {
+  const accept = String(req.get?.("accept") || "").toLowerCase();
+  const contentType = String(req.get?.("content-type") || "").toLowerCase();
+  if (accept.includes("text/event-stream")) return "sse";
+  if (
+    req.xhr
+    || accept.includes("application/json")
+    || contentType.includes("application/json")
+    || String(req.path || "").includes("/api/")
+  ) {
+    return "api";
+  }
+  return "html";
+}
+
+function respondSessionRequired(req, res) {
+  clearSessionCookie(res, process.env.NODE_ENV === "production");
+  const kind = requestKind(req);
+  if (kind === "sse") {
+    res.status(401);
+    return res.end();
+  }
+  if (kind === "api") {
+    return res.status(401).json({
+      ok: false,
+      code: "SESSION_REQUIRED",
+      message: "Sessão necessária.",
+      correlationId: req.correlationId,
+    });
+  }
+  return res.redirect(303, "/login");
 }
 
 function csrfTokenStatus(req) {
@@ -80,6 +125,7 @@ function createCsrfSameOriginProtection({
     if (!MUTATING_METHODS.has(method)) {
       return res.status(405).send("Método não permitido.");
     }
+    if (!req.session?.user) return respondSessionRequired(req, res);
 
     const path = String(req.originalUrl || req.path || "").slice(0, 300);
     const originRaw = req.get?.("origin");
@@ -111,7 +157,9 @@ function createCsrfSameOriginProtection({
 
     let code = "";
     if (!appOrigin) code = "APP_URL_INVALIDA";
-    else if (originPresent && !origin) code = "ORIGIN_MALFORMADA";
+    else if (originPresent && String(originRaw).trim() === "null") {
+      code = "ORIGIN_NULL";
+    } else if (originPresent && !origin) code = "ORIGIN_MALFORMADA";
     else if (originPresent && !matched) code = "ORIGIN_NAO_AUTORIZADA";
     else if (!originPresent && refererPresent && !refererOrigin) {
       code = "REFERER_MALFORMADO";
@@ -121,15 +169,42 @@ function createCsrfSameOriginProtection({
 
     const reject = rejectionCode => {
       logger.warn?.("csrf_origin_blocked", {
+        correlationId: req.correlationId,
         code: rejectionCode,
         method,
         path,
+        requestType: requestKind(req),
+        sessionPresent: Boolean(req.session),
+        userAuthenticated: Boolean(req.session?.user),
+        tenantPresent: Boolean(
+          req.session?.user?.estabelecimentoId || req.session?.user?.id,
+        ),
       });
-      return res.status(403).send(
+      if (requestKind(req) === "api") {
+        return res.status(403).json({
+          ok: false,
+          code: rejectionCode,
+          message: rejectionCode.startsWith("CSRF_")
+            ? "Sua sessão mudou ou expirou. Atualize a página."
+            : "A origem da solicitação não foi autorizada.",
+          correlationId: req.correlationId,
+        });
+      }
+      if (requestKind(req) === "sse") {
+        res.status(403);
+        return res.end();
+      }
+      safeFlash(
+        req,
+        "errors",
         rejectionCode.startsWith("CSRF_")
-          ? "Requisição não autorizada."
-          : "Origem da requisição não autorizada.",
+          ? "Sua sessão mudou ou expirou. Atualize a página e tente novamente."
+          : "A origem da solicitação não foi autorizada.",
       );
+      if (rejectionCode.startsWith("CSRF_")) {
+        return res.redirect(303, "/admin");
+      }
+      return res.status(403).send(`Operação bloqueada (${rejectionCode}).`);
     };
     if (code) return reject(code);
 
@@ -183,6 +258,8 @@ module.exports = {
   isSafeHttpMethod,
   isLocalOrigin,
   normalizeOrigin,
+  requestKind,
+  respondSessionRequired,
   csrfProtection,
   csrfTokenStatus,
   csrfSameOriginProtection,

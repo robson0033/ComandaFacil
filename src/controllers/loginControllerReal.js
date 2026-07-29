@@ -8,6 +8,10 @@ const {
   markSessionEnding,
 } = require("../config/sessionConfig");
 const appState = require("../runtime/appState");
+const {
+  safeFlash,
+  saveSessionOrRun,
+} = require("../utils/safeFlash");
 
 const TRINTA_DIAS = 1000 * 60 * 60 * 24 * 30;
 
@@ -56,8 +60,8 @@ exports.login = async (req, res) => {
     const lembrar = req.body.lembrar === "on";
 
     if (!validator.isEmail(email) || !senha) {
-      req.flash("errors", "E-mail ou senha inválidos.");
-      return req.session.save(() => res.redirect("/login/index"));
+      safeFlash(req, "errors", "E-mail ou senha inválidos.");
+      return saveSessionOrRun(req, () => res.redirect("/login/index"));
     }
 
     const dono = await registroModel.findOne({ email });
@@ -102,8 +106,8 @@ exports.login = async (req, res) => {
       }, lembrar);
     }
 
-    req.flash("errors", "E-mail ou senha inválidos.");
-    return req.session.save(() => res.redirect("/login/index"));
+    safeFlash(req, "errors", "E-mail ou senha inválidos.");
+    return saveSessionOrRun(req, () => res.redirect("/login/index"));
   } catch (e) {
     console.error(e);
     return res.status(500).render("404");
@@ -113,6 +117,10 @@ exports.login = async (req, res) => {
 exports._testing = { autenticarComNovaSessao };
 
 exports.logout = (req, res, next) => {
+  if (!req.session?.user || typeof req.session.destroy !== "function") {
+    clearSessionCookie(res, process.env.NODE_ENV === "production");
+    return res.redirect(303, "/login");
+  }
   const sessionId = req.sessionID;
   markSessionEnding(req, "logout");
   appState.closeSseConnectionsForSession(sessionId);

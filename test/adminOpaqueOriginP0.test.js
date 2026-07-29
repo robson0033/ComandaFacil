@@ -139,7 +139,10 @@ test("Origin null continua bloqueada e Origin Render continua aceita", () => {
       method: "POST",
       path: "/admin/categorias",
       originalUrl: "/admin/categorias",
-      session: { csrfToken: "token" },
+      session: {
+        csrfToken: "token",
+        user: { id: "user", tipo: "proprietario" },
+      },
       body: { _csrf: "token" },
       get(name) {
         return name.toLowerCase() === "origin" ? origin : "";

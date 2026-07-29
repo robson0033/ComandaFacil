@@ -17,6 +17,12 @@ const {
 const appState = require("../src/runtime/appState");
 const loginController = require("../src/controllers/loginControllerReal");
 const { encerrarSessao } = require("../src/middleware/auth");
+const {
+  createCsrfSameOriginProtection,
+  ensureCsrfToken,
+} = require("../src/middleware/csrf");
+const { safeFlash } = require("../src/utils/safeFlash");
+const { middlewareGlobal } = require("../src/middleware/middlewareGlobal");
 
 function fakeStore(touchImplementation = (_sid, _session, callback) => callback()) {
   return {
@@ -141,6 +147,7 @@ test("logout marca, fecha SSE, destrói e limpa cookies antes de responder", () 
     sessionID: "logout-session",
     sessionStore: store,
     session: {
+      user: { id: "user", tipo: "proprietario" },
       destroy(callback) {
         events.push("destroy");
         callback();
@@ -307,4 +314,179 @@ test("invalidação de autenticação marca a sessão e fecha SSE associada", ()
     "callback",
   ]);
   assert.equal(store.sessionLifecycle.isEnded("invalid-session"), true);
+});
+
+function csrfResponse() {
+  return {
+    cookies: [],
+    statusCode: 200,
+    clearCookie(name, options) { this.cookies.push({ name, options }); },
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+    send(body) { this.body = body; return this; },
+    redirect(code, location) {
+      this.statusCode = code;
+      this.redirectedTo = location;
+      return this;
+    },
+    end() { this.ended = true; return this; },
+  };
+}
+
+function csrfRequest({
+  accept = "text/html",
+  path = "/login/logout",
+  session = { csrfToken: "token-novo" },
+} = {}) {
+  return {
+    method: "POST",
+    path,
+    originalUrl: path,
+    session,
+    body: { _csrf: "token-antigo" },
+    get(name) {
+      return {
+        accept,
+        origin: "https://app.example.com",
+        "content-type": accept.includes("json") ? "application/json" : "",
+        "x-csrf-token": "",
+      }[String(name).toLowerCase()] || "";
+    },
+  };
+}
+
+function sessionCsrfMiddleware() {
+  return createCsrfSameOriginProtection({
+    env: {
+      NODE_ENV: "production",
+      APP_URL: "https://app.example.com",
+    },
+    logger: { warn() {} },
+  });
+}
+
+test("página admin com sessão válida cria token CSRF", () => {
+  const req = { session: { user: { id: "user" } } };
+  const res = { locals: {} };
+  let passed = false;
+  ensureCsrfToken(req, res, () => { passed = true; });
+  assert.equal(passed, true);
+  assert.match(req.session.csrfToken, /^[A-Za-z0-9_-]{40,}$/);
+  assert.equal(res.locals.csrfToken, req.session.csrfToken);
+});
+
+test("cookie removido antes do logout limpa cookies e redireciona sem flash", () => {
+  let flashCalls = 0;
+  const req = csrfRequest();
+  req.flash = () => {
+    flashCalls += 1;
+    throw new Error("req.flash() requires sessions");
+  };
+  const res = csrfResponse();
+  sessionCsrfMiddleware()(req, res, () => assert.fail("não deve avançar"));
+  assert.equal(res.statusCode, 303);
+  assert.equal(res.redirectedTo, "/login");
+  assert.deepEqual(res.cookies.map(item => item.name), [
+    "comandamix.sid",
+    "connect.sid",
+  ]);
+  assert.equal(flashCalls, 0);
+});
+
+test("sessão ausente responde 401 para API e encerra SSE", () => {
+  const apiResponse = csrfResponse();
+  sessionCsrfMiddleware()(
+    csrfRequest({ accept: "application/json", path: "/admin/api/pedidos" }),
+    apiResponse,
+    () => assert.fail("não deve avançar"),
+  );
+  assert.equal(apiResponse.statusCode, 401);
+  assert.equal(apiResponse.body.code, "SESSION_REQUIRED");
+
+  const sseResponse = csrfResponse();
+  sessionCsrfMiddleware()(
+    csrfRequest({ accept: "text/event-stream", path: "/admin/pedidos/stream" }),
+    sseResponse,
+    () => assert.fail("não deve avançar"),
+  );
+  assert.equal(sseResponse.statusCode, 401);
+  assert.equal(sseResponse.ended, true);
+});
+
+test("safeFlash e middleware global não chamam flash sem sessão", () => {
+  let calls = 0;
+  const req = {
+    flash() {
+      calls += 1;
+      throw new Error("req.flash() requires sessions");
+    },
+  };
+  assert.equal(safeFlash(req, "errors", "mensagem"), false);
+  const res = { locals: {} };
+  middlewareGlobal(req, res, () => {});
+  assert.equal(calls, 0);
+  assert.deepEqual(res.locals.errors, []);
+  assert.deepEqual(res.locals.success, []);
+  assert.equal(res.locals.user, null);
+});
+
+test("logout sem sessão é idempotente e não chama destroy", () => {
+  let destroyCalls = 0;
+  const req = {
+    session: {
+      destroy() { destroyCalls += 1; },
+    },
+  };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const res = csrfResponse();
+    loginController.logout(req, res, error => assert.fail(error));
+    assert.equal(res.statusCode, 303);
+    assert.equal(res.redirectedTo, "/login");
+    assert.deepEqual(res.cookies.map(item => item.name), [
+      "comandamix.sid",
+      "connect.sid",
+    ]);
+  }
+  assert.equal(destroyCalls, 0);
+});
+
+test("erro no destroy é encaminhado uma vez sem resposta dupla", () => {
+  const failure = new Error("destroy failure");
+  const req = {
+    sessionID: "session",
+    sessionStore: decorateSessionStore(fakeStore()),
+    session: {
+      user: { id: "user" },
+      destroy(callback) { callback(failure); },
+    },
+  };
+  const res = csrfResponse();
+  let nextCalls = 0;
+  loginController.logout(req, res, error => {
+    nextCalls += 1;
+    assert.equal(error, failure);
+  });
+  assert.equal(nextCalls, 1);
+  assert.equal(res.redirectedTo, undefined);
+});
+
+test("cenário de cookie apagado não produz rejeição ou exceção não tratada", async () => {
+  const events = [];
+  const onRejection = reason => events.push(["rejection", reason]);
+  const onException = error => events.push(["exception", error]);
+  process.on("unhandledRejection", onRejection);
+  process.on("uncaughtException", onException);
+  try {
+    const req = csrfRequest();
+    req.flash = () => {
+      throw new Error("req.flash() requires sessions");
+    };
+    middlewareGlobal(req, { locals: {} }, () => {});
+    sessionCsrfMiddleware()(req, csrfResponse(), () => assert.fail("não deve avançar"));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(events, []);
+  } finally {
+    process.removeListener("unhandledRejection", onRejection);
+    process.removeListener("uncaughtException", onException);
+  }
 });

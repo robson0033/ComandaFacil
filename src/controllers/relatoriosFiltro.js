@@ -345,6 +345,7 @@ const Pedido = require('../models/Pedido');
 const {
   montarRelatorios
 } = require('./relatoriosFiltro');
+const { safeFlash } = require('../utils/safeFlash');
 
 exports.admin = async (req, res) => {
   try {
@@ -366,7 +367,8 @@ exports.admin = async (req, res) => {
   } catch (erro) {
     console.error(erro);
 
-    req.flash(
+    safeFlash(
+      req,
       'errors',
       erro.message ||
       'Não foi possível gerar os relatórios.'

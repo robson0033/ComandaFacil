@@ -91,6 +91,11 @@ route.get(
 );
 
 route.get(
+  '/login',
+  homeController.index
+);
+
+route.get(
   '/termos',
   homeController.termos
 );

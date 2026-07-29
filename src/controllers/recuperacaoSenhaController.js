@@ -5,6 +5,10 @@ const RecuperacaoSenha = require("../models/recuperacaoSenhaModel");
 const { registroModel } = require("../models/registroModel");
 const { Funcionario } = require("../models/painelModels");
 const { enviarCodigoRecuperacao } = require("../services/emailService");
+const {
+  safeFlash,
+  saveSessionOrRun,
+} = require("../utils/safeFlash");
 
 const DEZ_MINUTOS = 10 * 60 * 1000;
 const QUINZE_MINUTOS = 15 * 60 * 1000;
@@ -143,7 +147,7 @@ exports.solicitarCodigo = async (req, res) => {
     req.session.recuperacaoEmail = email;
     delete req.session.recuperacaoToken;
 
-    return req.session.save(() =>
+    return saveSessionOrRun(req, () =>
       res.redirect("/login/verificar-codigo"),
     );
   } catch (erro) {
@@ -229,7 +233,7 @@ exports.verificarCodigo = async (req, res) => {
 
     req.session.recuperacaoToken = token;
 
-    return req.session.save(() => res.redirect("/login/nova-senha"));
+    return saveSessionOrRun(req, () => res.redirect("/login/nova-senha"));
   } catch (erro) {
     console.error("Erro ao verificar código:", erro);
     return res.status(500).render("404");
@@ -321,8 +325,8 @@ exports.salvarNovaSenha = async (req, res) => {
     delete req.session.recuperacaoEmail;
     delete req.session.recuperacaoToken;
 
-    req.flash("success", "Senha alterada com sucesso. Entre com a nova senha.");
-    return req.session.save(() => res.redirect("/login/index"));
+    safeFlash(req, "success", "Senha alterada com sucesso. Entre com a nova senha.");
+    return saveSessionOrRun(req, () => res.redirect("/login/index"));
   } catch (erro) {
     console.error("Erro ao redefinir senha:", erro);
     return res.status(500).render("404");

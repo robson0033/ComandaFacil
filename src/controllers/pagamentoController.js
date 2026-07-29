@@ -29,6 +29,10 @@ const {
   sanitizeMercadoPagoError,
   validateMercadoPagoWebhook,
 } = require("../middleware/mercadoPagoSecurity");
+const {
+  safeFlash,
+  saveSessionOrRun,
+} = require("../utils/safeFlash");
 
 const MP_API = "https://api.mercadopago.com";
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
@@ -222,7 +226,7 @@ function manterTesteOuStatusAtual(assinatura) {
 
 function flashSafeIntegrationError(req, error) {
   console.error("Mercado Pago:", sanitizeMercadoPagoError(error));
-  req.flash("errors", "Não foi possível concluir a operação com o Mercado Pago.");
+  safeFlash(req, "errors", "Não foi possível concluir a operação com o Mercado Pago.");
 }
 
 exports.pagina = async (req, res) => {
@@ -240,7 +244,7 @@ exports.pagina = async (req, res) => {
     });
   } catch (error) {
     flashSafeIntegrationError(req, error);
-    return req.session.save(() => res.redirect("/admin"));
+    return saveSessionOrRun(req, () => res.redirect("/admin"));
   }
 };
 
@@ -252,8 +256,8 @@ exports.assinarCartao = async (req, res) => {
     const { attempt, created } = await obterOuCriarTentativa(assinatura, "cartao");
     if (!created) {
       if (attempt.redirectUrl) return res.redirect(attempt.redirectUrl);
-      req.flash("success", "Sua solicitação de assinatura já está sendo processada.");
-      return req.session.save(() => res.redirect("/assinatura"));
+      safeFlash(req, "success", "Sua solicitação de assinatura já está sendo processada.");
+      return saveSessionOrRun(req, () => res.redirect("/assinatura"));
     }
     const data = await mp("/preapproval", {
       method: "POST",
@@ -314,7 +318,7 @@ exports.assinarCartao = async (req, res) => {
       ).catch(() => {});
     }
     flashSafeIntegrationError(req, error);
-    return req.session.save(() => res.redirect("/assinatura"));
+    return saveSessionOrRun(req, () => res.redirect("/assinatura"));
   }
 };
 
@@ -326,8 +330,8 @@ exports.gerarPix = async (req, res) => {
     const { attempt, created } = await obterOuCriarTentativa(assinatura, "pix");
     if (!created) {
       if (!attempt.pixCopiaCola) {
-        req.flash("success", "Seu Pix já está sendo gerado.");
-        return req.session.save(() => res.redirect("/assinatura"));
+        safeFlash(req, "success", "Seu Pix já está sendo gerado.");
+        return saveSessionOrRun(req, () => res.redirect("/assinatura"));
       }
       return res.render("assinatura", {
         assinatura: assinatura.toObject(),
@@ -412,16 +416,17 @@ exports.gerarPix = async (req, res) => {
       ).catch(() => {});
     }
     flashSafeIntegrationError(req, error);
-    return req.session.save(() => res.redirect("/assinatura"));
+    return saveSessionOrRun(req, () => res.redirect("/assinatura"));
   }
 };
 
 exports.retorno = async (req, res) => {
-  req.flash(
+  safeFlash(
+    req,
     "success",
     "Pagamento iniciado. A liberação ocorrerá somente após confirmação financeira.",
   );
-  return req.session.save(() => res.redirect("/admin"));
+  return saveSessionOrRun(req, () => res.redirect("/admin"));
 };
 
 exports.conectarMercadoPago = async (req, res) => {
@@ -450,7 +455,7 @@ exports.conectarMercadoPago = async (req, res) => {
     return res.redirect(url.toString());
   } catch (error) {
     flashSafeIntegrationError(req, error);
-    return req.session.save(() => res.redirect("/admin#configuracoes"));
+    return saveSessionOrRun(req, () => res.redirect("/admin#configuracoes"));
   }
 };
 
@@ -520,11 +525,11 @@ exports.callbackMercadoPago = async (req, res) => {
       }},
       { upsert: true, setDefaultsOnInsert: true, runValidators: true },
     );
-    req.flash("success", "Conta Mercado Pago conectada com sucesso.");
-    return req.session.save(() => res.redirect("/admin#configuracoes"));
+    safeFlash(req, "success", "Conta Mercado Pago conectada com sucesso.");
+    return saveSessionOrRun(req, () => res.redirect("/admin#configuracoes"));
   } catch (error) {
     flashSafeIntegrationError(req, error);
-    return req.session.save(() => res.redirect("/admin#configuracoes"));
+    return saveSessionOrRun(req, () => res.redirect("/admin#configuracoes"));
   }
 };
 
@@ -546,8 +551,8 @@ exports.desconectarMercadoPago = async (req, res) => {
     }},
     { runValidators: true },
   );
-  req.flash("success", "Conta Mercado Pago desconectada.");
-  return req.session.save(() => res.redirect("/admin#configuracoes"));
+  safeFlash(req, "success", "Conta Mercado Pago desconectada.");
+  return saveSessionOrRun(req, () => res.redirect("/admin#configuracoes"));
 };
 
 async function configuracaoComToken(estabelecimento) {
