@@ -187,13 +187,14 @@ test("catálogo público usa rota de sincronização e storage isolado por slug"
   assert.match(view, /preco:\s*Number\(item\.price\)/);
 });
 
-test("exclusão de produto é desativação lógica, sem deleteOne", () => {
+test("exclusão de produto é definitiva, multi-tenant e preserva snapshots", () => {
   const fs = require("node:fs");
   const source = fs.readFileSync("src/controllers/adminRealController.js", "utf8");
   const inicio = source.indexOf("exports.excluirProduto");
   const fim = source.indexOf("CATÁLOGO PÚBLICO", inicio);
   const trecho = source.slice(inicio, fim);
-  assert.match(trecho, /Produto\.findOneAndUpdate/);
-  assert.match(trecho, /\$set:\s*\{\s*ativo:\s*false\s*\}/);
-  assert.doesNotMatch(trecho, /Produto\.deleteOne/);
+  assert.match(trecho, /Produto\.deleteOne/);
+  assert.match(trecho, /estabelecimentoId:\s*idEstabelecimento/);
+  assert.match(trecho, /fichaTecnicaSnapshotCriado/);
+  assert.doesNotMatch(trecho, /\$set:\s*\{\s*ativo:\s*false\s*\}/);
 });

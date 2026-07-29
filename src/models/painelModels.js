@@ -636,6 +636,28 @@ const Pedido = mongoose.model(
             default: "",
             trim: true,
           },
+          custoUnitarioSnapshot: { type: Number, default: 0, min: 0 },
+          fichaTecnicaSnapshotCriado: {
+            type: Boolean,
+            default: false,
+          },
+          fichaTecnicaSnapshot: [
+            {
+              estoqueId: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "Estoque",
+                required: true,
+              },
+              nome: { type: String, required: true, trim: true },
+              quantidade: { type: Number, required: true, min: 0.0001 },
+              unidade: {
+                type: String,
+                enum: ["g", "kg", "ml", "l", "un"],
+                required: true,
+              },
+              custoCalculado: { type: Number, default: 0, min: 0 },
+            },
+          ],
         },
       ],
 

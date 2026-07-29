@@ -5,7 +5,7 @@ impressora reais.
 
 ## Inventário de proteção
 
-O router possui 78 combinações únicas de método e caminho. A tabela agrupa
+O router possui 79 combinações únicas de método e caminho. A tabela agrupa
 rotas com a mesma política; parâmetros `:id`, `:jobId`, `:slug` e `:token`
 continuam sendo validados por rota/controller.
 

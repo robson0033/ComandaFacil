@@ -399,6 +399,15 @@ route.post(
   admin.excluirProduto
 );
 
+route.delete(
+  '/admin/produtos/:id',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissao('catalogo'),
+  admin.excluirProduto
+);
+
 /*
 |--------------------------------------------------------------------------
 | MESAS

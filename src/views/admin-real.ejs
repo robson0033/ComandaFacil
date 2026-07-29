@@ -4665,7 +4665,10 @@
             <% } %>
 
             <% listaProdutos.forEach(produto => { %>
-              <article class="product-card">
+              <article
+                class="product-card"
+                data-product-card="<%= produto._id %>"
+              >
                 <div class="product-cover">
                   <% if (produto.imagem) { %>
                     <img
@@ -4730,20 +4733,14 @@
                       Editar produto
                     </button>
 
-                    <form
-                      action="/admin/produtos/<%= produto._id %>/excluir"
-                      method="POST"
-                      style="margin-top: 12px;"
-                      data-product-delete
+                    <button
+                      type="button"
+                      class="mini-button delete btn-excluir-produto"
+                      data-produto-id="<%= produto._id %>"
+                      data-produto-nome="<%= produto.nome %>"
                     >
-                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-                      <button
-                        type="submit"
-                        class="mini-button delete"
-                      >
-                        Excluir produto
-                      </button>
-                    </form>
+                      Excluir produto
+                    </button>
                   </div>
                 </div>
               </article>
@@ -9408,27 +9405,6 @@ if (podeReceberNotificacoes) {
         });
         return;
       }
-      if (form.matches('[data-product-delete]')) {
-        event.preventDefault();
-        if (!window.confirm('Tem certeza que deseja desativar este produto?')) {
-          return;
-        }
-        const formData = new FormData(form);
-        adminFetch(form.action, {
-          method: 'POST',
-          body: formData,
-          headers: { Accept: 'application/json' },
-        }).then(async response => {
-          const payload = await response.clone().json().catch(() => ({}));
-          if (!response.ok) {
-            throw new Error(payload.message || 'Não foi possível desativar o produto.');
-          }
-          recarregarSecaoPainel(payload.section || 'catalogo');
-        }).catch(error => {
-          mostrarErroAdministrativo({ message: error.message });
-        });
-        return;
-      }
       if (form.matches('[data-confirm-finalize-pending]') &&
           form.elements.status?.value === 'finalizado' &&
           !window.confirm(
@@ -9445,6 +9421,49 @@ if (podeReceberNotificacoes) {
       if (form.matches('[data-confirm-mercado-pago-disconnect]') &&
           !window.confirm('Desconectar a conta Mercado Pago?')) {
         event.preventDefault();
+        }
+      });
+
+    document.addEventListener('click', async event => {
+      const button = event.target.closest('.btn-excluir-produto');
+      if (!button || button.dataset.loading === 'true') return;
+
+      const produtoId = String(button.dataset.produtoId || '');
+      const produtoNome = String(button.dataset.produtoNome || 'Produto');
+      const confirmar = window.confirm(
+        `Excluir permanentemente o produto “${produtoNome}”?\n\n` +
+        'Ele será removido do catálogo e do banco de dados. ' +
+        'Os pedidos antigos continuarão preservados.'
+      );
+      if (!confirmar) return;
+
+      button.dataset.loading = 'true';
+      button.disabled = true;
+      const textoOriginal = button.textContent;
+      button.textContent = 'Excluindo...';
+
+      try {
+        const response = await adminFetch(
+          `/admin/produtos/${encodeURIComponent(produtoId)}`,
+          {
+            method: 'DELETE',
+            headers: { Accept: 'application/json' },
+          }
+        );
+        const payload = await response.clone().json().catch(() => ({}));
+        if (!response.ok || payload.code !== 'PRODUCT_DELETED') {
+          throw new Error(payload.message || 'Não foi possível excluir o produto.');
+        }
+        document.querySelector(
+          `[data-product-card="${CSS.escape(produtoId)}"]`
+        )?.remove();
+        window.location.hash = '#catalogo';
+        window.alert(payload.message || 'Produto excluído permanentemente.');
+      } catch (error) {
+        button.dataset.loading = 'false';
+        button.disabled = false;
+        button.textContent = textoOriginal;
+        mostrarErroAdministrativo({ message: error.message });
       }
     });
 

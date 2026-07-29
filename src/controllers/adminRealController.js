@@ -3526,48 +3526,124 @@ exports.editarProduto = async (
 exports.excluirProduto = async (
   req,
   res,
+  next,
 ) => {
-  try {
-    const produto = await Produto.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        estabelecimentoId:
-          estabelecimentoId(req),
-        ativo: { $ne: false },
-      },
-      {
-        $set: { ativo: false },
-      },
-      {
-        returnDocument: "after",
-        runValidators: true,
-      },
-    );
+  const produtoId = String(req.params.id || "");
+  const idEstabelecimento = estabelecimentoId(req);
+  if (!mongoose.isValidObjectId(produtoId)) {
+    return res.status(422).json({
+      ok: false,
+      code: "PRODUCT_ID_INVALID",
+      message: "Produto inválido.",
+      correlationId: req.correlationId,
+    });
+  }
 
-    if (!produto) {
-      return erroERedirecionar(
-        req,
-        res,
-        "catalogo",
-        "Produto não encontrado ou já desativado.",
+  let session = null;
+  let produtoExcluido = null;
+  let imagemCompartilhada = false;
+  try {
+    session = await mongoose.startSession();
+    await session.withTransaction(async () => {
+      produtoExcluido = await Produto.findOne({
+        _id: produtoId,
+        estabelecimentoId: idEstabelecimento,
+      }).session(session);
+
+      if (!produtoExcluido) return;
+
+      const fichaTecnicaSnapshot = (produtoExcluido.fichaTecnica || [])
+        .map(item => ({
+          estoqueId: item.estoqueId,
+          nome: item.nome,
+          quantidade: item.quantidade,
+          unidade: item.unidade,
+          custoCalculado: item.custoCalculado,
+        }));
+
+      await Pedido.updateMany(
+        {
+          estabelecimentoId: idEstabelecimento,
+          "itens.produtoId": produtoExcluido._id,
+        },
+        {
+          $set: {
+            "itens.$[item].fichaTecnicaSnapshot": fichaTecnicaSnapshot,
+            "itens.$[item].fichaTecnicaSnapshotCriado": true,
+            "itens.$[item].custoUnitarioSnapshot":
+              Number(produtoExcluido.custo || 0),
+          },
+        },
+        {
+          arrayFilters: [{
+            "item.produtoId": produtoExcluido._id,
+            "item.fichaTecnicaSnapshotCriado": { $ne: true },
+          }],
+          session,
+        },
       );
+
+      const storageKey = produtoExcluido.imagemArquivo?.storageKey;
+      if (storageKey) {
+        imagemCompartilhada = await Produto.exists({
+          _id: { $ne: produtoExcluido._id },
+          estabelecimentoId: idEstabelecimento,
+          "imagemArquivo.storageKey": storageKey,
+        }).session(session);
+      }
+
+      const resultado = await Produto.deleteOne(
+        {
+          _id: produtoExcluido._id,
+          estabelecimentoId: idEstabelecimento,
+        },
+        { session },
+      );
+      if (resultado.deletedCount !== 1) {
+        const error = new Error("O produto mudou durante a exclusão.");
+        error.code = "PRODUCT_DELETE_CONFLICT";
+        throw error;
+      }
+    });
+
+    if (!produtoExcluido) {
+      return res.status(404).json({
+        ok: false,
+        code: "PRODUCT_NOT_FOUND",
+        message: "Produto não encontrado.",
+        correlationId: req.correlationId,
+      });
     }
 
-    return salvarERedirecionar(
-      req,
-      res,
-      "catalogo",
-      "Produto desativado.",
-    );
-  } catch (error) {
-    console.error(error);
+    let limpezaImagemPendente = false;
+    if (!imagemCompartilhada && produtoExcluido.imagemArquivo?.storageKey) {
+      try {
+        await removerUploadSemOcultarErro(
+          produtoExcluido.imagemArquivo,
+          idEstabelecimento,
+        );
+      } catch (error) {
+        limpezaImagemPendente = true;
+        console.error("product_image_cleanup_pending", {
+          correlationId: req.correlationId,
+          produtoId,
+          code: error?.code || "STORAGE_REMOCAO_FALHOU",
+        });
+      }
+    }
 
-    return erroERedirecionar(
-      req,
-      res,
-      "catalogo",
-      "Não foi possível excluir o produto.",
-    );
+    return res.status(200).json({
+      ok: true,
+      code: "PRODUCT_DELETED",
+      produtoId,
+      message: "Produto excluído permanentemente.",
+      section: "catalogo",
+      ...(limpezaImagemPendente ? { limpezaImagemPendente: true } : {}),
+    });
+  } catch (error) {
+    return next(error);
+  } finally {
+    await session?.endSession();
   }
 };
 
@@ -5771,6 +5847,15 @@ const criarPedidoCatalogoAnterior = async (
         quantidade,
         preco,
         subtotal,
+        custoUnitarioSnapshot: custoUnitario,
+        fichaTecnicaSnapshotCriado: true,
+        fichaTecnicaSnapshot: (produto.fichaTecnica || []).map(item => ({
+          estoqueId: item.estoqueId,
+          nome: item.nome,
+          quantidade: item.quantidade,
+          unidade: item.unidade,
+          custoCalculado: item.custoCalculado,
+        })),
       });
 
       total += subtotal;
@@ -6208,6 +6293,15 @@ exports.criarPedidoMesa = async (
           itemRecebido.observacao ||
             "",
         ).trim(),
+        custoUnitarioSnapshot: custoUnitario,
+        fichaTecnicaSnapshotCriado: true,
+        fichaTecnicaSnapshot: (produto.fichaTecnica || []).map(item => ({
+          estoqueId: item.estoqueId,
+          nome: item.nome,
+          quantidade: item.quantidade,
+          unidade: item.unidade,
+          custoCalculado: item.custoCalculado,
+        })),
       });
 
       total += subtotal;
@@ -7031,6 +7125,15 @@ exports.criarPedidoCatalogo =
           subtotal,
           adicionais,
           observacao: String(itemRecebido.observacao || "").trim(),
+          custoUnitarioSnapshot: custoUnitario,
+          fichaTecnicaSnapshotCriado: true,
+          fichaTecnicaSnapshot: (produto.fichaTecnica || []).map(item => ({
+            estoqueId: item.estoqueId,
+            nome: item.nome,
+            quantidade: item.quantidade,
+            unidade: item.unidade,
+            custoCalculado: item.custoCalculado,
+          })),
         });
 
         total += subtotal;

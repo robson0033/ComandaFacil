@@ -48,13 +48,17 @@ test("adminFetch exige CSRF nas mutações sem definir Content-Type multipart", 
   assert.doesNotMatch(view, /headers\.set\(['"]Origin['"]/);
 });
 
-test("produto desativado usa POST real, helper central e isolamento backend", () => {
-  assert.match(view, /data-product-delete/);
-  assert.match(view, /form\.matches\('\[data-product-delete\]'\)/);
-  assert.match(routes, /route\.post\(\s*['"]\/admin\/produtos\/:id\/excluir['"]/);
+test("produto é excluído definitivamente por botão independente e DELETE", () => {
+  assert.match(view, /btn-excluir-produto/);
+  assert.match(view, /method:\s*'DELETE'/);
+  assert.match(routes, /route\.delete\(\s*['"]\/admin\/produtos\/:id['"]/);
   assert.match(routes, /permissao\(['"]catalogo['"]\)/);
-  assert.match(controller, /estabelecimentoId:\s*estabelecimentoId\(req\)/);
-  assert.match(controller, /\$set:\s*\{\s*ativo:\s*false\s*\}/);
+  assert.match(controller, /const idEstabelecimento = estabelecimentoId\(req\)/);
+  assert.match(controller, /Produto\.deleteOne/);
+  assert.doesNotMatch(
+    controller.match(/exports\.excluirProduto[\s\S]*?\/\*\n\|[-\s]*\| MESAS/)?.[0] || "",
+    /\$set:\s*\{\s*ativo:\s*false/,
+  );
 });
 
 test("adicionais ficam no mesmo FormData do formulário de produto", () => {

@@ -109,15 +109,20 @@ function montarConsumosDoPedido(pedido, produtos) {
   const consumos = [];
   for (const [itemPedidoIndice, itemPedido] of (pedido.itens || []).entries()) {
     const produto = mapaProdutos.get(String(itemPedido.produtoId));
-    if (!produto) {
+    const possuiSnapshotProduto =
+      itemPedido.fichaTecnicaSnapshotCriado === true;
+    if (!produto && !possuiSnapshotProduto) {
       throw new Error("Produto do pedido não foi encontrado no estabelecimento.");
     }
     const quantidadeProduto = Number(itemPedido.quantidade);
     if (!Number.isFinite(quantidadeProduto) || quantidadeProduto <= 0) {
       throw new Error("Quantidade inválida no pedido.");
     }
-    for (const ingrediente of Array.isArray(produto.fichaTecnica)
-      ? produto.fichaTecnica
+    const fichaTecnica = possuiSnapshotProduto
+      ? itemPedido.fichaTecnicaSnapshot
+      : produto.fichaTecnica;
+    for (const ingrediente of Array.isArray(fichaTecnica)
+      ? fichaTecnica
       : []) {
       const quantidadeFicha = Number(ingrediente.quantidade);
       if (!ingrediente.estoqueId
@@ -127,7 +132,7 @@ function montarConsumosDoPedido(pedido, produtos) {
       }
       consumos.push({
         estoqueId: ingrediente.estoqueId,
-        produtoId: produto._id,
+        produtoId: itemPedido.produtoId,
         itemPedidoIndice,
         quantidadeProduto,
         quantidadeConsumida: quantidadeFicha * quantidadeProduto,
