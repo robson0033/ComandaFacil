@@ -15,6 +15,9 @@ const { ensureCsrfToken } = require("./src/middleware/csrf");
 const { securityHeaders } = require("./src/middleware/securityHeaders");
 const { stopRateLimiters } = require("./src/middleware/rateLimit");
 const { createSystemRouter } = require("./src/routes/systemRoutes");
+const {
+  createRuntimeHomologacaoRouter,
+} = require("./src/routes/runtimeHomologacaoRoutes");
 const { validateEnvironment } = require("./src/config/validateEnv");
 const {
   createSessionMiddleware,
@@ -42,7 +45,12 @@ function createBaseApplication() {
   return app;
 }
 
-function configureApplication(app, { config, sessionMiddleware }) {
+function configureApplication(app, {
+  config,
+  sessionMiddleware,
+  homologation,
+  env = process.env,
+}) {
   if (config.production) app.set("trust proxy", 1);
   app.use(securityHeaders);
   app.use(express.urlencoded({ extended: true }));
@@ -57,6 +65,16 @@ function configureApplication(app, { config, sessionMiddleware }) {
   });
   app.use(express.static(path.resolve(__dirname, "public")));
   app.use(sessionMiddleware);
+  const homologationRouter = homologation
+    ? createRuntimeHomologacaoRouter({
+        env,
+        technicalToken: homologation.technicalToken,
+        operationId: homologation.operationId,
+      })
+    : null;
+  if (homologationRouter) {
+    app.use("/__homologacao", homologationRouter);
+  }
   app.use(flash());
   app.use(ensureCsrfToken);
   app.use(middleware.middlewareGlobal);
@@ -95,6 +113,7 @@ function createShutdown(runtime, {
   queue = printQueueService,
   agentHub = printAgentHub,
   stopLimiters = stopRateLimiters,
+  beforeClose,
 } = {}) {
   let shutdownPromise = null;
   return function shutdown(reason = "shutdown", exitCode = 0) {
@@ -121,6 +140,12 @@ function createShutdown(runtime, {
         timeout.unref?.();
       });
       const graceful = (async () => {
+        let beforeCloseError = null;
+        try {
+          if (typeof beforeClose === "function") await beforeClose(runtime);
+        } catch (error) {
+          beforeCloseError = error;
+        }
         await Promise.all([
           closeWithCallback(runtime.httpServer, "close"),
           closeWithCallback(runtime.io, "close"),
@@ -129,6 +154,7 @@ function createShutdown(runtime, {
           await runtime.sessionStore.close();
         }
         if (database.connection.readyState !== 0) await database.disconnect();
+        if (beforeCloseError) throw beforeCloseError;
         return { forced: false };
       })();
 
@@ -154,6 +180,9 @@ async function boot({
   logger = console,
   listen = true,
   exit,
+  homologation,
+  beforeReady,
+  shutdownOptions = {},
 } = {}) {
   appState.resetForTests();
   const runtime = {
@@ -169,6 +198,7 @@ async function boot({
   try {
     runtime.config = validateEnvironment(env);
     initializeStorage(env);
+    printQueueService.setShuttingDown(false);
     appState.setCheck("envValid", true);
     appState.setCheck("storageAdapterReady", true);
 
@@ -189,6 +219,8 @@ async function boot({
         config: runtime.config,
         store: runtime.sessionStore,
       }),
+      homologation,
+      env,
     });
 
     runtime.httpServer = http.createServer(runtime.app);
@@ -204,16 +236,25 @@ async function boot({
     runtime.reconcileTimer.unref?.();
     appState.setCheck("workersStarted", true);
 
-    runtime.shutdown = createShutdown(runtime, { exit, logger });
+    runtime.shutdown = createShutdown(runtime, {
+      exit,
+      logger,
+      ...shutdownOptions,
+    });
     if (listen) {
       await new Promise((resolve, reject) => {
         runtime.httpServer.once("error", reject);
-        runtime.httpServer.listen(runtime.config.port, () => {
+        runtime.httpServer.listen(runtime.config.port, async () => {
           runtime.httpServer.off("error", reject);
-          appState.setCheck("httpListening", true);
-          appState.setState("ready");
-          logger.log(`Servidor iniciado na porta ${runtime.config.port}.`);
-          resolve();
+          try {
+            appState.setCheck("httpListening", true);
+            if (typeof beforeReady === "function") await beforeReady(runtime);
+            appState.setState("ready");
+            logger.log(`Servidor iniciado na porta ${runtime.config.port}.`);
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
         });
       });
     }

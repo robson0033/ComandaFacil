@@ -88,6 +88,38 @@ existência foi confirmada, repita o comando adicionando
 `ALLOW_EXTERNAL_STORAGE_RECONCILIATION_REMOVE=true`. O script recusa chaves de
 outro estabelecimento ou fora do namespace `testes`.
 
+## Homologação controlada do runtime
+
+O teste de runtime é exclusivamente manual e deve usar um database dedicado de
+homologação. Ele inicia duas instâncias sequenciais do boot real para validar
+MongoDB, MongoStore, `/health`, `/ready`, persistência e remoção de sessão e
+graceful shutdown. Não usa login ou dados de clientes.
+
+As variáveis `CONNECTIONSTRING`, `SESSION_SECRET`, `APP_URL`, `PORT` e a
+configuração de storage devem vir do `.env` local. Não inclua seus valores no
+comando ou em logs.
+
+```bash
+ALLOW_RUNTIME_HOMOLOGATION=true \
+RUNTIME_TEST_DATABASE_CONFIRMATION=true \
+RUNTIME_TEST_PORT=3100 \
+node scripts/testar-runtime-homologacao.js
+```
+
+O database é aceito automaticamente quando o nome contém `homolog`, `staging`
+ou `test`. Para outro nome exclusivamente técnico, a confirmação adicional
+acima é obrigatória. Nomes ou hosts com indicação de produção continuam
+bloqueados, assim como qualquer execução com `NODE_ENV=production`.
+
+Durante a execução, as rotas sob `/__homologacao` existem apenas com a flag
+exata e em desenvolvimento. Elas exigem um token efêmero mantido em memória,
+criam somente marcadores técnicos e são removidas do boot normal.
+
+Os códigos de saída são: `0` para homologação aprovada; `1` para ambiente
+inválido; `2` para falha de boot; `3` para health/readiness inválido; `4` para
+falha de sessão; `5` para falha no reinício; `6` para falha de shutdown; e `7`
+para falha de limpeza.
+
 ## Health checks
 
 - `GET /health`: confirma que o processo responde; não consulta o banco.
