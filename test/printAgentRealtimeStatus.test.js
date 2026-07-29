@@ -40,20 +40,56 @@ function setupHub() {
 function socketFixture(agent, auth = {}) {
   const handlers = new Map();
   const emitted = [];
-  return {
+  const socket = {
     id: `socket-${Math.random()}`,
     connected: true,
-    data: { agent },
-    handshake: { auth },
+    data: {
+      agent,
+      compatibility: {
+        compatible: true,
+        outdated: false,
+        agentVersion: "1.2.0",
+      },
+    },
+    handshake: {
+      auth: {
+        agentVersion: "1.2.0",
+        protocolVersion: 2,
+        supportedProtocolVersions: [2],
+        ...auth,
+      },
+    },
     emitted,
-    emit(event, payload) { emitted.push({ event, payload }); },
+    emit(event, payload, callback) {
+      emitted.push({ event, payload });
+      if (event === "agent:ready" && callback) {
+        callback(null, {
+          success: true,
+          data: {
+            protocolVersion: 2,
+            agentVersion: "1.2.0",
+            timestamp: new Date().toISOString(),
+          },
+        });
+      }
+    },
     on(event, handler) { handlers.set(event, handler); },
     disconnect() {
       this.connected = false;
       handlers.get("disconnect")?.("server namespace disconnect");
     },
     trigger(event, payload) { handlers.get(event)?.(payload); },
+    timeout() {
+      return {
+        emit(event, payload, callback) {
+          socket.emit(event, payload, (responseError, response) => {
+            callback(responseError, response);
+          });
+        },
+      };
+    },
   };
+  return socket;
 }
 
 test("agent:ready publica conectado somente depois de autenticar e salvar", async () => {
@@ -168,7 +204,11 @@ test("status inicial reflete página aberta antes ou depois da conexão", () => 
   assert.equal(printAgentHub.currentStatus(lojaId).connected, false);
   printAgentHub._testing.sockets.set(lojaId, {
     connected: true,
-    data: { agent: { nomeComputador: "BALCÃO" } },
+    data: {
+      ready: true,
+      compatibility: { outdated: false },
+      agent: { nomeComputador: "BALCÃO" },
+    },
   });
   try {
     const status = printAgentHub.currentStatus(lojaId);
@@ -199,6 +239,17 @@ test("evento duplicado é seguro e listener removido simula reconexão SSE", () 
   } finally {
     stopReconnected();
   }
+});
+
+test("agente incompatível aparece como desatualizado e nunca online", () => {
+  const payload = printAgentHub._testing.statusPayload("loja", false, {
+    outdated: true,
+    nomeComputador: "CAIXA",
+  });
+  assert.equal(payload.connected, false);
+  assert.equal(payload.status, "desatualizado");
+  assert.equal(payload.outdated, true);
+  assert.equal(payload.minimumAgentVersion, "1.2.0");
 });
 
 test("frontend atualiza badge e botões sem duplicar efeitos", () => {

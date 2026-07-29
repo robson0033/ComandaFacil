@@ -1,6 +1,16 @@
 "use strict";
 
 const crypto = require("crypto");
+const {
+  AGENT_STATUSES,
+  PROTOCOL_VERSION,
+  UUID_PATTERN,
+  buildJobEnvelope,
+  validateAgentStatus,
+} = require("./printAgentProtocol");
+const {
+  isPrintProtocolV2EnabledFor,
+} = require("../config/printProtocolRollout");
 const os = require("os");
 const {
   Configuracao,
@@ -341,35 +351,53 @@ async function programarRetry(job, error, { permanente = false } = {}) {
 }
 
 async function atualizarStatusDoAgente(estabelecimentoId, status = {}) {
-  if (!status.jobId || !status.leaseId) return null;
+  let validated;
+  try {
+    validated = validateAgentStatus(status);
+  } catch {
+    return null;
+  }
   const job = await PrintJob.findOne({
-    jobId: status.jobId,
+    jobId: validated.jobId,
     estabelecimentoId,
   });
   if (!job || ["concluido", "cancelado"].includes(job.status)) return job;
   if (
     job.lockedBy !== INSTANCE_ID
     || !job.leaseToken
-    || job.leaseToken !== status.leaseId
-  ) return null;
+    || job.leaseToken !== validated.leaseId
+    || String(job.impressoraChave) !== validated.impressoraId
+  ) {
+    console.warn(
+      `ACK de impressão ignorado: jobId=${validated.jobId} lease=${validated.leaseId.slice(0, 8)} code=LEASE_OR_PRINTER_MISMATCH`,
+    );
+    return null;
+  }
   const now = new Date();
-  const update = { erro: text(status.message, 1000) };
-  if (status.status === "recebido") {
+  const update = { erro: text(validated.message, 1000) };
+  if (["recebido", "validado", "aceito"].includes(validated.status)) {
     update.status = "recebido";
     if (!job.recebidoEm) update.recebidoEm = now;
-  } else if (status.status === "processando") {
+  } else if (validated.status === "imprimindo") {
     update.status = "processando";
     if (!job.processandoEm) update.processandoEm = now;
     update.leaseExpiresAt = new Date(now.getTime() + LEASE_MS);
-  } else if (status.status === "enviado") {
+  } else if (validated.status === "enviado_impressora") {
+    update.status = "enviado";
+    if (!job.enviadoEm) update.enviadoEm = now;
+    update.leaseExpiresAt = new Date(now.getTime() + LEASE_MS);
+  } else if (validated.status === "concluido") {
     update.status = "concluido";
     if (!job.enviadoEm) update.enviadoEm = now;
     update.concluidoEm = now;
     update.lockedBy = "";
     update.leaseToken = "";
     update.leaseExpiresAt = null;
-  } else if (status.status === "falhou") {
-    return programarRetry(job, status.message || "Falha informada pelo agente.");
+  } else if (validated.status === "falhou_antes_envio") {
+    return programarRetry(job, validated.message || "Falha segura antes do envio.");
+  } else if (validated.status === "resultado_desconhecido") {
+    update.status = "resultado_desconhecido";
+    update.leaseExpiresAt = new Date(now.getTime() + LEASE_MS);
   } else {
     return job;
   }
@@ -404,29 +432,122 @@ async function consultarResultadoDesconhecido(job, socket) {
   } catch {
     return job;
   }
-  if (result?.status === "enviado") {
+  try {
+    result = validateAgentStatus(result);
+    if (result.jobId !== job.jobId || result.leaseId !== job.leaseToken) {
+      result = null;
+    }
+  } catch {
+    result = null;
+  }
+  if (result?.status === "concluido") {
     return atualizarStatusDoAgente(job.estabelecimentoId, result);
   }
-  if (result?.status === "processando" || result?.status === "recebido") {
+  if (["imprimindo", "recebido", "validado", "aceito", "enviado_impressora"]
+    .includes(result?.status)) {
+    const serverStatus = result.status === "imprimindo"
+      ? "processando"
+      : (result.status === "enviado_impressora" ? "enviado" : "recebido");
     return PrintJob.findOneAndUpdate(leaseFilter(job), {
       $set: {
-        status: result.status,
+        status: serverStatus,
         leaseExpiresAt: new Date(Date.now() + LEASE_MS),
       },
     }, { returnDocument: "after" });
   }
-  if (result?.status === "falhou") {
+  if (result?.status === "falhou_antes_envio") {
     return programarRetry(job, result.message || "Falha confirmada pelo agente.");
   }
+  // Ausência local, protocolo antigo ou resultado ambíguo nunca liberam retry.
   return PrintJob.findOneAndUpdate(leaseFilter(job), {
     $set: {
-      status: "pendente",
-      nextAttemptAt: new Date(),
-      lockedBy: "",
-      leaseToken: "",
-      leaseExpiresAt: null,
+      status: "resultado_desconhecido",
+      erro: "Resultado exige conciliação manual.",
+      leaseExpiresAt: new Date(Date.now() + LEASE_MS),
     },
   }, { returnDocument: "after" });
+}
+
+async function reconciliarResumoDoAgente(estabelecimentoId, summary = {}) {
+  if (
+    Number(summary.protocolVersion) !== PROTOCOL_VERSION
+    || !Array.isArray(summary.jobs)
+    || summary.jobs.length > 100
+  ) {
+    throw new Error("Resumo de reconciliação inválido.");
+  }
+  const decisions = [];
+  for (const local of summary.jobs) {
+    if (
+      !UUID_PATTERN.test(String(local?.jobId || ""))
+      || !UUID_PATTERN.test(String(local?.leaseId || ""))
+      || !AGENT_STATUSES.has(String(local?.status || ""))
+    ) continue;
+    const job = await PrintJob.findOne({
+      jobId: String(local.jobId),
+      estabelecimentoId,
+    });
+    if (!job || job.status === "cancelado") {
+      decisions.push({
+        jobId: String(local.jobId),
+        leaseId: String(local.leaseId),
+        action: "cancelar",
+      });
+      continue;
+    }
+    if (String(job.impressoraChave) !== String(local.impressoraId || "")) {
+      decisions.push({
+        jobId: job.jobId,
+        leaseId: String(local.leaseId),
+        action: "aguardar",
+      });
+      continue;
+    }
+    if (job.status === "concluido") {
+      decisions.push({
+        jobId: job.jobId,
+        leaseId: String(local.leaseId),
+        action: "concluido",
+      });
+      continue;
+    }
+    if (
+      local.status === "falhou_antes_envio"
+      && String(job.leaseToken) === String(local.leaseId)
+    ) {
+      await PrintJob.findOneAndUpdate({
+        _id: job._id,
+        estabelecimentoId,
+        leaseToken: String(local.leaseId),
+        status: {
+          $in: ["entregando", "recebido", "processando", "resultado_desconhecido"],
+        },
+      }, {
+        $set: {
+          status: "aguardando_retry",
+          erro: "Falha antes do envio confirmada pelo agente.",
+          nextAttemptAt: new Date(),
+          lockedBy: "",
+          leaseToken: "",
+          leaseExpiresAt: null,
+        },
+      });
+      decisions.push({
+        jobId: job.jobId,
+        leaseId: String(local.leaseId),
+        action: "liberar_para_retry",
+      });
+      continue;
+    }
+    decisions.push({
+      jobId: job.jobId,
+      leaseId: String(local.leaseId),
+      action: local.status === "resultado_desconhecido"
+        ? "manter_desconhecido"
+        : "aguardar",
+    });
+  }
+  return decisions;
 }
 
 async function prepararEntrega(job) {
@@ -465,20 +586,28 @@ async function prepararEntrega(job) {
 }
 
 async function processarJob(job, socket) {
+  if (!isPrintProtocolV2EnabledFor(job.estabelecimentoId)) return null;
   const entregando = await prepararEntrega(job);
   if (!entregando) return null;
   try {
-    const initial = await transport.deliver(socket, {
+    const initial = await transport.deliver(socket, buildJobEnvelope({
       jobId: entregando.jobId,
       leaseId: entregando.leaseToken,
+      impressoraId: entregando.impressoraChave,
+      attempt: entregando.tentativas,
+      deadline: new Date(Date.now() + LEASE_MS).toISOString(),
       modo: entregando.tipo,
       estabelecimento: entregando.estabelecimento,
       pedido: entregando.pedido,
       impressoras: [entregando.impressora],
-    });
+    }));
     await atualizarStatusDoAgente(entregando.estabelecimentoId, {
       jobId: entregando.jobId,
       leaseId: entregando.leaseToken,
+      protocolVersion: PROTOCOL_VERSION,
+      agentVersion: initial.agentVersion,
+      impressoraId: entregando.impressoraChave,
+      timestamp: initial.timestamp || new Date().toISOString(),
       status: initial.status || "recebido",
       ...initial,
     });
@@ -499,6 +628,7 @@ async function processarJob(job, socket) {
 
 async function drenarFilaDoEstabelecimento(estabelecimentoId, socket) {
   if (shuttingDown) return;
+  if (!isPrintProtocolV2EnabledFor(estabelecimentoId)) return;
   const key = String(estabelecimentoId);
   if (activeStores.has(key) || !socket?.connected || !transport) return;
   activeStores.add(key);
@@ -581,6 +711,43 @@ async function retryJob(job) {
   return job;
 }
 
+async function reconciliarJobManual(job, action) {
+  assertAcceptingWork();
+  if (job.status !== "resultado_desconhecido") {
+    throw new Error("Somente resultado desconhecido pode ser conciliado.");
+  }
+  if (!["confirmar_concluido", "liberar_retry"].includes(action)) {
+    throw new Error("Ação de conciliação inválida.");
+  }
+  const now = new Date();
+  const update = action === "confirmar_concluido"
+    ? {
+        status: "concluido",
+        erro: "Concluído por conciliação manual.",
+        enviadoEm: job.enviadoEm || now,
+        concluidoEm: now,
+        lockedBy: "",
+        leaseToken: "",
+        leaseExpiresAt: null,
+      }
+    : {
+        status: "aguardando_retry",
+        erro: "Retry liberado por conciliação manual.",
+        nextAttemptAt: now,
+        lockedBy: "",
+        leaseToken: "",
+        leaseExpiresAt: null,
+      };
+  const result = await PrintJob.findOneAndUpdate({
+    _id: job._id,
+    estabelecimentoId: job.estabelecimentoId,
+    status: "resultado_desconhecido",
+  }, { $set: update }, { returnDocument: "after" });
+  if (!result) throw new Error("O estado do trabalho mudou. Atualize e tente novamente.");
+  if (action === "liberar_retry") notifyStore(job.estabelecimentoId);
+  return result;
+}
+
 module.exports = {
   INSTANCE_ID,
   MAX_ATTEMPTS,
@@ -597,9 +764,11 @@ module.exports = {
   reconciliarPedidosSemJob,
   reivindicarProximoJob,
   retryJob,
+  reconciliarJobManual,
   setShuttingDown,
   setTransport,
   validarPedidoDisponivel,
   atualizarStatusDoAgente,
   consultarResultadoDesconhecido,
+  reconciliarResumoDoAgente,
 };

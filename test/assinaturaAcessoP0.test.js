@@ -320,7 +320,8 @@ test("assinatura, callback, webhook e logout permanecem fora do bloqueio operaci
   assert.match(routes, /'\/login\/logout'[\s\S]*?loginController\.logout/);
   const assinaturaView = fs.readFileSync("src/views/assinatura.ejs", "utf8");
   assert.match(assinaturaView, />Assinatura</);
-  assert.match(assinaturaView, /href="\/login\/logout">Sair/);
+  assert.match(assinaturaView, /form action="\/login\/logout" method="POST"/);
+  assert.match(assinaturaView, /name="_csrf"/);
   assert.doesNotMatch(assinaturaView, /href="\/admin">Voltar ao painel/);
 });
 

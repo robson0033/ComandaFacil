@@ -171,6 +171,25 @@ exports.permissaoCategoria = async (req, res, next) => {
   }
 };
 
+exports.permissaoCategoriaLeitura = async (req, res, next) => {
+  try {
+    const user = await carregarIdentidadeAtual(req);
+    if (!user) return negarAutenticacao(req, res);
+    if (
+      user.tipo === "proprietario"
+      || req.permissoesAtuais.includes("estoque")
+      || req.permissoesAtuais.includes("catalogo")
+    ) {
+      return next();
+    }
+    return res.status(403).send(
+      "Você não tem permissão para acessar categorias.",
+    );
+  } catch (error) {
+    return next(error);
+  }
+};
+
 exports.somenteProprietario = (req, res, next) => {
   const usuario = req.usuarioAtual || req.session?.user;
   if (!usuario) return negarAutenticacao(req, res);

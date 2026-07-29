@@ -8,6 +8,20 @@ const {
   PrintJob,
 } = require("../src/models/painelModels");
 const queue = require("../src/services/printQueueService");
+const { PROTOCOL_VERSION } = require("../src/services/printAgentProtocol");
+
+function agentStatus(overrides = {}) {
+  return {
+    jobId: crypto.randomUUID(),
+    leaseId: crypto.randomUUID(),
+    protocolVersion: PROTOCOL_VERSION,
+    agentVersion: "1.2.0",
+    status: "concluido",
+    timestamp: new Date().toISOString(),
+    impressoraId: "usb:mock",
+    ...overrides,
+  };
+}
 
 let originalPedidoFindOne;
 test.beforeEach(() => {
@@ -311,10 +325,12 @@ test("worker antigo não conclui job de lease novo", async t => {
   const originalFind = PrintJob.findOne;
   const originalUpdate = PrintJob.findOneAndUpdate;
   let atualizou = false;
+  const newLease = crypto.randomUUID();
   PrintJob.findOne = async () => ({
     status: "entregando",
     lockedBy: queue.INSTANCE_ID,
-    leaseToken: "lease-novo",
+    leaseToken: newLease,
+    impressoraChave: "usb:mock",
   });
   PrintJob.findOneAndUpdate = async () => {
     atualizou = true;
@@ -323,11 +339,9 @@ test("worker antigo não conclui job de lease novo", async t => {
     PrintJob.findOne = originalFind;
     PrintJob.findOneAndUpdate = originalUpdate;
   });
-  const result = await queue.atualizarStatusDoAgente("loja", {
-    jobId: crypto.randomUUID(),
-    leaseId: "lease-antigo",
-    status: "enviado",
-  });
+  const result = await queue.atualizarStatusDoAgente("loja", agentStatus({
+    leaseId: crypto.randomUUID(),
+  }));
   assert.equal(result, null);
   assert.equal(atualizou, false);
 });
@@ -386,11 +400,9 @@ test("eventos repetidos de job concluído são idempotentes", async t => {
   const original = PrintJob.findOne;
   PrintJob.findOne = async () => ({ status: "concluido" });
   t.after(() => { PrintJob.findOne = original; });
-  const result = await queue.atualizarStatusDoAgente("loja", {
-    jobId: crypto.randomUUID(),
-    leaseId: "lease",
-    status: "processando",
-  });
+  const result = await queue.atualizarStatusDoAgente("loja", agentStatus({
+    status: "imprimindo",
+  }));
   assert.equal(result.status, "concluido");
 });
 
@@ -402,11 +414,7 @@ test("evento de outro estabelecimento não altera job", async t => {
     return null;
   };
   t.after(() => { PrintJob.findOne = original; });
-  const result = await queue.atualizarStatusDoAgente("loja-a", {
-    jobId: crypto.randomUUID(),
-    leaseId: "lease",
-    status: "enviado",
-  });
+  const result = await queue.atualizarStatusDoAgente("loja-a", agentStatus());
   assert.equal(result, null);
   assert.equal(query.estabelecimentoId, "loja-a");
 });
@@ -472,7 +480,7 @@ test("lease expirado vira resultado desconhecido para reconciliação", async t 
   assert.equal(update.$set.status, "resultado_desconhecido");
 });
 
-test("agente que não conhece resultado desconhecido libera o mesmo jobId para reenvio", async t => {
+test("agente que não conhece resultado mantém conciliação sem reenvio cego", async t => {
   const original = PrintJob.findOneAndUpdate;
   let finalUpdate;
   PrintJob.findOneAndUpdate = async (query, update) => {
@@ -497,19 +505,22 @@ test("agente que não conhece resultado desconhecido libera o mesmo jobId para r
     lockedBy: queue.INSTANCE_ID,
     leaseToken: "lease",
   }, { connected: true });
-  assert.equal(finalUpdate.$set.status, "pendente");
-  assert.equal(finalUpdate.$set.leaseToken, "");
+  assert.equal(finalUpdate.$set.status, "resultado_desconhecido");
+  assert.match(finalUpdate.$set.erro, /conciliação manual/);
 });
 
 test("agente que confirma enviado conclui sem chamar impressão novamente", async t => {
   const originalFindOne = PrintJob.findOne;
   const originalUpdate = PrintJob.findOneAndUpdate;
   let concluded;
+  const leaseId = crypto.randomUUID();
+  const jobId = crypto.randomUUID();
   PrintJob.findOne = async () => ({
     _id: "job",
     status: "resultado_desconhecido",
     lockedBy: queue.INSTANCE_ID,
-    leaseToken: "lease",
+    leaseToken: leaseId,
+    impressoraChave: "usb:mock",
     recebidoEm: new Date(),
   });
   PrintJob.findOneAndUpdate = async (query, update) => {
@@ -524,19 +535,126 @@ test("agente que confirma enviado conclui sem chamar impressão novamente", asyn
     query: async (socket, jobId, leaseId) => ({
       jobId,
       leaseId,
-      status: "enviado",
+      protocolVersion: PROTOCOL_VERSION,
+      agentVersion: "1.2.0",
+      status: "concluido",
+      timestamp: new Date().toISOString(),
+      impressoraId: "usb:mock",
     }),
     wake() {},
   });
   await queue.consultarResultadoDesconhecido({
     _id: "job",
-    jobId: crypto.randomUUID(),
+    jobId,
     estabelecimentoId: "loja",
     status: "resultado_desconhecido",
     lockedBy: queue.INSTANCE_ID,
-    leaseToken: "lease",
+    leaseToken: leaseId,
+    impressoraChave: "usb:mock",
   }, { connected: true });
   assert.equal(concluded.status, "concluido");
   assert.ok(concluded.enviadoEm instanceof Date);
   assert.ok(concluded.concluidoEm instanceof Date);
+});
+
+test("resultado desconhecido é preservado e falha antes do envio é única condição de retry", async t => {
+  const originalFindOne = PrintJob.findOne;
+  const originalUpdate = PrintJob.findOneAndUpdate;
+  const leaseId = crypto.randomUUID();
+  let update;
+  PrintJob.findOne = async () => ({
+    _id: "job",
+    status: "processando",
+    lockedBy: queue.INSTANCE_ID,
+    leaseToken: leaseId,
+    impressoraChave: "usb:mock",
+    tentativas: 1,
+  });
+  PrintJob.findOneAndUpdate = async (filter, value) => {
+    update = value.$set;
+    return update;
+  };
+  t.after(() => {
+    PrintJob.findOne = originalFindOne;
+    PrintJob.findOneAndUpdate = originalUpdate;
+  });
+  await queue.atualizarStatusDoAgente("loja", agentStatus({
+    leaseId,
+    status: "resultado_desconhecido",
+  }));
+  assert.equal(update.status, "resultado_desconhecido");
+
+  await queue.atualizarStatusDoAgente("loja", agentStatus({
+    leaseId,
+    status: "falhou_antes_envio",
+  }));
+  assert.equal(update.status, "aguardando_retry");
+});
+
+test("reconciliação é isolada pela loja e idempotente", async t => {
+  const originalFindOne = PrintJob.findOne;
+  const originalUpdate = PrintJob.findOneAndUpdate;
+  const leaseId = crypto.randomUUID();
+  let query;
+  let updates = 0;
+  PrintJob.findOne = async value => {
+    query = value;
+    return {
+      _id: "job",
+      jobId: value.jobId,
+      estabelecimentoId: value.estabelecimentoId,
+      status: "resultado_desconhecido",
+      leaseToken: leaseId,
+      impressoraChave: "usb:mock",
+    };
+  };
+  PrintJob.findOneAndUpdate = async () => {
+    updates += 1;
+    return {};
+  };
+  t.after(() => {
+    PrintJob.findOne = originalFindOne;
+    PrintJob.findOneAndUpdate = originalUpdate;
+  });
+  const summary = {
+    protocolVersion: PROTOCOL_VERSION,
+    jobs: [{
+      jobId: crypto.randomUUID(),
+      leaseId,
+      status: "resultado_desconhecido",
+      impressoraId: "usb:mock",
+    }],
+  };
+  const first = await queue.reconciliarResumoDoAgente("loja-a", summary);
+  const second = await queue.reconciliarResumoDoAgente("loja-a", summary);
+  assert.equal(query.estabelecimentoId, "loja-a");
+  assert.equal(first[0].action, "manter_desconhecido");
+  assert.deepEqual(second, first);
+  assert.equal(updates, 0);
+});
+
+test("conciliação manual mantém jobId e exige estado desconhecido", async t => {
+  const original = PrintJob.findOneAndUpdate;
+  let filter;
+  let update;
+  PrintJob.findOneAndUpdate = async (value, change) => {
+    filter = value;
+    update = change.$set;
+    return { jobId: "job", ...update };
+  };
+  t.after(() => { PrintJob.findOneAndUpdate = original; });
+  const job = {
+    _id: "id",
+    jobId: "job",
+    estabelecimentoId: "loja",
+    status: "resultado_desconhecido",
+  };
+  await queue.reconciliarJobManual(job, "confirmar_concluido");
+  assert.equal(filter.estabelecimentoId, "loja");
+  assert.equal(filter.status, "resultado_desconhecido");
+  assert.equal(update.status, "concluido");
+  await assert.rejects(
+    queue.reconciliarJobManual({ ...job, status: "falhou" }, "liberar_retry"),
+    /Somente resultado desconhecido/,
+  );
 });

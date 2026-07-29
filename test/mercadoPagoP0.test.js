@@ -9,8 +9,8 @@ const {
   validateMercadoPagoWebhook,
 } = require("../src/middleware/mercadoPagoSecurity");
 const {
+  createCsrfSameOriginProtection,
   csrfProtection,
-  csrfSameOriginProtection,
   ensureCsrfToken,
 } = require("../src/middleware/csrf");
 const { createRateLimiter } = require("../src/middleware/rateLimit");
@@ -449,11 +449,15 @@ test("CSRF: token inválido é bloqueado", () => {
 });
 
 test("CSRF: POST administrativo de mesma origem é aceito", () => {
+  const csrfSameOriginProtection = createCsrfSameOriginProtection({
+    env: { APP_URL: "https://app.example.com" },
+    logger: { warn() {} },
+  });
   const req = {
     method: "POST",
     protocol: "https",
-    session: {},
-    body: {},
+    session: { csrfToken: "token-correto" },
+    body: { _csrf: "token-correto" },
     get(name) {
       return {
         origin: "https://app.example.com",
@@ -467,6 +471,10 @@ test("CSRF: POST administrativo de mesma origem é aceito", () => {
 });
 
 test("CSRF: POST administrativo de origem externa é bloqueado", () => {
+  const csrfSameOriginProtection = createCsrfSameOriginProtection({
+    env: { APP_URL: "https://app.example.com" },
+    logger: { warn() {} },
+  });
   const req = {
     method: "POST",
     protocol: "https",

@@ -1,6 +1,16 @@
 const crypto = require("crypto");
 const { PrintAgent } = require("../models/painelModels");
 const printQueueService = require("./printQueueService");
+const {
+  MINIMUM_AGENT_VERSION,
+  PROTOCOL_VERSION,
+  SUPPORTED_PROTOCOL_VERSIONS,
+  UUID_PATTERN,
+  negotiateAgent,
+} = require("./printAgentProtocol");
+const {
+  isPrintProtocolV2EnabledFor,
+} = require("../config/printProtocolRollout");
 
 const sockets = new Map();
 const statusListeners = new Map();
@@ -21,10 +31,19 @@ function normalizarCodigo(value) {
 }
 
 function statusPayload(estabelecimentoId, connected, details = {}) {
+  const outdated = Boolean(details.outdated);
+  const rolloutEnabled = isPrintProtocolV2EnabledFor(estabelecimentoId);
   return {
     type: "print-agent-status",
-    connected: Boolean(connected),
-    status: connected ? "conectado" : "desconectado",
+    connected: Boolean(connected) && !outdated,
+    status: outdated
+      ? "desatualizado"
+      : (connected
+          ? (rolloutEnabled ? "conectado" : "aguardando_ativacao")
+          : "desconectado"),
+    outdated,
+    rolloutEnabled,
+    minimumAgentVersion: outdated ? MINIMUM_AGENT_VERSION : "",
     updatedAt: new Date().toISOString(),
     nomeComputador: connected
       ? String(details.nomeComputador || "").trim()
@@ -67,7 +86,7 @@ function init(io) {
       queryJobStatus(socket, jobId, leaseId),
     wake(estabelecimentoId) {
       const socket = sockets.get(String(estabelecimentoId));
-      if (socket?.connected) {
+      if (socket?.connected && socket.data?.ready) {
         void printQueueService.drenarFilaDoEstabelecimento(
           estabelecimentoId,
           socket,
@@ -81,6 +100,8 @@ function init(io) {
     try {
       const token = String(socket.handshake.auth?.token || "").trim();
       const codigo = normalizarCodigo(socket.handshake.auth?.code);
+      const compatibility = negotiateAgent(socket.handshake.auth);
+      socket.data.compatibility = compatibility;
 
       let agente = null;
 
@@ -91,7 +112,7 @@ function init(io) {
         });
       }
 
-      if (!agente && codigo.length === 6) {
+      if (!agente && codigo.length === 6 && compatibility.compatible) {
         const novoToken = crypto.randomBytes(32).toString("hex");
 
         // A validação e o consumo do código acontecem na mesma operação.
@@ -134,6 +155,11 @@ function init(io) {
       }
 
       if (!agente) {
+        if (!compatibility.compatible) {
+          return next(new Error(
+            `Agente desatualizado. Instale a versão ${MINIMUM_AGENT_VERSION} ou superior.`,
+          ));
+        }
         return next(
           new Error(
             "Código inválido, expirado ou já utilizado. Gere um novo código no painel.",
@@ -152,11 +178,18 @@ function init(io) {
   namespace.on("connection", async socket => {
     const agente = socket.data.agent;
     const lojaId = String(agente.estabelecimentoId);
+    const compatibility = socket.data.compatibility;
 
     try {
       agente.nomeComputador = String(
         socket.handshake.auth?.computerName || "",
       ).trim();
+      agente.agentVersion = compatibility?.agentVersion || "";
+      agente.protocolVersion = compatibility?.protocolVersion || 0;
+      agente.protocolCompativel = Boolean(compatibility?.compatible);
+      agente.capacidades = Array.isArray(socket.handshake.auth?.capabilities)
+        ? socket.handshake.auth.capabilities.map(value => String(value).slice(0, 60)).slice(0, 20)
+        : [];
       agente.ultimaConexao = new Date();
       await agente.save();
 
@@ -174,7 +207,59 @@ function init(io) {
         });
       }
 
-      socket.emit("agent:ready", { lojaId });
+      if (!compatibility?.compatible) {
+        socket.data.ready = false;
+        socket.emit("agent:error", {
+          code: "AGENT_UPDATE_REQUIRED",
+          message: `Atualização obrigatória: instale o agente ${MINIMUM_AGENT_VERSION} ou superior.`,
+        });
+        publishStatus(lojaId, false, {
+          nomeComputador: agente.nomeComputador,
+          outdated: true,
+        });
+        socket.on("disconnect", () => {
+          if (sockets.get(lojaId)?.id === socket.id) {
+            sockets.delete(lojaId);
+            publishStatus(lojaId, false);
+          }
+        });
+        return;
+      }
+
+      socket.on("print:reconcile", async (summary, ack) => {
+        try {
+          if (sockets.get(lojaId)?.id !== socket.id || !socket.data.ready) {
+            return ack({ success: false, message: "Socket do agente não está ativo." });
+          }
+          const decisions = await printQueueService.reconciliarResumoDoAgente(
+            lojaId,
+            summary,
+          );
+          ack({
+            success: true,
+            data: {
+              protocolVersion: PROTOCOL_VERSION,
+              decisions,
+              timestamp: new Date().toISOString(),
+            },
+          });
+        } catch {
+          ack({ success: false, message: "Falha ao reconciliar trabalhos." });
+        }
+      });
+
+      const ready = await emitWithAck(socket, "agent:ready", {
+        protocolVersion: PROTOCOL_VERSION,
+        supportedProtocolVersions: SUPPORTED_PROTOCOL_VERSIONS,
+        minimumAgentVersion: MINIMUM_AGENT_VERSION,
+      }, 5000);
+      if (
+        Number(ready?.protocolVersion) !== PROTOCOL_VERSION
+        || String(ready?.agentVersion || "") !== compatibility.agentVersion
+      ) {
+        throw new Error("Handshake do agente inválido.");
+      }
+      socket.data.ready = true;
       publishStatus(lojaId, true, {
         nomeComputador: agente.nomeComputador,
       });
@@ -197,8 +282,9 @@ function init(io) {
 
     socket.on("job:status", async status => {
       try {
+        if (sockets.get(lojaId)?.id !== socket.id || !socket.data.ready) return;
         await printQueueService.atualizarStatusDoAgente(lojaId, status);
-        if (["enviado", "falhou"].includes(String(status?.status || ""))) {
+        if (["concluido", "falhou_antes_envio"].includes(String(status?.status || ""))) {
           void printQueueService.drenarFilaDoEstabelecimento(lojaId, socket);
         }
       } catch (error) {
@@ -219,7 +305,7 @@ function init(io) {
       try {
         await printQueueService.recuperarLeasesExpirados();
         for (const [lojaId, socket] of sockets) {
-          if (socket.connected) {
+          if (socket.connected && socket.data?.ready) {
             void printQueueService.drenarFilaDoEstabelecimento(lojaId, socket);
           }
         }
@@ -261,23 +347,34 @@ async function requestPrintJob(
   timeout = 30000,
 ) {
   if (shuttingDown) throw new Error("Servidor em encerramento.");
+  if (!isPrintProtocolV2EnabledFor(estabelecimentoId)) {
+    throw new Error("Protocolo de impressão v2 ainda não habilitado para esta loja.");
+  }
   const socket = sockets.get(String(estabelecimentoId));
-  if (!socket?.connected) throw new Error("Agente de impressão desconectado.");
+  if (!socket?.connected || !socket.data?.ready) {
+    throw new Error("Agente de impressão desconectado ou incompatível.");
+  }
 
-  if (!payload?.jobId) {
-    throw new Error("O trabalho precisa estar persistido e possuir jobId.");
+  if (
+    !UUID_PATTERN.test(String(payload?.jobId || ""))
+    || !UUID_PATTERN.test(String(payload?.leaseId || ""))
+    || Number(payload?.protocolVersion) !== PROTOCOL_VERSION
+  ) {
+    throw new Error("O trabalho precisa possuir jobId, leaseId e protocolo válidos.");
   }
   return emitWithAck(socket, event, payload, Math.min(timeout, 5000));
 }
 
 function isOnline(estabelecimentoId) {
-  return Boolean(sockets.get(String(estabelecimentoId))?.connected);
+  const socket = sockets.get(String(estabelecimentoId));
+  return Boolean(socket?.connected && socket.data?.ready);
 }
 
 function currentStatus(estabelecimentoId) {
   const socket = sockets.get(String(estabelecimentoId));
-  return statusPayload(estabelecimentoId, Boolean(socket?.connected), {
+  return statusPayload(estabelecimentoId, Boolean(socket?.connected && socket.data?.ready), {
     nomeComputador: socket?.data?.agent?.nomeComputador,
+    outdated: Boolean(socket?.data?.compatibility?.outdated),
   });
 }
 
@@ -294,7 +391,7 @@ function request(
     }
     const socket = sockets.get(String(estabelecimentoId));
 
-    if (!socket?.connected) {
+    if (!socket?.connected || !socket.data?.ready) {
       reject(new Error("Agente de impressão desconectado."));
       return;
     }

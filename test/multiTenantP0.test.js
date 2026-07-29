@@ -272,7 +272,14 @@ test("consumo simultâneo permite o código a apenas um agente", async () => {
   const middleware = setupHub();
   const connect = () => {
     const socket = {
-      handshake: { auth: { code: "123456" } },
+      handshake: {
+        auth: {
+          code: "123456",
+          agentVersion: "1.2.0",
+          protocolVersion: 2,
+          supportedProtocolVersions: [2],
+        },
+      },
       data: {},
     };
     return new Promise(resolve =>

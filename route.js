@@ -35,6 +35,7 @@ const {
   loginRequired,
   permissao,
   permissaoCategoria,
+  permissaoCategoriaLeitura,
   somenteProprietario,
 } = require('./src/middleware/auth');
 
@@ -145,8 +146,9 @@ route.post(
   registroController.registro
 );
 
-route.get(
+route.post(
   '/login/logout',
+  csrfSameOriginProtection,
   loginController.logout
 );
 
@@ -172,7 +174,7 @@ route.post(
   carregarAssinatura,
   permissao('configuracoes'),
   limiteAssinatura,
-  csrfProtection,
+  csrfSameOriginProtection,
   pagamento.assinarCartao
 );
 
@@ -183,7 +185,7 @@ route.post(
   carregarAssinatura,
   permissao('configuracoes'),
   limiteAssinatura,
-  csrfProtection,
+  csrfSameOriginProtection,
   pagamento.gerarPix
 );
 
@@ -196,7 +198,7 @@ route.get(
   pagamento.retorno
 );
 
-route.get('/admin/mercado-pago/conectar', loginRequired, somenteProprietario, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, pagamento.conectarMercadoPago);
+route.post('/admin/mercado-pago/conectar', loginRequired, somenteProprietario, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, csrfSameOriginProtection, pagamento.conectarMercadoPago);
 route.get('/admin/mercado-pago/callback', loginRequired, somenteProprietario, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, pagamento.callbackMercadoPago);
 route.post('/admin/mercado-pago/desconectar', loginRequired, somenteProprietario, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, csrfProtection, pagamento.desconectarMercadoPago);
 
@@ -232,6 +234,18 @@ route.get(
   permissao('pedidos'),
   (req, res) => res.redirect('/admin#pedidos')
 );
+
+const redirectAdminSection = section => (req, res) =>
+  res.redirect(`/admin#${section}`);
+
+route.get('/admin/catalogo', loginRequired, carregarAssinatura, assinaturaRequired, permissao('catalogo'), redirectAdminSection('catalogo'));
+route.get('/admin/cardapio', loginRequired, carregarAssinatura, assinaturaRequired, permissao('catalogo'), redirectAdminSection('catalogo'));
+route.get('/admin/mesas', loginRequired, carregarAssinatura, assinaturaRequired, permissao('mesas'), redirectAdminSection('mesas'));
+route.get('/admin/funcionarios', loginRequired, carregarAssinatura, assinaturaRequired, permissao('funcionarios'), redirectAdminSection('funcionarios'));
+route.get('/admin/estoque', loginRequired, carregarAssinatura, assinaturaRequired, permissao('estoque'), redirectAdminSection('estoque'));
+route.get('/admin/relatorios', loginRequired, carregarAssinatura, assinaturaRequired, permissao('relatorios'), redirectAdminSection('relatorios'));
+route.get('/admin/configuracoes', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), redirectAdminSection('configuracoes'));
+route.get('/admin/agente', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), redirectAdminSection('configuracoes'));
 
 route.get(
   '/admin/api/pedidos/:id/impressao',
@@ -291,6 +305,15 @@ route.get(
 | CATEGORIAS
 |--------------------------------------------------------------------------
 */
+
+route.get(
+  '/admin/categorias',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissaoCategoriaLeitura,
+  redirectAdminSection('estoque')
+);
 
 route.post(
   '/admin/categorias',
@@ -488,13 +511,15 @@ route.post(
 
 route.post('/admin/agente/codigo', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.gerarCodigoAgente);
 route.get('/admin/agente/status', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.statusAgente);
+route.get('/admin/agente/download/1.2.0', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.downloadAgenteValidado);
 route.get('/admin/agente/status/stream', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.streamStatusAgente);
-route.get('/admin/agente/network/scan', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.buscarImpressorasRedeRemotas);
+route.post('/admin/agente/network/scan', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.buscarImpressorasRedeRemotas);
 route.get('/admin/agente/impressoras', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.impressorasAgente);
 route.post('/admin/agente/teste', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.testarImpressoraRemota);
 route.post('/admin/agente/pedidos/:id/imprimir', loginRequired, carregarAssinatura, assinaturaRequired, permissao('imprimir_pedidos'), admin.imprimirPedidoRemoto);
 route.get('/admin/agente/jobs/:jobId', loginRequired, carregarAssinatura, assinaturaRequired, permissao('imprimir_pedidos'), admin.statusJobImpressao);
 route.post('/admin/agente/jobs/:jobId/retry', loginRequired, carregarAssinatura, assinaturaRequired, permissao('imprimir_pedidos'), admin.retryJobImpressao);
+route.post('/admin/agente/jobs/:jobId/reconcile', loginRequired, carregarAssinatura, assinaturaRequired, permissao('imprimir_pedidos'), admin.reconciliarJobImpressao);
 
 /*
 |--------------------------------------------------------------------------

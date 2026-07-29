@@ -1384,11 +1384,14 @@
     }
 
     .logout {
+      border: 0;
       padding: 10px 14px;
       border-radius: 10px;
       background: #b42323;
       color: #fff;
       font-weight: 800;
+      cursor: pointer;
+      font: inherit;
     }
 
     .page {
@@ -3342,9 +3345,10 @@
             </strong>
           </div>
 
-          <a class="logout" href="/login/logout">
-            Sair
-          </a>
+          <form action="/login/logout" method="POST" style="margin:0">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <button class="logout" type="submit">Sair</button>
+          </form>
         </div>
       </header>
 
@@ -5310,7 +5314,10 @@
               </form>
             <% } else { %>
               <div class="link-box" style="margin-bottom:14px">Conta ainda não conectada.</div>
-              <a href="/admin/mercado-pago/conectar" class="button" style="display:inline-flex;text-decoration:none">Conectar minha conta Mercado Pago</a>
+              <form action="/admin/mercado-pago/conectar" method="POST">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <button type="submit" class="button">Conectar minha conta Mercado Pago</button>
+              </form>
             <% } %>
           </section>
           <% } %>
@@ -5333,6 +5340,7 @@
                 <a
                   href="https://github.com/robson0033/ComandaFacil/releases/latest/download/agente.zip"
                   class="download-agent-button"
+                  data-staged-agent-version="1.2.0"
                 >
                   ⬇ Baixar agente
                 </a>
@@ -6793,6 +6801,46 @@
 ></div>
 
   <script nonce="<%= cspNonce %>">
+    const adminCsrfToken = <%- safeJsonForHtml(csrfToken || '') %>;
+    const mutatingAdminMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+    function adminFetch(resource, options = {}) {
+      const method = String(options.method || 'GET').toUpperCase();
+      const target = new URL(String(resource), window.location.href);
+      const sameAdminOrigin =
+        target.origin === window.location.origin &&
+        target.pathname.startsWith('/admin');
+      const headers = new Headers(options.headers || {});
+      if (sameAdminOrigin && mutatingAdminMethods.has(method)) {
+        headers.set('X-CSRF-Token', adminCsrfToken);
+      }
+      return window.fetch(resource, {
+        ...options,
+        credentials: 'same-origin',
+        headers
+      });
+    }
+
+    document.addEventListener('submit', event => {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement)) return;
+      const method = String(form.method || 'GET').toUpperCase();
+      const target = new URL(form.action || window.location.href);
+      if (
+        !mutatingAdminMethods.has(method) ||
+        target.origin !== window.location.origin ||
+        !target.pathname.startsWith('/admin')
+      ) return;
+      let input = form.querySelector('input[name="_csrf"]');
+      if (!input) {
+        input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = '_csrf';
+        form.appendChild(input);
+      }
+      input.value = adminCsrfToken;
+    }, true);
+
     const pageInfo = {
       dashboard: [
         'Visão geral',
@@ -8028,7 +8076,7 @@ function criarCardPedido(
 
 async function verificarPrintAgent() {
   try {
-    const response = await fetch(
+    const response = await adminFetch(
       `${printAgentUrl}/status`,
       {
         signal:
@@ -8045,7 +8093,10 @@ async function verificarPrintAgent() {
     const result = await response.json();
     atualizarStatusAgente({
       conectado: Boolean(result.online),
-      status: result.online ? 'conectado' : 'desconectado',
+      status: result.status?.status || (result.online ? 'conectado' : 'desconectado'),
+      desatualizado: Boolean(result.status?.outdated),
+      rolloutEnabled: result.status?.rolloutEnabled,
+      versaoMinima: result.status?.minimumAgentVersion,
       atualizadoEm: result.agente?.ultimaConexao,
       nomeComputador: result.agente?.nomeComputador
     });
@@ -8066,18 +8117,28 @@ function atualizarStatusAgente({
   status,
   atualizadoEm,
   updatedAt,
-  nomeComputador
+  nomeComputador,
+  desatualizado,
+  versaoMinima,
+  rolloutEnabled
 } = {}) {
-  const online = conectado === true;
+  const outdated = desatualizado === true || status === 'desatualizado';
+  const rolloutBlocked = conectado === true && !outdated && rolloutEnabled === false;
+  const online = conectado === true && !outdated && !rolloutBlocked;
   printAgentConectado = online;
   const badge = document.querySelector('#printAgentStatus');
   if (badge) {
-    badge.textContent = online
+    badge.textContent = outdated
+      ? `Agente desatualizado${versaoMinima ? ` — mínimo ${versaoMinima}` : ''}`
+      : rolloutBlocked
+      ? 'Agente conectado — ativação pendente'
+      : online
       ? (nomeComputador
           ? `Agente conectado — ${nomeComputador}`
           : 'Agente conectado')
       : 'Agente desconectado';
     badge.classList.toggle('online', online);
+    badge.classList.toggle('outdated', outdated);
     badge.dataset.status = status || (online ? 'conectado' : 'desconectado');
     badge.dataset.updatedAt = String(atualizadoEm || updatedAt || '');
   }
@@ -8106,7 +8167,10 @@ function iniciarStreamStatusAgente() {
         conectado: payload.connected,
         status: payload.status,
         updatedAt: payload.updatedAt,
-        nomeComputador: payload.nomeComputador
+        nomeComputador: payload.nomeComputador,
+        desatualizado: payload.outdated,
+        rolloutEnabled: payload.rolloutEnabled,
+        versaoMinima: payload.minimumAgentVersion
       });
     } catch (error) {
       console.error('Status inválido do agente:', error);
@@ -8121,7 +8185,7 @@ function iniciarStreamStatusAgente() {
 async function carregarPedidoImpressao(
   pedidoId
 ) {
-  const response = await fetch(
+  const response = await adminFetch(
     `/admin/api/pedidos/${encodeURIComponent(
       pedidoId
     )}/impressao`
@@ -8181,7 +8245,7 @@ async function listarImpressorasUsb(card) {
     );
 
   try {
-    const response = await fetch(
+    const response = await adminFetch(
       `${printAgentUrl}/impressoras`
     );
 
@@ -8355,8 +8419,9 @@ document.addEventListener(
       resultBox.classList.add('visible');
 
       try {
-        const response = await fetch(
-          `${printAgentUrl}/network/scan`
+        const response = await adminFetch(
+          `${printAgentUrl}/network/scan`,
+          { method: 'POST' }
         );
 
         const result = await response.json();
@@ -8434,7 +8499,7 @@ document.addEventListener(
       resultBox.classList.add('visible');
 
       try {
-        const response = await fetch(
+        const response = await adminFetch(
           `${printAgentUrl}/teste`,
           {
             method: 'POST',
@@ -8485,7 +8550,7 @@ if (generateAgentCodeButton) {
         'Gerando código...';
 
       try {
-        const response = await fetch(
+        const response = await adminFetch(
           '/admin/agente/codigo',
           { method: 'POST' }
         );
@@ -8528,7 +8593,7 @@ async function imprimirPedido(
   pedidoId,
   modo = 'manual'
 ) {
-  const response = await fetch(`/admin/agente/pedidos/${encodeURIComponent(pedidoId)}/imprimir`, {
+  const response = await adminFetch(`/admin/agente/pedidos/${encodeURIComponent(pedidoId)}/imprimir`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ modo })
   });
 
@@ -8549,7 +8614,7 @@ async function acompanharJobsImpressao(jobIds, button) {
   for (let tentativa = 0; tentativa < 40; tentativa += 1) {
     await new Promise(resolve => setTimeout(resolve, 1500));
     const respostas = await Promise.all(ids.map(async jobId => {
-      const response = await fetch(
+      const response = await adminFetch(
         `${printAgentUrl}/jobs/${encodeURIComponent(jobId)}`
       );
       return response.ok ? response.json() : null;
@@ -8570,6 +8635,36 @@ async function acompanharJobsImpressao(jobIds, button) {
       status === 'falhou' || status === 'cancelado'
     )) {
       button.textContent = 'Falhou';
+      return;
+    }
+    const desconhecido = respostas.find(result =>
+      result?.job?.status === 'resultado_desconhecido'
+    );
+    if (desconhecido) {
+      button.textContent = 'Conciliar impressão';
+      const jobId = desconhecido.job.jobId;
+      const saiu = window.confirm(
+        'O resultado da impressão é desconhecido. O comprovante saiu na impressora?'
+      );
+      const liberar = saiu || window.confirm(
+        'Confirme somente se verificou que nenhum papel saiu. Deseja liberar uma nova tentativa?'
+      );
+      if (!saiu && !liberar) return;
+      const response = await adminFetch(
+        `${printAgentUrl}/jobs/${encodeURIComponent(jobId)}/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: saiu ? 'confirmar_concluido' : 'liberar_retry'
+          })
+        }
+      );
+      const result = await response.json();
+      if (!response.ok) {
+        alert(result.message || 'Não foi possível conciliar a impressão.');
+      }
+      button.textContent = result.status === 'concluido' ? 'Concluído' : 'Na fila';
       return;
     }
     button.textContent = 'Na fila';
@@ -8598,7 +8693,7 @@ document.addEventListener('click', async event => {
   button.textContent = 'Arquivando...';
 
   try {
-    const response = await fetch(`/admin/pedidos/${encodeURIComponent(pedidoId)}/arquivar`, {
+    const response = await adminFetch(`/admin/pedidos/${encodeURIComponent(pedidoId)}/arquivar`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ motivo: String(motivo).trim() })
@@ -8636,7 +8731,7 @@ document.addEventListener('submit', async event => {
   }
 
   try {
-    const response = await fetch(form.action, {
+    const response = await adminFetch(form.action, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -8716,7 +8811,7 @@ async function verificarNovosPedidos() {
       )}`;
 
     const response =
-      await fetch(url, {
+      await adminFetch(url, {
         headers: {
           Accept:
             'application/json',
@@ -9116,7 +9211,7 @@ if (podeReceberNotificacoes) {
       ) {
         event.preventDefault();
         const feedback = uploadInput.parentElement?.querySelector('.upload-feedback');
-        fetch(form.action, {
+        adminFetch(form.action, {
           method: String(form.method || 'POST').toUpperCase(),
           body: new FormData(form),
           credentials: 'same-origin',

@@ -22,6 +22,10 @@ const {
 const printAgentHub = require("../services/printAgentHub");
 const printQueueService = require("../services/printQueueService");
 const {
+  MINIMUM_AGENT_VERSION,
+  PROTOCOL_VERSION,
+} = require("../services/printAgentProtocol");
+const {
   consultarAcessoVenda,
   respostaLojaIndisponivel,
 } = require("../services/assinaturaAcessoService");
@@ -7299,7 +7303,47 @@ exports.gerarCodigoAgente = async (req, res) => {
 exports.statusAgente = async (req, res) => {
   const lojaId = String(estabelecimentoId(req));
   const agente = await PrintAgent.findOne({ estabelecimentoId: lojaId }).lean();
-  return res.json({ success: true, online: printAgentHub.isOnline(lojaId), agente: agente ? { nomeComputador: agente.nomeComputador, ultimaConexao: agente.ultimaConexao, impressoras: agente.impressoras || [] } : null });
+  let status = printAgentHub.currentStatus(lojaId);
+  if (!status.connected && agente?.agentVersion && agente.protocolCompativel === false) {
+    status = {
+      ...status,
+      status: "desatualizado",
+      outdated: true,
+      minimumAgentVersion: MINIMUM_AGENT_VERSION,
+    };
+  }
+  return res.json({
+    success: true,
+    online: status.connected,
+    status,
+    agente: agente ? {
+      nomeComputador: agente.nomeComputador,
+      ultimaConexao: agente.ultimaConexao,
+      impressoras: agente.impressoras || [],
+    } : null,
+  });
+};
+
+exports.downloadAgenteValidado = (req, res) => {
+  try {
+    const artifact = require("../services/agentDownloadService")
+      .resolveValidatedArtifact(process.env);
+    res.setHeader("Content-Type", "application/vnd.microsoft.portable-executable");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${artifact.fileName}"`,
+    );
+    res.setHeader("Content-Length", String(artifact.size));
+    res.setHeader("X-Checksum-SHA256", artifact.checksum);
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.sendFile(artifact.filePath);
+  } catch (error) {
+    return res.status(error.statusCode || 503).json({
+      success: false,
+      code: "AGENTE_NAO_DISPONIVEL",
+      message: "O instalador validado ainda não está disponível.",
+    });
+  }
 };
 
 exports.streamStatusAgente = (req, res) => {
@@ -7358,10 +7402,20 @@ exports.impressorasAgente = async (req, res) => {
 
 exports.testarImpressoraRemota = async (req, res) => {
   try {
+    const jobId = crypto.randomUUID();
+    const leaseId = crypto.randomUUID();
     const data = await printAgentHub.requestPrintJob(
       String(estabelecimentoId(req)),
       "printer:test",
-      { impressora: req.body.impressora, jobId: crypto.randomUUID() },
+      {
+        protocolVersion: PROTOCOL_VERSION,
+        jobId,
+        leaseId,
+        impressoraId: printQueueService.calcularImpressoraChave(req.body.impressora),
+        attempt: 1,
+        deadline: new Date(Date.now() + 60_000).toISOString(),
+        impressora: req.body.impressora,
+      },
       20000,
     );
     return res.status(data.pending ? 202 : 200).json({ success: true, ...data });
@@ -7429,6 +7483,7 @@ exports.statusJobImpressao = async (req, res) => {
       processandoEm: job.processandoEm,
       enviadoEm: job.enviadoEm,
       concluidoEm: job.concluidoEm,
+      requerConciliacao: job.status === "resultado_desconhecido",
     },
   });
 };
@@ -7448,6 +7503,25 @@ exports.retryJobImpressao = async (req, res) => {
       jobId: updated.jobId,
       status: updated.status,
     });
+  } catch (error) {
+    return res.status(409).json({ success: false, message: error.message });
+  }
+};
+
+exports.reconciliarJobImpressao = async (req, res) => {
+  try {
+    const job = await PrintJob.findOne({
+      jobId: req.params.jobId,
+      estabelecimentoId: estabelecimentoId(req),
+    });
+    if (!job) {
+      return res.status(404).json({ success: false, message: "Trabalho não encontrado." });
+    }
+    const updated = await printQueueService.reconciliarJobManual(
+      job,
+      String(req.body?.action || ""),
+    );
+    return res.json({ success: true, jobId: updated.jobId, status: updated.status });
   } catch (error) {
     return res.status(409).json({ success: false, message: error.message });
   }

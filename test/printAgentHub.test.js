@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const test = require("node:test");
 const printAgentHub = require("../src/services/printAgentHub");
+const { PROTOCOL_VERSION } = require("../src/services/printAgentProtocol");
 
 test("jobId do Node é UUID v4 imprevisível e não se repete na amostra", () => {
   const ids = new Set(Array.from({ length: 1000 }, () => crypto.randomUUID()));
@@ -16,6 +17,7 @@ test("jobId do Node é UUID v4 imprevisível e não se repete na amostra", () =>
 function fakeSocket(handler) {
   return {
     connected: true,
+    data: { ready: true },
     timeout(timeout) {
       return {
         emit(event, payload, callback) {
@@ -29,6 +31,7 @@ function fakeSocket(handler) {
 test("timeout após aceite consulta o mesmo jobId e retorna enviado", async () => {
   const storeId = `mock-${crypto.randomUUID()}`;
   const persistedJobId = crypto.randomUUID();
+  const leaseId = crypto.randomUUID();
   let receivedJobId;
   let queriedJobId;
   printAgentHub._testing.sockets.set(storeId, fakeSocket(({ event, payload, callback }) => {
@@ -49,7 +52,12 @@ test("timeout após aceite consulta o mesmo jobId e retorna enviado", async () =
     const result = await printAgentHub.requestPrintJob(
       storeId,
       "print:job",
-      { pedido: {}, jobId: persistedJobId },
+      {
+        pedido: {},
+        jobId: persistedJobId,
+        leaseId,
+        protocolVersion: PROTOCOL_VERSION,
+      },
       1,
     );
     assert.equal(result.status, "recebido");
@@ -62,6 +70,7 @@ test("timeout após aceite consulta o mesmo jobId e retorna enviado", async () =
 test("falha antes de aceitar bytes é retornada como falha definitiva", async () => {
   const storeId = `mock-${crypto.randomUUID()}`;
   const persistedJobId = crypto.randomUUID();
+  const leaseId = crypto.randomUUID();
   printAgentHub._testing.sockets.set(storeId, fakeSocket(({ event, payload, callback }) => {
     if (event === "print:job") {
       callback(null, {
@@ -76,7 +85,12 @@ test("falha antes de aceitar bytes é retornada como falha definitiva", async ()
       printAgentHub.requestPrintJob(
         storeId,
         "print:job",
-        { pedido: {}, jobId: persistedJobId },
+        {
+          pedido: {},
+          jobId: persistedJobId,
+          leaseId,
+          protocolVersion: PROTOCOL_VERSION,
+        },
         1,
       ),
       /TCP mock recusou os bytes/,
@@ -92,7 +106,7 @@ test("requestPrintJob nunca gera jobId para trabalho não persistido", async () 
   try {
     await assert.rejects(
       printAgentHub.requestPrintJob(storeId, "print:job", { pedido: {} }, 1),
-      /persistido/,
+      /jobId, leaseId/,
     );
   } finally {
     printAgentHub._testing.sockets.delete(storeId);

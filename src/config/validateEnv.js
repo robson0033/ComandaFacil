@@ -1,5 +1,9 @@
 "use strict";
 
+const {
+  validatePrintProtocolRollout,
+} = require("./printProtocolRollout");
+
 const REQUIRED_PRODUCTION = Object.freeze([
   "MERCADO_PAGO_ACCESS_TOKEN",
   "MERCADO_PAGO_PUBLIC_KEY",
@@ -105,6 +109,16 @@ function validateEnvironment(env = process.env) {
       }
     } catch {
       invalid.push("MP_REDIRECT_URI");
+    }
+  }
+
+  try {
+    validatePrintProtocolRollout(env);
+  } catch (error) {
+    if (/PILOT_ESTABLISHMENT_IDS/.test(error.message)) {
+      invalid.push("PRINT_PROTOCOL_V2_PILOT_ESTABLISHMENT_IDS");
+    } else {
+      invalid.push("PRINT_PROTOCOL_V2_ENABLED");
     }
   }
 
