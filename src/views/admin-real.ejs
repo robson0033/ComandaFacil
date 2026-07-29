@@ -7001,9 +7001,9 @@
       .querySelectorAll('.close-modal')
       .forEach(button => {
         button.addEventListener('click', () => {
-          button
-            .closest('.modal')
-            ?.classList.remove('ativo');
+          const modal = button.closest('.modal');
+          limparPreviewsUpload(modal);
+          modal?.classList.remove('ativo');
         });
       });
 
@@ -7012,6 +7012,7 @@
       .forEach(modal => {
         modal.addEventListener('click', event => {
           if (event.target === modal) {
+            limparPreviewsUpload(modal);
             modal.classList.remove('ativo');
           }
         });
@@ -9164,6 +9165,30 @@ if (podeReceberNotificacoes) {
       filterOrdersByText();
     }
 
+    const uploadPreviewUrls = new Map();
+
+    function liberarPreviewUpload(input, { removerElemento = true } = {}) {
+      if (!input) return;
+      const previewUrl = uploadPreviewUrls.get(input);
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+        uploadPreviewUrls.delete(input);
+      }
+      if (removerElemento) {
+        input.parentElement?.querySelector('[data-upload-preview]')?.remove();
+      }
+    }
+
+    function limparPreviewsUpload(container = document) {
+      container?.querySelectorAll?.('[data-image-upload]').forEach(input => {
+        liberarPreviewUpload(input);
+        input.value = '';
+        input.setCustomValidity('');
+        const feedback = input.parentElement?.querySelector('.upload-feedback');
+        if (feedback) feedback.textContent = '';
+      });
+    }
+
     document.querySelectorAll('[data-image-upload]').forEach(input => {
       if (input.dataset.uploadListenerReady === 'true') return;
       input.dataset.uploadListenerReady = 'true';
@@ -9176,8 +9201,7 @@ if (podeReceberNotificacoes) {
         const file = input.files?.[0];
         input.setCustomValidity('');
         message.textContent = '';
-        const oldPreview = input.parentElement?.querySelector('[data-upload-preview]');
-        oldPreview?.remove();
+        liberarPreviewUpload(input);
         if (!file) return;
 
         const allowed = ['image/jpeg', 'image/png', 'image/webp'];
@@ -9194,23 +9218,31 @@ if (podeReceberNotificacoes) {
         }
 
         const previewUrl = URL.createObjectURL(file);
+        uploadPreviewUrls.set(input, previewUrl);
         const preview = document.createElement('img');
         preview.dataset.uploadPreview = 'true';
         preview.alt = 'Prévia da imagem selecionada';
         preview.style.cssText =
           'display:block;max-width:120px;max-height:120px;margin-top:8px;border-radius:10px;object-fit:cover';
-        preview.addEventListener('load', () => URL.revokeObjectURL(previewUrl), {
-          once: true,
-        });
         preview.addEventListener('error', () => {
-          URL.revokeObjectURL(previewUrl);
-          preview.remove();
+          liberarPreviewUpload(input);
           input.setCustomValidity('Não foi possível visualizar esta imagem.');
           message.textContent = input.validationMessage;
         }, { once: true });
         preview.src = previewUrl;
         input.insertAdjacentElement('afterend', preview);
       });
+
+      input.form?.addEventListener('reset', () => {
+        setTimeout(() => liberarPreviewUpload(input), 0);
+      });
+    });
+
+    window.addEventListener('beforeunload', () => {
+      uploadPreviewUrls.forEach(previewUrl => {
+        URL.revokeObjectURL(previewUrl);
+      });
+      uploadPreviewUrls.clear();
     });
 
     document.querySelector('#dashboardPeriodo')?.addEventListener(

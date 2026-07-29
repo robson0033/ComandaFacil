@@ -5,7 +5,9 @@ const { Funcionario } = require("../models/painelModels");
 const {
   SESSION_MAX_AGE_MS,
   clearSessionCookie,
+  markSessionEnding,
 } = require("../config/sessionConfig");
+const appState = require("../runtime/appState");
 
 const TRINTA_DIAS = 1000 * 60 * 60 * 24 * 30;
 
@@ -19,12 +21,27 @@ function configurarDuracaoDaSessao(req, lembrar) {
 }
 
 function autenticarComNovaSessao(req, res, user, lembrar) {
+  const previousSessionId = req.sessionID;
+  markSessionEnding(req, "regenerated");
+  appState.closeSseConnectionsForSession(previousSessionId);
   return req.session.regenerate(error => {
-    if (error) return res.status(500).render("404");
+    if (error) {
+      console.error("session_regenerate_failed", { code: "SESSION_REGENERATE_FAILED" });
+      return res.status(500).render("404");
+    }
     configurarDuracaoDaSessao(req, lembrar);
     req.session.user = user;
     return req.session.save(saveError => {
-      if (saveError) return res.status(500).render("404");
+      if (saveError) {
+        console.error("session_save_failed", { code: "SESSION_SAVE_FAILED" });
+        return res.status(500).render("404");
+      }
+      res.clearCookie("connect.sid", {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        path: "/",
+      });
       return res.redirect("/admin");
     });
   });
@@ -95,9 +112,13 @@ exports.login = async (req, res) => {
 
 exports._testing = { autenticarComNovaSessao };
 
-exports.logout = (req, res) => {
-  req.session.destroy(() => {
+exports.logout = (req, res, next) => {
+  const sessionId = req.sessionID;
+  markSessionEnding(req, "logout");
+  appState.closeSseConnectionsForSession(sessionId);
+  req.session.destroy(error => {
     clearSessionCookie(res, process.env.NODE_ENV === "production");
-    res.redirect("/");
+    if (error) return next(error);
+    return res.redirect("/");
   });
 };

@@ -11,7 +11,7 @@ function buildContentSecurityPolicy({ nonce, production = false }) {
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}'`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: https:",
+    "img-src 'self' data: https: blob:",
     "connect-src 'self'",
     "font-src 'self' data:",
     "object-src 'none'",

@@ -2,7 +2,11 @@
 
 const crypto = require("crypto");
 const express = require("express");
-const { clearSessionCookie } = require("../config/sessionConfig");
+const {
+  clearSessionCookie,
+  markSessionEnding,
+} = require("../config/sessionConfig");
+const appState = require("../runtime/appState");
 
 function safeEqual(left, right) {
   const a = Buffer.from(String(left || ""));
@@ -64,9 +68,11 @@ function createRuntimeHomologacaoRouter({
   });
 
   router.post("/session/logout", (req, res, next) => {
+    markSessionEnding(req, "logout");
+    appState.closeSseConnectionsForSession(req.sessionID);
     req.session.destroy(error => {
-      if (error) return next(error);
       clearSessionCookie(res, false);
+      if (error) return next(error);
       return res.status(200).json({ removed: true });
     });
   });

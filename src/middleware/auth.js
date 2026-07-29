@@ -1,6 +1,8 @@
 "use strict";
 
 const { Funcionario } = require("../models/painelModels");
+const { markSessionEnding } = require("../config/sessionConfig");
+const appState = require("../runtime/appState");
 
 function requisicaoEsperaJson(req) {
   return Boolean(
@@ -13,8 +15,18 @@ function requisicaoEsperaJson(req) {
 }
 
 function encerrarSessao(req, callback) {
+  markSessionEnding(req, "unknown");
+  appState.closeSseConnectionsForSession(req.sessionID);
   if (typeof req.session?.destroy === "function") {
-    return req.session.destroy(() => callback());
+    return req.session.destroy(error => {
+      if (error) {
+        console.error("session_destroy_failed", {
+          code: "SESSION_DESTROY_FAILED",
+          type: String(error.name || "Error").slice(0, 80),
+        });
+      }
+      return callback(error || null);
+    });
   }
   if (req.session) {
     delete req.session.user;
@@ -24,7 +36,16 @@ function encerrarSessao(req, callback) {
 }
 
 function negarAutenticacao(req, res) {
-  return encerrarSessao(req, () => {
+  return encerrarSessao(req, error => {
+    if (error) {
+      if (requisicaoEsperaJson(req)) {
+        return res.status(500).json({
+          success: false,
+          message: "Não foi possível encerrar a sessão.",
+        });
+      }
+      return res.status(500).render("404");
+    }
     if (requisicaoEsperaJson(req)) {
       return res.status(401).json({
         success: false,

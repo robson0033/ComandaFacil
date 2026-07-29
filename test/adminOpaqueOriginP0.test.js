@@ -44,6 +44,8 @@ test("páginas administrativas recebem uma CSP única sem sandbox e sem cache", 
     assert.equal(result.setCount.get("content-security-policy"), 1);
     assert.doesNotMatch(csp, /(^|;)\s*sandbox(?:\s|;|$)/i);
     assert.ok(csp.includes(`script-src 'self' 'nonce-${result.nonce}'`));
+    assert.match(csp, /img-src 'self' data: https: blob:/);
+    assert.doesNotMatch(csp, /script-src[^;]*\bblob:/);
     assert.match(csp, /object-src 'none'/);
     assert.match(csp, /frame-ancestors 'none'/);
     assert.match(csp, /form-action 'self'/);
@@ -86,6 +88,8 @@ test("construtor central rejeita regressão sandbox e preserva proteções", () 
   assert.doesNotMatch(csp, /\bsandbox\b/i);
   assert.match(csp, /default-src 'self'/);
   assert.match(csp, /script-src 'self' 'nonce-nonce-teste'/);
+  assert.match(csp, /img-src 'self' data: https: blob:/);
+  assert.doesNotMatch(csp, /script-src[^;]*\bblob:/);
   assert.match(csp, /base-uri 'self'/);
   assert.match(csp, /frame-ancestors 'none'/);
   assert.match(csp, /upgrade-insecure-requests/);

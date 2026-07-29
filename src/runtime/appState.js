@@ -42,26 +42,49 @@ function publicReadiness() {
   };
 }
 
-function registerSse(res, cleanup = () => {}) {
-  const connection = { res, cleanup };
+function registerSse(res, cleanup = () => {}, { sessionId = null } = {}) {
+  const connection = {
+    res,
+    cleanup,
+    sessionId: String(sessionId || ""),
+    closed: false,
+  };
   sseConnections.add(connection);
   return () => {
+    if (connection.closed) return;
+    connection.closed = true;
     sseConnections.delete(connection);
     cleanup();
   };
 }
 
+function closeConnection(connection, event = "shutdown") {
+  if (connection.closed) return;
+  connection.closed = true;
+  sseConnections.delete(connection);
+  try {
+    connection.cleanup();
+    if (!connection.res.writableEnded) {
+      connection.res.write?.(`event: ${event}\ndata: {}\n\n`);
+      connection.res.end();
+    }
+  } catch {
+    // O encerramento continua mesmo se o cliente já tiver desconectado.
+  }
+}
+
 function closeSseConnections() {
   for (const connection of [...sseConnections]) {
-    sseConnections.delete(connection);
-    try {
-      connection.cleanup();
-      if (!connection.res.writableEnded) {
-        connection.res.write?.("event: shutdown\ndata: {}\n\n");
-        connection.res.end();
-      }
-    } catch {
-      // O encerramento continua mesmo se o cliente já tiver desconectado.
+    closeConnection(connection);
+  }
+}
+
+function closeSseConnectionsForSession(sessionId) {
+  const normalized = String(sessionId || "");
+  if (!normalized) return;
+  for (const connection of [...sseConnections]) {
+    if (connection.sessionId === normalized) {
+      closeConnection(connection, "session-ended");
     }
   }
 }
@@ -74,6 +97,7 @@ function resetForTests() {
 
 module.exports = {
   closeSseConnections,
+  closeSseConnectionsForSession,
   getChecks: () => ({ ...checks }),
   getState: () => state,
   isReady,

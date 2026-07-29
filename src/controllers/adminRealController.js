@@ -6508,7 +6508,7 @@ exports.streamNovosPedidos = (req, res) => {
 
   const unregisterSse = appState.registerSse(res, () => {
     if (timer) clearInterval(timer);
-  });
+  }, { sessionId: req.sessionID });
   req.on("close", () => {
     unregisterSse();
 
@@ -7388,7 +7388,7 @@ exports.streamStatusAgente = (req, res) => {
   const unregisterSse = appState.registerSse(res, () => {
     clearInterval(heartbeat);
     unsubscribe();
-  });
+  }, { sessionId: req.sessionID });
   req.on("close", () => {
     unregisterSse();
     if (!res.writableEnded) res.end();

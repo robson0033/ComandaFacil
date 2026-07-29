@@ -95,3 +95,16 @@ formulário observados no Chrome/Render chegarem com origem opaca.
 Isso não relaxa a autorização: `Origin: null` continua proibida e operações
 mutáveis ainda exigem simultaneamente Origin ou Referer autorizado, token CSRF,
 sessão, assinatura, permissão e isolamento por estabelecimento.
+
+## Ciclo da sessão persistente
+
+A aplicação monta um único `express-session`, com um único MongoStore e cria
+somente o cookie `comandamix.sid`. Durante a transição, o logout e o login
+bem-sucedido também removem o cookie legado `connect.sid`; essa limpeza poderá
+ser retirada depois que os navegadores antigos tiverem sido renovados.
+
+Logout e regeneração marcam o identificador anterior como encerrado e fecham as
+conexões SSE vinculadas antes de destruir ou substituir a sessão. O adaptador do
+store absorve exclusivamente `Unable to find the session to touch`, que indica
+uma corrida com sessão já removida ou expirada, sem recriá-la. Falhas de rede,
+autenticação ou erros desconhecidos do MongoDB continuam sendo propagados.

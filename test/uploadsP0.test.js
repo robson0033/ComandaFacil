@@ -17,6 +17,36 @@ const {
 const { LocalStorageAdapter } = require("../src/services/storage/LocalStorageAdapter");
 const { auditUploads, EXAMPLE_LIMIT } = require("../scripts/auditar-uploads");
 
+test("CSP permite blob somente para imagens e previews revogam URLs temporárias", () => {
+  const security = fs.readFileSync(
+    path.resolve(__dirname, "../src/middleware/securityHeaders.js"),
+    "utf8",
+  );
+  const admin = fs.readFileSync(
+    path.resolve(__dirname, "../src/views/admin-real.ejs"),
+    "utf8",
+  );
+  assert.match(security, /img-src 'self' data: https: blob:/);
+  assert.doesNotMatch(security, /script-src[^\\n]*blob:/);
+  assert.match(security, /object-src 'none'/);
+  assert.match(security, /frame-ancestors 'none'/);
+  assert.match(security, /script-src 'self' 'nonce-\$\{nonce\}'/);
+
+  assert.equal(
+    [...admin.matchAll(/\bdata-image-upload=/g)].length,
+    5,
+    "todos os cinco uploads administrativos devem usar o preview central",
+  );
+  assert.match(admin, /const uploadPreviewUrls = new Map\(\)/);
+  assert.match(admin, /URL\.createObjectURL\(file\)/);
+  assert.match(admin, /URL\.revokeObjectURL\(previewUrl\)/);
+  assert.match(admin, /liberarPreviewUpload\(input\)/);
+  assert.match(admin, /limparPreviewsUpload\(modal\)/);
+  assert.match(admin, /addEventListener\('reset'/);
+  assert.match(admin, /addEventListener\('beforeunload'/);
+  assert.doesNotMatch(admin, /\beval\s*\(/);
+});
+
 async function image(format, width = 8, height = 8) {
   let pipeline = sharp({
     create: {

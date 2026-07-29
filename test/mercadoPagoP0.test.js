@@ -521,10 +521,11 @@ test("sessão: login regenera sessão e preserva usuário e duração", async ()
     },
   };
   const result = await new Promise(resolve => {
-    const res = {
-      redirect(path) { resolve(path); },
-      status() { return this; },
-      render() { resolve("erro"); },
+  const res = {
+    clearCookie() {},
+    redirect(path) { resolve(path); },
+    status() { return this; },
+    render() { resolve("erro"); },
     };
     login._testing.autenticarComNovaSessao(
       req,
