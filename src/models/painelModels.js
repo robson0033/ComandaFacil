@@ -1107,6 +1107,7 @@ const printJobSchema = new mongoose.Schema({
   lastAttemptAt: { type: Date, default: null },
   lockedBy: { type: String, default: "", index: true },
   leaseToken: { type: String, default: "" },
+  ultimoLeaseId: { type: String, default: "" },
   leaseExpiresAt: { type: Date, default: null, index: true },
   recebidoEm: { type: Date, default: null },
   processandoEm: { type: Date, default: null },

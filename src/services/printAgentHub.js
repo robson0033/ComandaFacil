@@ -48,6 +48,12 @@ function statusPayload(estabelecimentoId, connected, details = {}) {
     nomeComputador: connected
       ? String(details.nomeComputador || "").trim()
       : "",
+    agentVersion: connected
+      ? String(details.agentVersion || "").slice(0, 40)
+      : "",
+    protocolVersion: connected
+      ? Number(details.protocolVersion || 0)
+      : 0,
   };
 }
 
@@ -262,6 +268,8 @@ function init(io) {
       socket.data.ready = true;
       publishStatus(lojaId, true, {
         nomeComputador: agente.nomeComputador,
+        agentVersion: compatibility.agentVersion,
+        protocolVersion: compatibility.protocolVersion,
       });
       void printQueueService.drenarFilaDoEstabelecimento(lojaId, socket);
     } catch (error) {
@@ -374,8 +382,16 @@ function currentStatus(estabelecimentoId) {
   const socket = sockets.get(String(estabelecimentoId));
   return statusPayload(estabelecimentoId, Boolean(socket?.connected && socket.data?.ready), {
     nomeComputador: socket?.data?.agent?.nomeComputador,
+    agentVersion: socket?.data?.compatibility?.agentVersion,
+    protocolVersion: socket?.data?.compatibility?.protocolVersion,
     outdated: Boolean(socket?.data?.compatibility?.outdated),
   });
+}
+
+async function reconcileUnknownJob(job) {
+  const socket = sockets.get(String(job?.estabelecimentoId || ""));
+  if (!socket?.connected || !socket.data?.ready) return job;
+  return printQueueService.consultarResultadoDesconhecido(job, socket);
 }
 
 function request(
@@ -431,6 +447,7 @@ module.exports = {
   isOnline,
   request,
   requestPrintJob,
+  reconcileUnknownJob,
   stop,
   subscribeStatus,
   _testing: {

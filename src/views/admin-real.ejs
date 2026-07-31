@@ -4832,11 +4832,12 @@
                 <% } %>
 
                 <div class="mesa-actions">
-                  <% if (mesa.link) { %>
+                  <% if (mesa.caminhoPublico) { %>
                     <a
                       target="_blank"
+                      rel="noopener noreferrer"
                       class="mini-button"
-                      href="<%= safePublicUrl(mesa.link) %>"
+                      href="<%= safePublicUrl(mesa.caminhoPublico) %>"
                     >
                       Abrir cardápio da mesa
                     </a>
@@ -6815,6 +6816,25 @@
 </div>
   <% } %>
 
+  <div class="modal" id="modalStatusImpressao" role="dialog" aria-modal="true" aria-labelledby="tituloStatusImpressao">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2 id="tituloStatusImpressao">Status da impressão</h2>
+          <p id="detalheStatusImpressao">Consultando o agente de impressão.</p>
+        </div>
+        <button type="button" class="close-modal" aria-label="Fechar">×</button>
+      </div>
+      <p id="metadadosStatusImpressao"></p>
+      <div class="modal-footer">
+        <button type="button" class="button secondary" id="consultarStatusImpressao">Consultar status</button>
+        <button type="button" class="button secondary" id="cancelarConciliacaoImpressao">Cancelar</button>
+        <button type="button" class="button secondary" id="retryStatusImpressao">Não saiu, tentar novamente</button>
+        <button type="button" class="button" id="confirmarStatusImpressao">Confirmar: saiu na impressora</button>
+      </div>
+    </div>
+  </div>
+
   <div
   class="order-toast-container"
   id="orderToastContainer"
@@ -7471,7 +7491,7 @@ showCustomOrdersFilter?.addEventListener('click', () => {
 });
 
 const podeReceberNotificacoes =
-  <%- safeJsonForHtml(menuCompleto); %>;
+  <%- safeJsonForHtml(pode('pedidos')); %>;
 
 const podeImprimirPedidos =
   <%- safeJsonForHtml(pode('imprimir_pedidos')); %>;
@@ -8720,8 +8740,10 @@ if (generateAgentCodeButton) {
   );
 }
 
-void verificarPrintAgent();
-printAgentStatusStream = iniciarStreamStatusAgente();
+if (podeImprimirPedidos || <%- safeJsonForHtml(pode('configurar_impressoras')); %>) {
+  void verificarPrintAgent();
+  printAgentStatusStream = iniciarStreamStatusAgente();
+}
 
 async function imprimirPedido(
   pedidoId,
@@ -8745,24 +8767,94 @@ async function imprimirPedido(
 
 async function acompanharJobsImpressao(jobIds, button) {
   const ids = Array.isArray(jobIds) ? jobIds : [jobIds];
-  for (let tentativa = 0; tentativa < 40; tentativa += 1) {
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    const respostas = await Promise.all(ids.map(async jobId => {
+  const consultar = async jobId => {
+    const response = await adminFetch(
+      `${printAgentUrl}/jobs/${encodeURIComponent(jobId)}`
+    );
+    return response.ok ? response.json() : null;
+  };
+  const aguardar = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+  const mostrarModal = async result => {
+    const modal = document.querySelector('#modalStatusImpressao');
+    const detalhe = document.querySelector('#detalheStatusImpressao');
+    const metadados = document.querySelector('#metadadosStatusImpressao');
+    const consultarButton = document.querySelector('#consultarStatusImpressao');
+    const retryButton = document.querySelector('#retryStatusImpressao');
+    const confirmarButton = document.querySelector('#confirmarStatusImpressao');
+    const cancelarButton = document.querySelector('#cancelarConciliacaoImpressao');
+    if (!modal || !detalhe || !metadados) return;
+
+    const jobId = result.job.jobId;
+    const render = current => {
+      const job = current?.job || result.job;
+      const mensagens = {
+        aguardando_agente: 'O agente está offline. O trabalho será entregue quando ele reconectar.',
+        recebido: 'O agente recebeu o trabalho.',
+        processando: 'O trabalho está sendo processado.',
+        enviado: 'Os bytes foram aceitos pelo spooler ou pela rede; aguardando confirmação final.',
+        concluido: 'A impressão foi concluída pelo agente.',
+        falhou: job.erro || 'A impressão falhou antes da conclusão.',
+        resultado_desconhecido: 'O agente não conseguiu confirmar se os bytes resultaram em impressão.'
+      };
+      detalhe.textContent = mensagens[job.status] || 'Trabalho aguardando processamento.';
+      metadados.textContent =
+        `Job ${String(job.jobId).slice(0, 8)} · ${job.tentativas || 0} tentativa(s)`
+        + (job.erro ? ` · ${job.erro}` : '');
+      const unknown = job.status === 'resultado_desconhecido';
+      retryButton.hidden = !unknown;
+      confirmarButton.hidden = !unknown;
+      cancelarButton.hidden = !unknown;
+      return job;
+    };
+
+    render(result);
+    modal.classList.add('ativo');
+    consultarButton.onclick = async () => {
+      consultarButton.disabled = true;
+      detalhe.textContent = 'Consultando o estado persistido no agente...';
+      try {
+        const current = await consultar(jobId);
+        const job = render(current);
+        if (job?.status === 'concluido') button.textContent = 'Concluído';
+      } finally {
+        consultarButton.disabled = false;
+      }
+    };
+    cancelarButton.onclick = () => modal.classList.remove('ativo');
+    const reconciliar = async action => {
       const response = await adminFetch(
-        `${printAgentUrl}/jobs/${encodeURIComponent(jobId)}`
+        `${printAgentUrl}/jobs/${encodeURIComponent(jobId)}/reconcile`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action })
+        }
       );
-      return response.ok ? response.json() : null;
-    }));
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.message || 'Não foi possível conciliar a impressão.');
+      button.textContent = body.status === 'concluido' ? 'Concluído' : 'Na fila';
+      modal.classList.remove('ativo');
+    };
+    confirmarButton.onclick = () => reconciliar('confirmar_concluido').catch(error => {
+      detalhe.textContent = error.message;
+    });
+    retryButton.onclick = () => reconciliar('liberar_retry').catch(error => {
+      detalhe.textContent = error.message;
+    });
+  };
+
+  for (let tentativa = 0; tentativa < 40; tentativa += 1) {
+    await aguardar(1500);
+    const respostas = await Promise.all(ids.map(consultar));
     const statuses = respostas
       .map(result => result?.job?.status)
       .filter(Boolean);
     if (
       statuses.length === ids.length &&
-      statuses.every(status =>
-        status === 'concluido' || status === 'enviado'
-      )
+      statuses.every(status => status === 'concluido')
     ) {
-      button.textContent = 'Enviado';
+      button.textContent = 'Concluído';
       return;
     }
     if (statuses.some(status =>
@@ -8775,33 +8867,33 @@ async function acompanharJobsImpressao(jobIds, button) {
       result?.job?.status === 'resultado_desconhecido'
     );
     if (desconhecido) {
-      button.textContent = 'Conciliar impressão';
       const jobId = desconhecido.job.jobId;
-      const saiu = window.confirm(
-        'O resultado da impressão é desconhecido. O comprovante saiu na impressora?'
-      );
-      const liberar = saiu || window.confirm(
-        'Confirme somente se verificou que nenhum papel saiu. Deseja liberar uma nova tentativa?'
-      );
-      if (!saiu && !liberar) return;
-      const response = await adminFetch(
-        `${printAgentUrl}/jobs/${encodeURIComponent(jobId)}/reconcile`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: saiu ? 'confirmar_concluido' : 'liberar_retry'
-          })
-        }
-      );
-      const result = await response.json();
-      if (!response.ok) {
-        alert(result.message || 'Não foi possível conciliar a impressão.');
+      let atual = desconhecido;
+      for (const espera of [0, 2000, 5000, 10000]) {
+        if (espera) await aguardar(espera);
+        atual = await consultar(jobId) || atual;
+        if (atual?.job?.status !== 'resultado_desconhecido') break;
       }
-      button.textContent = result.status === 'concluido' ? 'Concluído' : 'Na fila';
-      return;
+      if (atual?.job?.status === 'concluido') {
+        button.textContent = 'Concluído';
+        return;
+      }
+      if (atual?.job?.status === 'resultado_desconhecido') {
+        button.textContent = 'Verificar impressão';
+        await mostrarModal(atual);
+        return;
+      }
+      continue;
     }
-    button.textContent = 'Na fila';
+    if (statuses.some(status => status === 'enviado')) {
+      button.textContent = 'Aguardando confirmação';
+    } else if (statuses.some(status => status === 'processando' || status === 'recebido')) {
+      button.textContent = 'Processando';
+    } else if (statuses.some(status => status === 'aguardando_agente')) {
+      button.textContent = 'Agente offline';
+    } else {
+      button.textContent = 'Na fila';
+    }
   }
   button.textContent = 'Na fila';
 }
@@ -9372,37 +9464,105 @@ if (podeReceberNotificacoes) {
       }
     );
 
-    document.addEventListener('submit', event => {
+    function definirEstadoEnvioFormulario(form, enviando) {
+      const botoes = Array.from(
+        form.querySelectorAll('button[type="submit"], input[type="submit"]')
+      );
+
+      if (enviando) {
+        form.dataset.submitting = 'true';
+        form.setAttribute('aria-busy', 'true');
+
+        botoes.forEach(botao => {
+          if (!botao.dataset.submitOriginalDisabled) {
+            botao.dataset.submitOriginalDisabled = botao.disabled ? 'true' : 'false';
+          }
+          if (!botao.dataset.submitOriginalText) {
+            botao.dataset.submitOriginalText = botao.tagName === 'INPUT'
+              ? botao.value
+              : botao.textContent;
+          }
+          botao.disabled = true;
+          botao.setAttribute('aria-disabled', 'true');
+          if (botao.tagName === 'INPUT') {
+            botao.value = 'Salvando...';
+          } else {
+            botao.textContent = 'Salvando...';
+          }
+        });
+        return;
+      }
+
+      delete form.dataset.submitting;
+      form.removeAttribute('aria-busy');
+      botoes.forEach(botao => {
+        botao.disabled = botao.dataset.submitOriginalDisabled === 'true';
+        botao.removeAttribute('aria-disabled');
+        if (botao.dataset.submitOriginalText) {
+          if (botao.tagName === 'INPUT') {
+            botao.value = botao.dataset.submitOriginalText;
+          } else {
+            botao.textContent = botao.dataset.submitOriginalText;
+          }
+        }
+        delete botao.dataset.submitOriginalDisabled;
+        delete botao.dataset.submitOriginalText;
+      });
+    }
+
+    document.addEventListener('submit', async event => {
       const form = event.target;
       const uploadInput = form.querySelector?.('[data-image-upload]');
       if (
         form.matches('form[enctype="multipart/form-data"]')
       ) {
         event.preventDefault();
-        const feedback = uploadInput?.parentElement?.querySelector('.upload-feedback');
-        const formData = new FormData(form);
-        const csrfToken = obterCsrfTokenAtual();
-        if (!csrfToken) {
-          mostrarErroAdministrativo({
-            code: 'CSRF_TOKEN_AUSENTE_NO_FRONTEND',
-            message: 'A página expirou. Atualize e tente novamente.',
-          });
+
+        if (form.dataset.submitting === 'true') {
           return;
         }
-        formData.set('_csrf', csrfToken);
-        adminFetch(form.action, {
-          method: String(form.method || 'POST').toUpperCase(),
-          body: formData,
-          headers: { Accept: 'application/json' },
-        }).then(async response => {
-          const payload = await response.clone().json().catch(() => ({}));
-          if (!response.ok) {
-            throw new Error(payload.message || 'Não foi possível enviar a imagem.');
+
+        definirEstadoEnvioFormulario(form, true);
+        const feedback = uploadInput?.parentElement?.querySelector('.upload-feedback');
+
+        try {
+          const csrfToken = obterCsrfTokenAtual();
+          if (!csrfToken) {
+            const error = new Error('A página expirou. Atualize e tente novamente.');
+            error.code = 'CSRF_TOKEN_AUSENTE_NO_FRONTEND';
+            throw error;
           }
+
+          const formData = new FormData(form);
+          formData.set('_csrf', csrfToken);
+
+          const response = await adminFetch(form.action, {
+            method: String(form.method || 'POST').toUpperCase(),
+            body: formData,
+            headers: { Accept: 'application/json' },
+          });
+          const payload = await response.clone().json().catch(() => ({}));
+
+          if (!response.ok) {
+            const error = new Error(
+              payload.message || 'Não foi possível salvar os dados do formulário.'
+            );
+            error.code = payload.code || 'FORM_SUBMIT_FAILED';
+            error.correlationId = payload.correlationId;
+            throw error;
+          }
+
+          // Mantém o formulário bloqueado até o reload para impedir um segundo POST.
           recarregarSecaoPainel(payload.section || 'catalogo');
-        }).catch(error => {
+        } catch (error) {
+          definirEstadoEnvioFormulario(form, false);
           if (feedback) feedback.textContent = error.message;
-        });
+          mostrarErroAdministrativo({
+            code: error.code || 'FORM_SUBMIT_FAILED',
+            message: error.message || 'Não foi possível salvar.',
+            correlationId: error.correlationId,
+          });
+        }
         return;
       }
       if (form.matches('[data-confirm-finalize-pending]') &&

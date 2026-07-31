@@ -34,6 +34,8 @@ async function auditProducts({
 } = {}) {
   const groups = new Map();
   let analyzed = 0;
+  let active = 0;
+  const returnedIds = [];
   let cursor = "";
 
   for (;;) {
@@ -41,6 +43,10 @@ async function auditProducts({
     if (!batch.length) break;
     analyzed += batch.length;
     for (const product of batch) {
+      if (product.ativo !== false) {
+        active += 1;
+        returnedIds.push(technicalId(product._id));
+      }
       const key = duplicateKey(product);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push({
@@ -65,6 +71,12 @@ async function auditProducts({
     .slice(0, maxGroups);
   return {
     analyzed,
+    active,
+    publicQueryTotal: returnedIds.length,
+    publicQueryIds: returnedIds,
+    repeatedIdsInPublicResult: returnedIds.filter(
+      (id, index) => returnedIds.indexOf(id) !== index,
+    ),
     duplicateGroups: duplicates.length,
     truncated: [...groups.values()].filter(group => group.length > 1).length
       > duplicates.length,
@@ -72,12 +84,15 @@ async function auditProducts({
   };
 }
 
-function mongoSource(Produto) {
+function mongoSource(Produto, baseFilter = {}) {
   return {
     async nextBatch({ afterId, limit }) {
-      const filter = afterId
-        ? { _id: { $gt: new mongoose.Types.ObjectId(afterId) } }
-        : {};
+      const filter = {
+        ...baseFilter,
+        ...(afterId
+          ? { _id: { $gt: new mongoose.Types.ObjectId(afterId) } }
+          : {}),
+      };
       return Produto.find(filter)
         .select(
           "_id estabelecimentoId nome categoriaId preco imagem "
@@ -110,8 +125,34 @@ async function main({
 
   await connect(connectionString);
   try {
-    const { Produto } = require("../src/models/painelModels");
-    const report = await auditProducts({ source: mongoSource(Produto) });
+    const {
+      Configuracao,
+      Produto,
+    } = require("../src/models/painelModels");
+    const requestedSlug = String(
+      env.AUDIT_STORE_SLUG || "robson-do-carmo-barbosa-teixeira",
+    ).trim();
+    const configuracao = requestedSlug
+      ? await Configuracao.findOne({ slug: requestedSlug })
+        .select("_id estabelecimentoId slug")
+        .lean()
+      : null;
+    if (requestedSlug && !configuracao) {
+      logger.error(`Loja não encontrada para o slug técnico: ${requestedSlug}`);
+      return { exitCode: 3, connected: true };
+    }
+    const baseFilter = configuracao
+      ? { estabelecimentoId: configuracao.estabelecimentoId }
+      : {};
+    const report = await auditProducts({
+      source: mongoSource(Produto, baseFilter),
+    });
+    report.store = configuracao
+      ? {
+          slug: configuracao.slug,
+          estabelecimentoId: technicalId(configuracao.estabelecimentoId),
+        }
+      : null;
     logger.log(JSON.stringify(report, null, 2));
     return { exitCode: 0, connected: true, report };
   } finally {

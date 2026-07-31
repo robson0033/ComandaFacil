@@ -200,6 +200,34 @@ exports.permissao = modulo => {
   };
 };
 
+exports.permissaoQualquer = (...modulos) => {
+  const permissoes = [...new Set(modulos.flat().map(String))];
+  if (!permissoes.length) {
+    throw new Error("Informe ao menos uma permissão.");
+  }
+  permissoes.forEach(assertKnownPermission);
+
+  return async (req, res, next) => {
+    try {
+      const usuario = await carregarIdentidadeAtual(req);
+      if (!usuario) return negarAutenticacao(req, res);
+      if (
+        usuario.tipo === "proprietario"
+        || permissoes.some(permissao => req.permissoesAtuais.includes(permissao))
+      ) {
+        return next();
+      }
+      return negarPermissao(
+        req,
+        res,
+        "Você não possui permissão para esta ação.",
+      );
+    } catch (error) {
+      return next(error);
+    }
+  };
+};
+
 exports.permissaoCategoria = async (req, res, next) => {
   try {
     const user = await carregarIdentidadeAtual(req);

@@ -95,12 +95,26 @@ function validarPedidoParaArquivamento(pedido, usuario, agora = new Date()) {
   }
 }
 
-function impressaoEmProcessamento(jobs, agora = new Date()) {
+function impressaoEmProcessamento(
+  jobs,
+  agora = new Date(),
+  { agenteConectado = true } = {},
+) {
+  if (!agenteConectado) return false;
+
   return jobs.some(job => {
-    if (ESTADOS_IMPRESSAO_BLOQUEADOS.has(String(job.status))) return true;
+    const status = String(job.status || "");
     const possuiLease = Boolean(job.leaseToken || job.lockedBy);
-    const leaseAtivo = !job.leaseExpiresAt
-      || new Date(job.leaseExpiresAt).getTime() > agora.getTime();
+    const leaseAtivo = Boolean(job.leaseExpiresAt)
+      && new Date(job.leaseExpiresAt).getTime() > agora.getTime();
+
+    // Somente bloqueia quando existe agente online e um trabalho realmente
+    // em execução com lease ativo. Jobs antigos, desconectados ou presos
+    // podem ser cancelados com segurança durante o arquivamento.
+    if (ESTADOS_IMPRESSAO_BLOQUEADOS.has(status)) {
+      return possuiLease && leaseAtivo;
+    }
+
     return possuiLease && leaseAtivo;
   });
 }
@@ -151,6 +165,7 @@ async function arquivarPedido({
   usuario,
   motivo,
   restaurar = restaurarEstoqueDoPedido,
+  agenteConectado = true,
 }) {
   const motivoValidado = String(motivo || "").trim().slice(0, 500);
   if (motivoValidado.length < 3) {
@@ -208,7 +223,7 @@ async function arquivarPedido({
         null,
         { session },
       );
-      if (impressaoEmProcessamento(jobs)) {
+      if (impressaoEmProcessamento(jobs, new Date(), { agenteConectado })) {
         const error = erroArquivamento(
           "IMPRESSAO_EM_PROCESSAMENTO",
           "Este pedido possui uma impressão em processamento.",
@@ -257,20 +272,29 @@ async function arquivarPedido({
         }
       }
 
+      const estadosCancelaveis = agenteConectado
+        ? ESTADOS_IMPRESSAO_CANCELAVEIS
+        : [
+            ...ESTADOS_IMPRESSAO_CANCELAVEIS,
+            ...ESTADOS_IMPRESSAO_BLOQUEADOS,
+          ];
       const cancelaveis = jobs.filter(job =>
-        ESTADOS_IMPRESSAO_CANCELAVEIS.includes(String(job.status)));
+        estadosCancelaveis.includes(String(job.status)));
       if (cancelaveis.length) {
+        const filtroCancelamento = {
+          estabelecimentoId,
+          pedidoId: pedido._id,
+          _id: { $in: cancelaveis.map(job => job._id) },
+          status: { $in: estadosCancelaveis },
+        };
+        if (agenteConectado) {
+          filtroCancelamento.$or = [
+            { leaseToken: { $in: ["", null] } },
+            { leaseExpiresAt: { $lte: new Date() } },
+          ];
+        }
         const cancelamento = await PrintJob.updateMany(
-          {
-            estabelecimentoId,
-            pedidoId: pedido._id,
-            _id: { $in: cancelaveis.map(job => job._id) },
-            status: { $in: ESTADOS_IMPRESSAO_CANCELAVEIS },
-            $or: [
-              { leaseToken: { $in: ["", null] } },
-              { leaseExpiresAt: { $lte: new Date() } },
-            ],
-          },
+          filtroCancelamento,
           {
             $set: {
               status: "cancelado",

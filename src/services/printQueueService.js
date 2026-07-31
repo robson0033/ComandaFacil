@@ -296,6 +296,7 @@ async function reivindicarProximoJob(estabelecimentoId) {
     $set: {
       lockedBy: INSTANCE_ID,
       leaseToken,
+      ultimoLeaseId: leaseToken,
       leaseExpiresAt: new Date(now.getTime() + LEASE_MS),
       lastAttemptAt: now,
       status: "pendente",
@@ -408,47 +409,67 @@ async function atualizarStatusDoAgente(estabelecimentoId, status = {}) {
 
 async function consultarResultadoDesconhecido(job, socket) {
   if (!transport || !socket) return job;
-  if (job.lockedBy !== INSTANCE_ID || !job.leaseToken) {
-    job = await PrintJob.findOneAndUpdate({
-      _id: job._id,
-      status: "resultado_desconhecido",
-      $or: [
-        { leaseExpiresAt: null },
-        { leaseExpiresAt: { $lt: new Date() } },
-        { lockedBy: "" },
-      ],
-    }, {
-      $set: {
-        lockedBy: INSTANCE_ID,
-        leaseToken: crypto.randomUUID(),
-        leaseExpiresAt: new Date(Date.now() + LEASE_MS),
-      },
-    }, { returnDocument: "after" });
-    if (!job) return null;
-  }
+  const deliveryLeaseId = String(job.ultimoLeaseId || job.leaseToken || "");
+  if (!UUID_PATTERN.test(deliveryLeaseId)) return job;
   let result;
   try {
-    result = await transport.query(socket, job.jobId, job.leaseToken);
+    result = await transport.query(socket, job.jobId, deliveryLeaseId);
   } catch {
     return job;
   }
+  if (result?.status === "nao_encontrado") {
+    const safeJob = await PrintJob.findOneAndUpdate({
+      _id: job._id,
+      status: "resultado_desconhecido",
+      ultimoLeaseId: deliveryLeaseId,
+    }, {
+      $set: {
+        status: "aguardando_retry",
+        erro: "O agente confirmou que não recebeu o trabalho.",
+        nextAttemptAt: new Date(),
+        lockedBy: "",
+        leaseToken: "",
+        leaseExpiresAt: null,
+      },
+    }, { returnDocument: "after" });
+    if (safeJob) notifyStore(safeJob.estabelecimentoId);
+    return safeJob || job;
+  }
   try {
     result = validateAgentStatus(result);
-    if (result.jobId !== job.jobId || result.leaseId !== job.leaseToken) {
+    if (result.jobId !== job.jobId || result.leaseId !== deliveryLeaseId) {
       result = null;
     }
   } catch {
     result = null;
   }
   if (result?.status === "concluido") {
-    return atualizarStatusDoAgente(job.estabelecimentoId, result);
+    return PrintJob.findOneAndUpdate({
+      _id: job._id,
+      status: { $nin: ["concluido", "cancelado"] },
+      ultimoLeaseId: deliveryLeaseId,
+    }, {
+      $set: {
+        status: "concluido",
+        erro: "",
+        enviadoEm: job.enviadoEm || new Date(),
+        concluidoEm: new Date(),
+        lockedBy: "",
+        leaseToken: "",
+        leaseExpiresAt: null,
+      },
+    }, { returnDocument: "after" });
   }
   if (["imprimindo", "recebido", "validado", "aceito", "enviado_impressora"]
     .includes(result?.status)) {
     const serverStatus = result.status === "imprimindo"
       ? "processando"
       : (result.status === "enviado_impressora" ? "enviado" : "recebido");
-    return PrintJob.findOneAndUpdate(leaseFilter(job), {
+    return PrintJob.findOneAndUpdate({
+      _id: job._id,
+      status: { $nin: ["concluido", "cancelado"] },
+      ultimoLeaseId: deliveryLeaseId,
+    }, {
       $set: {
         status: serverStatus,
         leaseExpiresAt: new Date(Date.now() + LEASE_MS),
@@ -456,10 +477,29 @@ async function consultarResultadoDesconhecido(job, socket) {
     }, { returnDocument: "after" });
   }
   if (result?.status === "falhou_antes_envio") {
-    return programarRetry(job, result.message || "Falha confirmada pelo agente.");
+    const retryable = await PrintJob.findOneAndUpdate({
+      _id: job._id,
+      status: { $nin: ["concluido", "cancelado"] },
+      ultimoLeaseId: deliveryLeaseId,
+    }, {
+      $set: {
+        status: "falhou",
+        erro: text(result.message || "Falha confirmada pelo agente.", 1000),
+        lockedBy: "",
+        leaseToken: "",
+        leaseExpiresAt: null,
+      },
+    }, { returnDocument: "after" });
+    return retryable
+      ? programarRetry(retryable, retryable.erro)
+      : job;
   }
   // Ausência local, protocolo antigo ou resultado ambíguo nunca liberam retry.
-  return PrintJob.findOneAndUpdate(leaseFilter(job), {
+  return PrintJob.findOneAndUpdate({
+    _id: job._id,
+    status: { $nin: ["concluido", "cancelado"] },
+    ultimoLeaseId: deliveryLeaseId,
+  }, {
     $set: {
       status: "resultado_desconhecido",
       erro: "Resultado exige conciliação manual.",

@@ -81,3 +81,24 @@ test("sessão inválida encerra polling e ambos os SSE uma única vez", () => {
   assert.match(view, /printAgentStatusStream\?\.close\(\)/);
   assert.match(view, /if \(!pollingPedidosAtivo \|\| sessionRedirectInProgress/);
 });
+
+
+test("submit multipart bloqueia cliques repetidos antes da requisição", () => {
+  assert.match(view, /function definirEstadoEnvioFormulario\(form, enviando\)/);
+  assert.match(view, /if \(form\.dataset\.submitting === 'true'\)\s*\{\s*return;/);
+  assert.match(view, /definirEstadoEnvioFormulario\(form, true\)/);
+  assert.match(view, /botao\.disabled = true/);
+  assert.match(view, /botao\.textContent = 'Salvando\.\.\.'/);
+  assert.match(view, /const response = await adminFetch\(form\.action/);
+  assert.match(view, /Mantém o formulário bloqueado até o reload/);
+  assert.match(view, /definirEstadoEnvioFormulario\(form, false\)/);
+});
+
+test("edição de produto aponta somente para endpoint de edição", () => {
+  assert.match(view, /action="\/admin\/produtos\/<%= produto\._id %>\/editar"/);
+  const editar = controller.match(/exports\.editarProduto[\s\S]*?exports\.excluirProduto/)?.[0] || "";
+  assert.match(editar, /Produto\.findOne\(/);
+  assert.match(editar, /await produto\.save\(\)/);
+  assert.doesNotMatch(editar, /Produto\.create\(/);
+  assert.doesNotMatch(editar, /upsert\s*:\s*true/);
+});

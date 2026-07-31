@@ -280,32 +280,64 @@ test("ambiente sem transação falha fechado", async t => {
   assert.equal(estado.pedido.excluido, false);
 });
 
-test("lease ativo, entregando e resultado desconhecido bloqueiam arquivamento", async t => {
-  for (const job of [
-    {
-      status: "pendente",
-      leaseToken: "lease",
-      lockedBy: "worker",
-      leaseExpiresAt: new Date(Date.now() + 60_000),
-    },
-    { status: "entregando", leaseToken: "", lockedBy: "", leaseExpiresAt: null },
-    { status: "resultado_desconhecido", leaseToken: "", lockedBy: "", leaseExpiresAt: null },
+test("agente online com lease ativo bloqueia arquivamento", async t => {
+  for (const status of [
+    "pendente",
+    "entregando",
+    "recebido",
+    "processando",
+    "enviado",
+    "resultado_desconhecido",
   ]) {
     const estado = instalarAmbiente(t, {
       jobsIniciais: [{
-        _id: `job-${job.status}`,
+        _id: `job-${status}`,
         estabelecimentoId: LOJA,
         pedidoId: PEDIDO,
-        ...job,
+        status,
+        leaseToken: "lease",
+        lockedBy: "worker",
+        leaseExpiresAt: new Date(Date.now() + 60_000),
       }],
     });
     await assert.rejects(
-      arquivarPedido(args()),
+      arquivarPedido(args({ agenteConectado: true })),
       error => error.code === "IMPRESSAO_EM_PROCESSAMENTO"
         && error.statusCode === 409,
     );
     assert.equal(estado.pedido.excluido, false);
   }
+});
+
+test("agente offline permite arquivar e cancela jobs presos", async t => {
+  const estado = instalarAmbiente(t, {
+    jobsIniciais: [
+      {
+        _id: "job-processando",
+        estabelecimentoId: LOJA,
+        pedidoId: PEDIDO,
+        status: "processando",
+        leaseToken: "lease",
+        lockedBy: "worker",
+        leaseExpiresAt: new Date(Date.now() + 60_000),
+      },
+      {
+        _id: "job-desconhecido",
+        estabelecimentoId: LOJA,
+        pedidoId: PEDIDO,
+        status: "resultado_desconhecido",
+        leaseToken: "lease-2",
+        lockedBy: "worker",
+        leaseExpiresAt: new Date(Date.now() + 60_000),
+      },
+    ],
+  });
+
+  const result = await arquivarPedido(args({ agenteConectado: false }));
+
+  assert.equal(result.status, "arquivado");
+  assert.equal(estado.pedido.excluido, true);
+  assert.deepEqual(estado.jobs.map(job => job.status), ["cancelado", "cancelado"]);
 });
 
 test("pedido pago, reconciliação, motivo inválido e outra loja são bloqueados", async t => {

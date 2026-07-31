@@ -34,6 +34,7 @@ const pagamento = require(
 const {
   loginRequired,
   permissao,
+  permissaoQualquer,
   permissaoCategoria,
   permissaoCategoriaLeitura,
   somenteProprietario,
@@ -523,9 +524,9 @@ route.post(
 );
 
 route.post('/admin/agente/codigo', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.gerarCodigoAgente);
-route.get('/admin/agente/status', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.statusAgente);
+route.get('/admin/agente/status', loginRequired, carregarAssinatura, assinaturaRequired, permissaoQualquer('imprimir_pedidos', 'configurar_impressoras'), admin.statusAgente);
 route.get('/admin/agente/download/1.2.0', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.downloadAgenteValidado);
-route.get('/admin/agente/status/stream', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.streamStatusAgente);
+route.get('/admin/agente/status/stream', loginRequired, carregarAssinatura, assinaturaRequired, permissaoQualquer('imprimir_pedidos', 'configurar_impressoras'), admin.streamStatusAgente);
 route.post('/admin/agente/network/scan', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.buscarImpressorasRedeRemotas);
 route.get('/admin/agente/impressoras', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.impressorasAgente);
 route.post('/admin/agente/teste', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.testarImpressoraRemota);

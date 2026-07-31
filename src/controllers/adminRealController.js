@@ -22,6 +22,9 @@ const {
 const printAgentHub = require("../services/printAgentHub");
 const printQueueService = require("../services/printQueueService");
 const {
+  buscarProdutosPublicosDoEstabelecimento,
+} = require("../services/produtoPublicoService");
+const {
   MINIMUM_AGENT_VERSION,
   PROTOCOL_VERSION,
 } = require("../services/printAgentProtocol");
@@ -2415,7 +2418,8 @@ exports.admin = async (req, res) => {
     const mesasComConta =
       await Promise.all(
         mesas.map(async (mesa) => {
-          const link = `${baseUrl}/mesa/${mesa.token}`;
+          const caminhoPublico = `/mesa/${encodeURIComponent(String(mesa.token || ""))}`;
+          const link = `${baseUrl}${caminhoPublico}`;
 
           const conta =
             contasPorMesa.get(
@@ -2442,6 +2446,7 @@ exports.admin = async (req, res) => {
           return {
             ...mesa,
             link,
+            caminhoPublico,
             qrCode,
             quantidadePedidos:
               conta.quantidadePedidos,
@@ -5261,6 +5266,7 @@ exports.arquivarPedido = async (req, res) => {
           : "proprietario",
       },
       motivo: req.body?.motivo,
+      agenteConectado: printAgentHub.isOnline(idEstabelecimento),
     });
     const pedido = resultado.pedido;
     if (pedido.mesaId) {
@@ -5533,8 +5539,10 @@ exports.catalogoPublico = async (req, res) => {
 
     const [produtos, avaliacoesAgregadas] = await Promise.all([
       acessoVenda.permitido
-        ? Produto.find({ estabelecimentoId: configuracao.estabelecimentoId, ativo: true })
-          .populate("categoriaId", "nome tipo").sort({ nome: 1 }).lean()
+        ? buscarProdutosPublicosDoEstabelecimento(
+          configuracao.estabelecimentoId,
+          { source: "catalogo_publico" },
+        )
         : Promise.resolve([]),
       acessoVenda.permitido ? Avaliacao.aggregate([
         { $match: { estabelecimentoId: configuracao.estabelecimentoId } },
@@ -5549,6 +5557,7 @@ exports.catalogoPublico = async (req, res) => {
       }])
     );
 
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
     return res.render("catalogo-publico", {
       configuracao,
       produtos,
@@ -5581,13 +5590,12 @@ exports.statusProdutosCatalogo = async (req, res) => {
     });
     if (!acessoVenda.permitido) return respostaLojaIndisponivel(res);
 
-    const produtos = await Produto.find({
-      estabelecimentoId: configuracao.estabelecimentoId,
-      ativo: true,
-    })
-      .select("_id nome preco imagem adicionais")
-      .lean();
+    const produtos = await buscarProdutosPublicosDoEstabelecimento(
+      configuracao.estabelecimentoId,
+      { source: "catalogo_produtos_status" },
+    );
 
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
     return res.json({
       success: true,
       produtos: produtos.map(produto => ({
@@ -5994,17 +6002,12 @@ exports.mesaPublica = async (
       pedidosAbertos,
       avaliacoesAgregadas,
     ] = await Promise.all([
-      acessoVenda.permitido ? Produto.find({
-        estabelecimentoId:
+      acessoVenda.permitido
+        ? buscarProdutosPublicosDoEstabelecimento(
           mesa.estabelecimentoId,
-        ativo: true,
-      })
-        .populate(
-          "categoriaId",
-          "nome tipo",
+          { source: "mesa_publica" },
         )
-        .sort({ nome: 1 })
-        .lean() : Promise.resolve([]),
+        : Promise.resolve([]),
 
       Pedido.find({
         estabelecimentoId:
@@ -6099,6 +6102,7 @@ exports.mesaPublica = async (
       });
     });
 
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
     return res.render(
       "mesa-publica",
       {
@@ -7620,29 +7624,48 @@ exports.imprimirPedidoRemoto = async (req, res) => {
         dono,
       }));
     }
+    const agentOnline = printAgentHub.isOnline(lojaId);
     return res.status(202).json({
       success: true,
-      status: "pendente",
+      status: agentOnline ? "pendente" : "aguardando_agente",
       jobId: jobs[0].jobId,
       jobIds: jobs.map(job => job.jobId),
-      message: "Impressão adicionada à fila.",
+      message: agentOnline
+        ? "Impressão adicionada à fila."
+        : "Impressão aguardando o agente reconectar.",
     });
   } catch (error) { return res.status(503).json({ success: false, message: error.message }); }
 };
 
 exports.statusJobImpressao = async (req, res) => {
-  const job = await PrintJob.findOne({
+  let job = await PrintJob.findOne({
     jobId: req.params.jobId,
     estabelecimentoId: estabelecimentoId(req),
-  }).lean();
+  });
   if (!job) {
     return res.status(404).json({ success: false, message: "Trabalho não encontrado." });
   }
+  if (job.status === "resultado_desconhecido" && printAgentHub.isOnline(job.estabelecimentoId)) {
+    const leaseId = String(job.ultimoLeaseId || job.leaseToken || "");
+    if (leaseId) {
+      try {
+        job = await printAgentHub.reconcileUnknownJob(job) || job;
+      } catch {
+        // O GET continua somente-leitura do ponto de vista do dispositivo:
+        // uma falha de consulta mantém o estado para nova tentativa.
+      }
+    }
+  }
+  job = job.toObject ? job.toObject() : job;
+  const agentOnline = printAgentHub.isOnline(job.estabelecimentoId);
+  const publicStatus = job.status === "pendente" && !agentOnline
+    ? "aguardando_agente"
+    : job.status;
   return res.json({
     success: true,
     job: {
       jobId: job.jobId,
-      status: job.status,
+      status: publicStatus,
       tentativas: job.tentativas,
       erro: job.erro || "",
       createdAt: job.createdAt,
@@ -7651,6 +7674,7 @@ exports.statusJobImpressao = async (req, res) => {
       enviadoEm: job.enviadoEm,
       concluidoEm: job.concluidoEm,
       requerConciliacao: job.status === "resultado_desconhecido",
+      agenteConectado: agentOnline,
     },
   });
 };
