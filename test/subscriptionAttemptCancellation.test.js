@@ -63,7 +63,7 @@ test("estados bloqueadores são centralizados e excluem estados terminais", () =
 test("modelo preserva cancelamento, autor, claim e diagnóstico de reconciliação", () => {
   const schema = models.AssinaturaTentativa.schema;
   for (const field of [
-    "cancelRequestedAt", "cancelRequestId", "cancelledAt", "cancelledBy", "remoteCancellationStatus",
+    "cancelRequestedAt", "cancelRequestId", "cancelledAt", "cancelledBy", "expiredAt", "remoteCancellationStatus",
     "reconciliationReason", "reconciliationRequestedAt", "reconciliationAttempts",
     "lastRemoteStatus", "lastRemoteCheckedAt",
   ]) {
@@ -469,6 +469,88 @@ test("webhook aprovado durante cancelamento não ativa e exige conciliação", a
   assert.equal(subscription.historicoFinanceiro[0].status, "reconciliation_required:approved");
 });
 
+test("Pix aprovado depois da expiração não ativa silenciosamente", async t => {
+  const originalAttempt = models.AssinaturaTentativa.findOne;
+  const originalSubscription = models.Assinatura.findOne;
+  const previousCollector = process.env.MERCADO_PAGO_PLATFORM_USER_ID;
+  process.env.MERCADO_PAGO_PLATFORM_USER_ID = "platform-1";
+  const storedAttempt = attempt({
+    metodo: "pix",
+    mercadoPagoPaymentId: "pay-expired",
+    expiresAt: new Date("2026-08-01T17:02:00Z"),
+    async save() {},
+  });
+  const subscription = {
+    _id: SUBSCRIPTION,
+    estabelecimentoId: STORE_A,
+    status: "pendente",
+    historicoFinanceiro: [],
+    async save() {},
+  };
+  models.AssinaturaTentativa.findOne = async () => storedAttempt;
+  models.Assinatura.findOne = async () => subscription;
+  t.after(() => {
+    models.AssinaturaTentativa.findOne = originalAttempt;
+    models.Assinatura.findOne = originalSubscription;
+    if (previousCollector === undefined) delete process.env.MERCADO_PAGO_PLATFORM_USER_ID;
+    else process.env.MERCADO_PAGO_PLATFORM_USER_ID = previousCollector;
+  });
+  await pagamento._testing.processSubscriptionPayment({}, {
+    id: "pay-expired",
+    status: "approved",
+    date_approved: "2026-08-01T17:02:01Z",
+    transaction_amount: 39.9,
+    currency_id: "BRL",
+    collector_id: "platform-1",
+    external_reference: `assinatura-tentativa:${storedAttempt.attemptId}:estabelecimento:${STORE_A}`,
+  });
+  assert.equal(subscription.status, "pendente");
+  assert.equal(storedAttempt.status, "reconciliation_required");
+  assert.equal(subscription.historicoFinanceiro[0].status, "reconciliation_required:approved");
+});
+
+test("Pix confirmado pelo provedor antes do vencimento segue validação financeira", async t => {
+  const originalAttempt = models.AssinaturaTentativa.findOne;
+  const originalSubscription = models.Assinatura.findOne;
+  const previousCollector = process.env.MERCADO_PAGO_PLATFORM_USER_ID;
+  process.env.MERCADO_PAGO_PLATFORM_USER_ID = "platform-1";
+  const storedAttempt = attempt({
+    metodo: "pix",
+    status: "expired",
+    ativa: false,
+    mercadoPagoPaymentId: "pay-in-time",
+    expiresAt: new Date("2026-08-01T17:02:00Z"),
+    async save() {},
+  });
+  const subscription = {
+    _id: SUBSCRIPTION,
+    estabelecimentoId: STORE_A,
+    status: "pendente",
+    historicoFinanceiro: [],
+    async save() {},
+  };
+  models.AssinaturaTentativa.findOne = async () => storedAttempt;
+  models.Assinatura.findOne = async () => subscription;
+  t.after(() => {
+    models.AssinaturaTentativa.findOne = originalAttempt;
+    models.Assinatura.findOne = originalSubscription;
+    if (previousCollector === undefined) delete process.env.MERCADO_PAGO_PLATFORM_USER_ID;
+    else process.env.MERCADO_PAGO_PLATFORM_USER_ID = previousCollector;
+  });
+  await pagamento._testing.processSubscriptionPayment({ eventKey: "event-in-time" }, {
+    id: "pay-in-time",
+    status: "approved",
+    date_approved: "2026-08-01T17:01:59Z",
+    transaction_amount: 39.9,
+    currency_id: "BRL",
+    collector_id: "platform-1",
+    external_reference: `assinatura-tentativa:${storedAttempt.attemptId}:estabelecimento:${STORE_A}`,
+  });
+  assert.equal(subscription.status, "ativa");
+  assert.equal(storedAttempt.status, "approved");
+  assert.equal(subscription.ultimoPagamentoAprovadoId, "pay-in-time");
+});
+
 test("tentativa vencida é expirada no servidor antes de bloquear", async t => {
   const original = models.AssinaturaTentativa.updateMany;
   let filter;
@@ -482,6 +564,7 @@ test("tentativa vencida é expirada no servidor antes de bloquear", async t => {
   assert.equal(filter.expiresAt.$lte, now);
   assert.equal(update.$set.status, "expired");
   assert.equal(update.$set.ativa, false);
+  assert.equal(update.$set.expiredAt, now);
 });
 
 test("Pix e cartão podem criar nova tentativa com idempotencyKey nova após cancelamento", async t => {

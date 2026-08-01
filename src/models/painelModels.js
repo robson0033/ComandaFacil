@@ -979,6 +979,7 @@ const assinaturaTentativaSchema = new mongoose.Schema(
     pixCopiaCola: { type: String, default: "" },
     expiresAt: { type: Date, required: true, index: true },
     completedAt: { type: Date, default: null },
+    expiredAt: { type: Date, default: null },
     cancelRequestedAt: { type: Date, default: null },
     cancelRequestId: { type: String, default: "", select: false },
     cancelledAt: { type: Date, default: null },

@@ -121,6 +121,7 @@ test("log seguro contém diagnóstico e não contém credenciais", async () => w
 }));
 
 test("builder Pix envia somente campos aceitos e ignora valor e moeda do navegador", () => {
+  const now = Date.parse("2026-08-01T17:00:00.000Z");
   const payload = pagamento._testing.buildPixPaymentPayload({
     amount: 39.9,
     payerEmail: "cliente@example.com",
@@ -130,6 +131,10 @@ test("builder Pix envia somente campos aceitos e ignora valor e moeda do navegad
     currency_id: "USD",
     currency: "USD",
     valor: 0.01,
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    expiration: "2099-01-01T00:00:00.000Z",
+    minutes: 999,
+    now,
   });
   assert.deepEqual(payload, {
     transaction_amount: 39.9,
@@ -137,11 +142,14 @@ test("builder Pix envia somente campos aceitos e ignora valor e moeda do navegad
     description: "Plano mensal ComandaFácil",
     external_reference: "assinatura-tentativa:uuid:estabelecimento:id",
     notification_url: "https://comandafacil.example/webhook/mercado-pago",
+    date_of_expiration: "2026-08-01T17:02:00.000Z",
     payer: { email: "cliente@example.com" },
   });
   assert.equal(typeof payload.transaction_amount, "number");
   assert.equal(payload.currency_id, undefined);
   assert.equal(new URL(payload.notification_url).protocol, "https:");
+  assert.equal(new Date(payload.date_of_expiration).getTime() - now, 120_000);
+  assert.equal(pagamento._testing.SUBSCRIPTION_PIX_EXPIRATION_MINUTES, 2);
 });
 
 test("builder preapproval preserva contrato recorrente e currency_id dentro de auto_recurring", () => {
@@ -160,18 +168,60 @@ test("resposta Pix com QR, ticket e expiração é aceita", () => {
   const parsed = pagamento._testing.parseSubscriptionPixResponse({
     id: 123,
     status: "pending",
+    date_of_expiration: "2026-08-02T12:00:00Z",
     point_of_interaction: { transaction_data: {
       qr_code: "000201",
       qr_code_base64: "base64",
       ticket_url: "https://www.mercadopago.com.br/ticket",
-      expiration_date: "2026-08-02T12:00:00Z",
     } },
   });
   assert.equal(parsed.paymentId, "123");
   assert.equal(parsed.status, "pending");
   assert.equal(parsed.qrCode, "000201");
   assert.equal(parsed.ticketUrl, "https://www.mercadopago.com.br/ticket");
-  assert.equal(parsed.expiresAt, "2026-08-02T12:00:00Z");
+  assert.equal(parsed.expiresAt, "2026-08-02T12:00:00.000Z");
+});
+
+test("resposta Pix prefere expiração do provedor e usa fallback válido do servidor", () => {
+  const base = {
+    id: 123,
+    status: "pending",
+    point_of_interaction: { transaction_data: { qr_code: "000201", qr_code_base64: "base64" } },
+  };
+  assert.equal(
+    pagamento._testing.parseSubscriptionPixResponse(
+      { ...base, date_of_expiration: "2026-08-01T17:01:30Z" },
+      "2026-08-01T17:02:00Z",
+    ).expiresAt,
+    "2026-08-01T17:01:30.000Z",
+  );
+  assert.equal(
+    pagamento._testing.parseSubscriptionPixResponse(base, "2026-08-01T17:02:00Z").expiresAt,
+    "2026-08-01T17:02:00.000Z",
+  );
+});
+
+test("resposta Pix sem expiração conhecida é rejeitada", () => {
+  assert.throws(() => pagamento._testing.parseSubscriptionPixResponse({
+    id: 123,
+    status: "pending",
+    point_of_interaction: { transaction_data: { qr_code: "000201", qr_code_base64: "base64" } },
+  }), { code: "SUBSCRIPTION_PIX_EXPIRATION_MISSING" });
+});
+
+test("interface Pix usa prazo absoluto, um timer e bloqueia cópia vencida", () => {
+  const view = fs.readFileSync(path.join(__dirname, "../src/views/assinatura.ejs"), "utf8");
+  assert.match(view, /new Date\(String\(expiresAt \|\| ''\)\)\.getTime\(\)/);
+  assert.match(view, /remainingMs = expirationTime - Date\.now\(\)/);
+  assert.match(view, /clearInterval\(pixExpirationTimer\)/);
+  assert.equal((view.match(/setInterval\(updateCountdown, 1000\)/g) || []).length, 1);
+  assert.match(view, /countdown\.textContent = '00:00'/);
+  assert.match(view, /image\.removeAttribute\('src'\)/);
+  assert.match(view, /code\.value = ''/);
+  assert.match(view, /copyButton\.disabled = true/);
+  assert.match(view, /Date\.now\(\) >= expirationTime/);
+  assert.match(view, /data-generate-new-pix/);
+  assert.doesNotMatch(view, /innerHTML\s*=/);
 });
 
 test("resposta Pix sem QR retorna SUBSCRIPTION_PIX_QR_MISSING", () => {

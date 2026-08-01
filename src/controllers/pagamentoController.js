@@ -49,7 +49,8 @@ const {
 
 const MP_API = "https://api.mercadopago.com";
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
-const PIX_ATTEMPT_TTL_MS = 30 * 60 * 1000;
+const SUBSCRIPTION_PIX_EXPIRATION_MINUTES = 2;
+const PIX_ATTEMPT_TTL_MS = SUBSCRIPTION_PIX_EXPIRATION_MINUTES * 60 * 1000;
 const CARD_ATTEMPT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 12_000;
 const valorPlano = () => {
@@ -194,13 +195,23 @@ function validarEmailPagador(dono) {
   return email;
 }
 
-function buildPixPaymentPayload({ amount, payerEmail, externalReference, notificationUrl }) {
+function buildPixPaymentPayload({
+  amount,
+  payerEmail,
+  externalReference,
+  notificationUrl,
+  now = Date.now(),
+}) {
+  const expiresAt = new Date(
+    Number(now) + SUBSCRIPTION_PIX_EXPIRATION_MINUTES * 60 * 1000,
+  );
   return {
     transaction_amount: Number(amount),
     payment_method_id: "pix",
     description: "Plano mensal ComandaFácil",
     external_reference: String(externalReference),
     notification_url: String(notificationUrl),
+    date_of_expiration: expiresAt.toISOString(),
     payer: { email: String(payerEmail) },
   };
 }
@@ -221,7 +232,13 @@ function buildPreapprovalPayload({ amount, payerEmail, externalReference, backUr
   };
 }
 
-function parseSubscriptionPixResponse(data) {
+function validIsoDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+function parseSubscriptionPixResponse(data, fallbackExpiresAt) {
   if (!data?.id || !String(data.status || "").trim()) {
     const error = new Error("O Mercado Pago retornou uma resposta de Pix inválida.");
     error.code = "SUBSCRIPTION_PIX_RESPONSE_INVALID";
@@ -237,17 +254,25 @@ function parseSubscriptionPixResponse(data) {
     error.endpointPath = "/v1/payments";
     throw error;
   }
+  const expiresAt = [
+    data.date_of_expiration,
+    data.expiration_date,
+    fallbackExpiresAt,
+  ].map(validIsoDate).find(Boolean);
+  if (!expiresAt) {
+    const error = new Error("O Mercado Pago não informou quando o Pix expira.");
+    error.code = "SUBSCRIPTION_PIX_EXPIRATION_MISSING";
+    error.stage = "pix_response_validation";
+    error.endpointPath = "/v1/payments";
+    throw error;
+  }
   return {
     paymentId: String(data.id),
     status: String(data.status),
     qrCode: String(transactionData.qr_code),
     qrCodeBase64: String(transactionData.qr_code_base64),
     ticketUrl: String(transactionData.ticket_url || ""),
-    expiresAt: String(
-      transactionData.expiration_date
-      || data.date_of_expiration
-      || "",
-    ),
+    expiresAt,
   };
 }
 
@@ -278,6 +303,7 @@ async function obterOuCriarTentativa(assinatura, metodo) {
         ativa: false,
         status: "expired",
         supersededAt: now,
+        expiredAt: now,
       },
     },
   );
@@ -356,6 +382,7 @@ async function expirarTentativasVencidas(estabId, now = new Date()) {
       ativa: false,
       status: SUBSCRIPTION_ATTEMPT_STATUS.EXPIRED,
       completedAt: now,
+      expiredAt: now,
     },
   });
 }
@@ -555,6 +582,7 @@ function pixDaTentativa(attempt) {
   return {
     qrCodeBase64: attempt.pixQrCodeBase64 || "",
     copiaCola: attempt.pixCopiaCola || "",
+    expiresAt: attempt.expiresAt?.toISOString?.() || String(attempt.expiresAt || ""),
   };
 }
 
@@ -1011,19 +1039,20 @@ exports.gerarPix = async (req, res) => {
         integracaoMercadoPago: mercadoPagoConfigStatus("subscription"),
       });
     }
+    const pixPaymentPayload = buildPixPaymentPayload({
+      amount: valorPlano(),
+      payerEmail,
+      externalReference: attemptReference(attempt),
+      notificationUrl: `${baseUrl(req)}/webhook/mercado-pago`,
+    });
     const data = await requestPlatform("/v1/payments", {
       operation: "create_subscription_pix",
       stage: "pix_payment_create",
       method: "POST",
       idempotencyKey: attempt.idempotencyKey,
-      body: buildPixPaymentPayload({
-        amount: valorPlano(),
-        payerEmail,
-        externalReference: attemptReference(attempt),
-        notificationUrl: `${baseUrl(req)}/webhook/mercado-pago`,
-      }),
+      body: pixPaymentPayload,
     });
-    const parsedPix = parseSubscriptionPixResponse(data);
+    const parsedPix = parseSubscriptionPixResponse(data, pixPaymentPayload.date_of_expiration);
     const pixQrCodeBase64 = parsedPix.qrCodeBase64;
     const pixCopiaCola = parsedPix.qrCode;
     await AssinaturaTentativa.updateOne(
@@ -1039,9 +1068,7 @@ exports.gerarPix = async (req, res) => {
           mercadoPagoPaymentId: String(data.id),
           pixQrCodeBase64,
           pixCopiaCola,
-          expiresAt: parsedPix.expiresAt
-            ? new Date(parsedPix.expiresAt)
-            : attempt.expiresAt,
+          expiresAt: new Date(parsedPix.expiresAt),
           erro: "",
         },
       },
@@ -1053,7 +1080,11 @@ exports.gerarPix = async (req, res) => {
     assinatura.ultimoStatusMercadoPago = String(data.status || "pending");
     await assinatura.save();
 
-    const pix = { qrCodeBase64: pixQrCodeBase64, copiaCola: pixCopiaCola };
+    const pix = {
+      qrCodeBase64: pixQrCodeBase64,
+      copiaCola: pixCopiaCola,
+      expiresAt: parsedPix.expiresAt,
+    };
     if (wantsJson(req)) {
       return res.status(200).json({
         ok: true,
@@ -1062,7 +1093,7 @@ exports.gerarPix = async (req, res) => {
         qrCode: pixCopiaCola,
         qrCodeBase64: pixQrCodeBase64,
         ticketUrl: parsedPix.ticketUrl,
-        expiresAt: parsedPix.expiresAt || attempt.expiresAt?.toISOString?.() || "",
+        expiresAt: parsedPix.expiresAt,
       });
     }
     return res.render("assinatura", {
@@ -1077,7 +1108,7 @@ exports.gerarPix = async (req, res) => {
         metodo: "pix",
         status: data.status || SUBSCRIPTION_ATTEMPT_STATUS.PENDING,
         createdAt: attempt.createdAt,
-        expiresAt: parsedPix.expiresAt || attempt.expiresAt,
+        expiresAt: parsedPix.expiresAt,
       }),
       integracaoMercadoPago: mercadoPagoConfigStatus("subscription"),
     });
@@ -1629,7 +1660,26 @@ async function processSubscriptionPayment(event, payment) {
       ? (attempt?.mercadoPagoPreapprovalId || assinatura.mercadoPagoPreapprovalId)
       : undefined,
   });
-  const obsoleteAttempt = attempt && (attempt.cancelRequestedAt
+  const approvedAt = payment.status === "approved" && payment.date_approved
+    ? new Date(payment.date_approved)
+    : null;
+  const approvedBeforePixExpiration = Boolean(
+    attempt?.metodo === "pix"
+    && approvedAt
+    && !Number.isNaN(approvedAt.getTime())
+    && attempt.expiresAt
+    && approvedAt <= new Date(attempt.expiresAt),
+  );
+  const pixApprovedAfterExpiration = Boolean(
+    attempt?.metodo === "pix"
+    && payment.status === "approved"
+    && attempt.expiresAt
+    && (!approvedAt
+      || Number.isNaN(approvedAt.getTime())
+      || approvedAt > new Date(attempt.expiresAt)),
+  );
+  const obsoleteAttempt = attempt && !approvedBeforePixExpiration && (pixApprovedAfterExpiration
+    || attempt.cancelRequestedAt
     || !attempt.ativa
     || ["expired", "superseded", "cancelled", "failed"].includes(attempt.status));
   if (obsoleteAttempt) {
@@ -1688,21 +1738,21 @@ async function processSubscriptionPayment(event, payment) {
     if (String(assinatura.ultimoPagamentoAprovadoId || "") === String(payment.id)) {
       return;
     }
-    const approvedAt = payment.date_approved ? new Date(payment.date_approved) : new Date();
+    const paymentApprovedAt = approvedAt || new Date();
     const previousExpiration = assinatura.planoExpira
       ? new Date(assinatura.planoExpira)
       : null;
     const continuedPeriod = previousExpiration
       && !Number.isNaN(previousExpiration.getTime())
-      && previousExpiration > approvedAt;
-    const period = paidPeriod(assinatura.planoExpira, approvedAt);
+      && previousExpiration > paymentApprovedAt;
+    const period = paidPeriod(assinatura.planoExpira, paymentApprovedAt);
     assinatura.status = "ativa";
     if (!assinatura.planoInicio || !continuedPeriod) {
-      assinatura.planoInicio = approvedAt;
+      assinatura.planoInicio = paymentApprovedAt;
     }
     assinatura.planoExpira = period.expiresAt;
     assinatura.ultimoPagamentoAprovadoId = String(payment.id);
-    assinatura.ultimoPagamentoAprovadoEm = approvedAt;
+    assinatura.ultimoPagamentoAprovadoEm = paymentApprovedAt;
     assinatura.proximaCobranca = isCurrentRecurring
       ? assinatura.proximaCobranca
       : null;
@@ -1966,6 +2016,7 @@ exports.webhook = async (req, res) => {
 
 exports.assinaturaDoUsuario = assinaturaDoUsuario;
 exports._testing = {
+  SUBSCRIPTION_PIX_EXPIRATION_MINUTES,
   cancelarPreapprovalRemoto,
   classifyRemotePreapproval,
   buildPixPaymentPayload,
