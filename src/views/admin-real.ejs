@@ -953,6 +953,7 @@
   border-left: 2px solid #d9d9d9;
   border-bottom: 2px solid #d9d9d9;
   padding: 0 8px 0 18px;
+  overflow-x: auto;
 }
 
 .chart-bars {
@@ -961,6 +962,11 @@
   gap: 18px;
   align-items: end;
   height: 100%;
+}
+
+.chart-bars.hourly {
+  grid-template-columns: repeat(24, minmax(48px, 1fr));
+  min-width: 1240px;
 }
 
 .chart-bar-item {
@@ -2948,6 +2954,7 @@
           custo: 0,
           lucro: 0,
           totalPedidos: 0,
+          paidOrdersWithoutPaymentDate: 0,
           filtroAtual: 'hoje',
           canalAtual: 'todos',
           dataInicio: '',
@@ -2961,6 +2968,16 @@
           menosVendidos: [],
           historico: []
         };
+  const fusoEstabelecimento = timezoneEstabelecimento;
+  const formatarDataHoraEstabelecimento = valor => {
+    if (!valor) return '-';
+    const data = new Date(valor);
+    return Number.isNaN(data.getTime()) ? '-' : new Intl.DateTimeFormat('pt-BR', {
+      timeZone: fusoEstabelecimento,
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    }).format(data);
+  };
 
   const listaEstoque =
     typeof estoque !== 'undefined' && Array.isArray(estoque)
@@ -3505,7 +3522,7 @@
                     <td data-label="Total"><strong><%= formatarMoeda(pedido.total) %></strong></td>
                     <td data-label="Pedido"><span class="status <%= pedido.status %>"><%= String(pedido.status || '').replaceAll('_', ' ') %></span></td>
                     <td data-label="Pagamento"><span class="status <%= pedido.pagamentoStatus || 'pendente' %>"><%= String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ') %></span></td>
-                    <td data-label="Data"><%= pedido.createdAt ? new Date(pedido.createdAt).toLocaleString('pt-BR') : '-' %></td>
+                    <td data-label="Data"><%= formatarDataHoraEstabelecimento(pedido.createdAt) %></td>
                   </tr>
                 <% }) %>
               </tbody>
@@ -3707,12 +3724,7 @@
                 </h3>
 
                 <p>
-                  <%= pedido.createdAt
-                    ? new Date(
-                        pedido.createdAt
-                      ).toLocaleString('pt-BR')
-                    : '-'
-                  %>
+                  <%= formatarDataHoraEstabelecimento(pedido.createdAt) %>
                 </p>
 
                 <span class="order-origin <%= origemClasse %>">
@@ -3767,7 +3779,7 @@
 
             <div>
               <strong>Data/hora do pagamento:</strong>
-              <%= dataPagamentoPedido ? new Date(dataPagamentoPedido).toLocaleString('pt-BR') : 'Ainda não confirmado' %>
+              <%= dataPagamentoPedido ? formatarDataHoraEstabelecimento(dataPagamentoPedido) : 'Ainda não confirmado' %>
             </div>
 
             <% if (pedido.formaPagamento === 'dinheiro') { %>
@@ -4151,9 +4163,11 @@
 
   <section class="panel chart-card">
     <div class="chart-title">
-      <h3>
-        As vendas têm mostrado o desempenho do período selecionado
-      </h3>
+      <h3><%= relatorios.filtroAtual === 'hoje' ? 'Faturamento por hora do pagamento' : 'Faturamento no período selecionado' %></h3>
+      <p>Horários em <%= fusoEstabelecimento %></p>
+      <% if (relatorios.paidOrdersWithoutPaymentDate > 0) { %>
+        <p><%= relatorios.paidOrdersWithoutPaymentDate %> pagamento(s) antigo(s) sem horário registrado não aparecem no gráfico.</p>
+      <% } %>
     </div>
 
     <div class="chart-wrapper">
@@ -4166,9 +4180,10 @@
       </div>
 
       <div class="chart-area">
-        <div class="chart-bars">
+        <div class="chart-bars <%= relatorios.filtroAtual === 'hoje' ? 'hourly' : '' %>">
           <% relatorios.grafico.labels.forEach((label, index) => { %>
             <% const valor = relatorios.grafico.valores[index] || 0; %>
+            <% const quantidadePaga = relatorios.grafico.pedidosPagos?.[index] || 0; %>
             <% const altura = relatorios.grafico.maiorValor > 0 ? (valor / relatorios.grafico.maiorValor) * 220 : 0; %>
 
             <div class="chart-bar-item">
@@ -4179,7 +4194,7 @@
               <div
                 class="chart-bar"
                 style="height: <%= altura %>px;"
-                title="<%= label %> - <%= formatarMoeda(valor) %>"
+                title="<%= label %> — Faturamento: <%= formatarMoeda(valor) %> — Pedidos pagos: <%= quantidadePaga %>"
               ></div>
 
               <div class="chart-label">
@@ -4294,7 +4309,7 @@
           <% relatorios.historico.forEach(pedido => { %>
             <tr>
               <td data-label="Data">
-                <%= pedido.createdAt ? new Date(pedido.createdAt).toLocaleString('pt-BR') : '-' %>
+                <%= formatarDataHoraEstabelecimento(pedido.createdAt) %>
               </td>
 
               <td data-label="Cliente">
@@ -5684,6 +5699,8 @@
                           type="number"
                           min="0"
                           max="<%= item[2] %>"
+                          step="0.1"
+                          id="impressora-<%= indice %>-<%= item[0] %>"
                           name="impressoras[<%= indice %>][<%= item[0] %>]"
                           value="<%= impressora[item[0]] ?? 2 %>"
                         >
@@ -7636,9 +7653,11 @@ function formatarDataPedido(data) {
     return '-';
   }
 
-  return new Date(
-    data
-  ).toLocaleString('pt-BR');
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: <%- safeJsonForHtml(fusoEstabelecimento); %>,
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  }).format(new Date(data));
 }
 
 function atualizarBadgePedidos() {
@@ -8581,7 +8600,7 @@ function dadosImpressoraDoCard(card) {
       ),
     margemDireitaMm:
       Number(
-        campo('margemDireitaMm')?.value ||
+        campo('margemDireitaMm')?.value ??
         2
       ),
     alturaMaximaMm:

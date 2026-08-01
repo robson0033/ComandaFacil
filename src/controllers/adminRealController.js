@@ -21,6 +21,13 @@ const {
 
 const printAgentHub = require("../services/printAgentHub");
 const printQueueService = require("../services/printQueueService");
+const { normalizeRightMarginMm } = require("../services/printerLayoutConfig");
+const {
+  datePartsInTimezone,
+  formatDateTimeInTimezone,
+  getEstablishmentTimezone,
+  localDateTimeToUtc,
+} = require("../services/timezoneService");
 const {
   buscarProdutosPublicosDoEstabelecimento,
 } = require("../services/produtoPublicoService");
@@ -521,16 +528,7 @@ function normalizarImpressoras(body = {}) {
           ),
         ),
       ),
-      margemDireitaMm: Math.min(
-        20,
-        Math.max(
-          0,
-          Number(
-            campo("margemDireitaMm") ||
-              2,
-          ),
-        ),
-      ),
+      margemDireitaMm: normalizeRightMarginMm(campo("margemDireitaMm")),
       alturaMaximaMm: Math.min(
         3000,
         Math.max(
@@ -847,36 +845,15 @@ async function obterOuCriarConfiguracao(
   return configuracao;
 }
 
-const FUSO_RELATORIOS =
-  "America/Sao_Paulo";
-
 function partesDataNoFuso(
   data,
-  timeZone = FUSO_RELATORIOS,
+  timeZone,
 ) {
-  const partes =
-    new Intl.DateTimeFormat(
-      "en-CA",
-      {
-        timeZone,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      },
-    ).formatToParts(data);
-
-  const valor = tipo =>
-    Number(
-      partes.find(
-        parte =>
-          parte.type === tipo,
-      )?.value,
-    );
-
+  const parts = datePartsInTimezone(data, timeZone);
   return {
-    ano: valor("year"),
-    mes: valor("month"),
-    dia: valor("day"),
+    ano: parts.year,
+    mes: parts.month,
+    dia: parts.day,
   };
 }
 
@@ -890,65 +867,12 @@ function dataLocalParaUtc(
     segundo = 0,
     milissegundo = 0,
   },
-  timeZone = FUSO_RELATORIOS,
+  timeZone,
 ) {
-  const alvoUtc = Date.UTC(
-    ano,
-    mes - 1,
-    dia,
-    hora,
-    minuto,
-    segundo,
-    milissegundo,
-  );
-  let tentativa = alvoUtc;
-
-  for (
-    let indice = 0;
-    indice < 3;
-    indice += 1
-  ) {
-    const partes =
-      new Intl.DateTimeFormat(
-        "en-CA",
-        {
-          timeZone,
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-          hourCycle: "h23",
-        },
-      ).formatToParts(
-        new Date(tentativa),
-      );
-
-    const valor = tipo =>
-      Number(
-        partes.find(
-          parte =>
-            parte.type === tipo,
-        )?.value,
-      );
-
-    const exibidoComoUtc =
-      Date.UTC(
-        valor("year"),
-        valor("month") - 1,
-        valor("day"),
-        valor("hour"),
-        valor("minute"),
-        valor("second"),
-        milissegundo,
-      );
-
-    tentativa +=
-      alvoUtc - exibidoComoUtc;
-  }
-
-  return new Date(tentativa);
+  return localDateTimeToUtc({
+    year: ano, month: mes, day: dia, hour: hora, minute: minuto,
+    second: segundo, millisecond: milissegundo,
+  }, timeZone);
 }
 
 function adicionarDiasCalendario(
@@ -975,18 +899,19 @@ function obterPeriodoRelatorio(
   dataInicio,
   dataFim,
   agoraReferencia = new Date(),
+  timeZone,
 ) {
   const agora =
     new Date(agoraReferencia);
   const hoje =
-    partesDataNoFuso(agora);
+    partesDataNoFuso(agora, timeZone);
   let inicio = null;
   let fim = null;
   let filtroFinal = filtro;
 
   if (filtro === "hoje") {
     inicio = dataLocalParaUtc(
-      hoje,
+      hoje, timeZone,
     );
     fim = dataLocalParaUtc({
       ...hoje,
@@ -994,7 +919,7 @@ function obterPeriodoRelatorio(
       minuto: 59,
       segundo: 59,
       milissegundo: 999,
-    });
+    }, timeZone);
   }
 
   if (filtro === "semana") {
@@ -1002,13 +927,12 @@ function obterPeriodoRelatorio(
       dataLocalParaUtc({
         ...hoje,
         hora: 12,
-      });
+      }, timeZone);
     const nomeDia =
       meioDiaHoje.toLocaleDateString(
         "en-US",
         {
-          timeZone:
-            FUSO_RELATORIOS,
+          timeZone,
           weekday: "short",
         },
       );
@@ -1037,6 +961,7 @@ function obterPeriodoRelatorio(
     inicio =
       dataLocalParaUtc(
         inicioSemana,
+        timeZone,
       );
     fim = dataLocalParaUtc({
       ...fimSemana,
@@ -1044,7 +969,7 @@ function obterPeriodoRelatorio(
       minuto: 59,
       segundo: 59,
       milissegundo: 999,
-    });
+    }, timeZone);
   }
 
   if (filtro === "mes") {
@@ -1052,7 +977,7 @@ function obterPeriodoRelatorio(
       ano: hoje.ano,
       mes: hoje.mes,
       dia: 1,
-    });
+    }, timeZone);
     fim = new Date(
       dataLocalParaUtc({
         ano:
@@ -1064,7 +989,7 @@ function obterPeriodoRelatorio(
             ? 1
             : hoje.mes + 1,
         dia: 1,
-      }).getTime() - 1,
+      }, timeZone).getTime() - 1,
     );
   }
 
@@ -1073,13 +998,13 @@ function obterPeriodoRelatorio(
       ano: hoje.ano,
       mes: 1,
       dia: 1,
-    });
+    }, timeZone);
     fim = new Date(
       dataLocalParaUtc({
         ano: hoje.ano + 1,
         mes: 1,
         dia: 1,
-      }).getTime() - 1,
+      }, timeZone).getTime() - 1,
     );
   }
 
@@ -1110,7 +1035,7 @@ function obterPeriodoRelatorio(
         ano: anoInicio,
         mes: mesInicio,
         dia: diaInicio,
-      });
+      }, timeZone);
 
       fim = dataLocalParaUtc({
         ano: anoFim,
@@ -1120,7 +1045,7 @@ function obterPeriodoRelatorio(
         minuto: 59,
         segundo: 59,
         milissegundo: 999,
-      });
+      }, timeZone);
 
       if (
         Number.isNaN(inicio.getTime()) ||
@@ -1135,14 +1060,14 @@ function obterPeriodoRelatorio(
 
     if (filtroFinal === "hoje") {
       inicio =
-        dataLocalParaUtc(hoje);
+        dataLocalParaUtc(hoje, timeZone);
       fim = dataLocalParaUtc({
         ...hoje,
         hora: 23,
         minuto: 59,
         segundo: 59,
         milissegundo: 999,
-      });
+      }, timeZone);
     }
   }
 
@@ -1224,51 +1149,19 @@ function montarGrafico(
   filtro,
   inicioPeriodo,
   fimPeriodo,
+  timeZone,
 ) {
   let labels = [];
   let valores = [];
 
   if (filtro === "hoje") {
-    labels = [
-      "00h",
-      "04h",
-      "08h",
-      "12h",
-      "16h",
-      "20h",
-    ];
-
-    valores = new Array(6).fill(0);
+    labels = Array.from({ length: 24 }, (_, hora) => `${String(hora).padStart(2, "0")}h`);
+    valores = new Array(24).fill(0);
 
     pedidos.forEach((pedido) => {
-      const hora = new Date(
-        pedido.createdAt,
-      ).getHours();
-
-      let indice = 0;
-
-      if (hora >= 4 && hora < 8) {
-        indice = 1;
-      } else if (
-        hora >= 8 &&
-        hora < 12
-      ) {
-        indice = 2;
-      } else if (
-        hora >= 12 &&
-        hora < 16
-      ) {
-        indice = 3;
-      } else if (
-        hora >= 16 &&
-        hora < 20
-      ) {
-        indice = 4;
-      } else if (hora >= 20) {
-        indice = 5;
-      }
-
-      valores[indice] += Number(
+      if (!pedido.pagoEm) return;
+      const hora = datePartsInTimezone(pedido.pagoEm, timeZone).hour;
+      valores[hora] += Number(
         pedido.total || 0,
       );
     });
@@ -1289,7 +1182,7 @@ function montarGrafico(
 
     pedidos.forEach((pedido) => {
       const dia = new Date(
-        pedido.createdAt,
+        pedido.pagoEm,
       ).getDay();
 
       const indice =
@@ -1314,7 +1207,7 @@ function montarGrafico(
 
     pedidos.forEach((pedido) => {
       const dia = new Date(
-        pedido.createdAt,
+        pedido.pagoEm,
       ).getDate();
 
       const indice = Math.min(
@@ -1348,7 +1241,7 @@ function montarGrafico(
 
     pedidos.forEach((pedido) => {
       const mes = new Date(
-        pedido.createdAt,
+        pedido.pagoEm,
       ).getMonth();
 
       valores[mes] += Number(
@@ -1401,26 +1294,13 @@ function montarGrafico(
       }
 
       pedidos.forEach((pedido) => {
-        const dataPedido = new Date(
-          pedido.createdAt,
-        );
-
-        dataPedido.setHours(
-          0,
-          0,
-          0,
-          0,
-        );
-
-        const inicio = new Date(
-          inicioPeriodo,
-        );
-
-        inicio.setHours(0, 0, 0, 0);
+        if (!pedido.pagoEm) return;
+        const dataPedido = datePartsInTimezone(pedido.pagoEm, timeZone);
+        const inicio = datePartsInTimezone(inicioPeriodo, timeZone);
 
         const indice = Math.floor(
-          (dataPedido.getTime() -
-            inicio.getTime()) /
+          (Date.UTC(dataPedido.year, dataPedido.month - 1, dataPedido.day) -
+            Date.UTC(inicio.year, inicio.month - 1, inicio.day)) /
             (1000 * 60 * 60 * 24),
         );
 
@@ -1474,7 +1354,7 @@ function montarGrafico(
 
       pedidos.forEach((pedido) => {
         const data = new Date(
-          pedido.createdAt,
+          pedido.pagoEm,
         );
 
         const chave = `${data.getFullYear()}-${String(
@@ -1508,7 +1388,7 @@ function montarGrafico(
       .reverse()
       .forEach((pedido) => {
         const data = new Date(
-          pedido.createdAt,
+          pedido.pagoEm,
         );
 
         const chave = `${data.getFullYear()}-${String(
@@ -1562,6 +1442,7 @@ function filtroBaseRelatorio(
   idEstabelecimento,
   periodo,
   canalAtual = "todos",
+  dateField = "createdAt",
 ) {
   const idNormalizado =
     mongoose.isValidObjectId(
@@ -1585,7 +1466,7 @@ function filtroBaseRelatorio(
     periodo?.inicio &&
     periodo?.fim
   ) {
-    filtro.createdAt = {
+    filtro[dateField] = {
       $gte: periodo.inicio,
       $lte: periodo.fim,
     };
@@ -1661,6 +1542,7 @@ function formatoDataGrafico(
 function montarGraficoAgregado(
   grupos = [],
   filtro,
+  timeZone,
 ) {
   const mapa = new Map(
     grupos.map(grupo => [
@@ -1668,35 +1550,34 @@ function montarGraficoAgregado(
       Number(grupo.valor || 0),
     ]),
   );
+  const quantidades = new Map(
+    grupos.map(grupo => [String(grupo._id), Number(grupo.quantidade || 0)]),
+  );
 
   if (filtro === "hoje") {
-    const labels = [
-      "00h",
-      "04h",
-      "08h",
-      "12h",
-      "16h",
-      "20h",
-    ];
-    const valores =
-      new Array(6).fill(0);
+    const labels = Array.from(
+      { length: 24 },
+      (_, hora) => `${String(hora).padStart(2, "0")}h`,
+    );
+    const valores = new Array(24).fill(0);
+    const pedidosPagos = new Array(24).fill(0);
 
     mapa.forEach(
       (valor, chave) => {
         const hora = Number(
           chave.slice(-2),
         );
-        const indice = Math.min(
-          5,
-          Math.floor(hora / 4),
-        );
-        valores[indice] += valor;
+        if (hora >= 0 && hora <= 23) {
+          valores[hora] += valor;
+          pedidosPagos[hora] += quantidades.get(chave) || 0;
+        }
       },
     );
 
     return {
       labels,
       valores,
+      pedidosPagos,
       maiorValor: Math.max(
         ...valores,
         1,
@@ -1733,7 +1614,7 @@ function montarGraficoAgregado(
             "en-US",
             {
               timeZone:
-                FUSO_RELATORIOS,
+                timeZone,
               weekday: "short",
             },
           );
@@ -1820,11 +1701,13 @@ async function agregarRelatorios({
   idEstabelecimento,
   periodo,
   canalAtual,
+  timeZone,
 }) {
   const base = filtroBaseRelatorio(
     idEstabelecimento,
     periodo,
     canalAtual,
+    "pagoEm",
   );
   const formato =
     formatoDataGrafico(
@@ -1891,6 +1774,7 @@ async function agregarRelatorios({
               $match: {
                 pagamentoStatus:
                   "pago",
+                pagoEm: { $type: "date" },
               },
             },
             {
@@ -1898,9 +1782,8 @@ async function agregarRelatorios({
                 _id: {
                   $dateToString: {
                     format: formato,
-                    date: "$createdAt",
-                    timezone:
-                      FUSO_RELATORIOS,
+                    date: "$pagoEm",
+                    timezone: timeZone,
                   },
                 },
                 valor: {
@@ -1911,6 +1794,7 @@ async function agregarRelatorios({
                     ],
                   },
                 },
+                quantidade: { $sum: 1 },
               },
             },
             {
@@ -1955,6 +1839,15 @@ async function agregarRelatorios({
               },
             },
           ],
+          semHorarioPagamento: [
+            {
+              $match: {
+                pagamentoStatus: "pago",
+                pagoEm: null,
+              },
+            },
+            { $count: "quantidade" },
+          ],
         },
       },
     ]);
@@ -1979,10 +1872,14 @@ async function agregarRelatorios({
       resultado.finalizados?.[0]
         ?.quantidade || 0,
     ),
+    paidOrdersWithoutPaymentDate: Number(
+      resultado.semHorarioPagamento?.[0]?.quantidade || 0,
+    ),
     grafico:
       montarGraficoAgregado(
         resultado.grafico || [],
         periodo.filtro,
+        timeZone,
       ),
     maisVendidos: [...produtos]
       .sort(
@@ -2005,18 +1902,22 @@ async function agregarDashboard({
   idEstabelecimento,
   periodo,
 }) {
+  const intervalo = periodo?.inicio && periodo?.fim
+    ? { $gte: periodo.inicio, $lte: periodo.fim }
+    : null;
   const [resultado = {}] =
     await Pedido.aggregate([
       {
         $match:
           filtroBaseRelatorio(
             idEstabelecimento,
-            periodo,
+            { inicio: null, fim: null },
           ),
       },
       {
         $facet: {
           pedidos: [
+            ...(intervalo ? [{ $match: { createdAt: intervalo } }] : []),
             {
               $count:
                 "quantidade",
@@ -2027,6 +1928,7 @@ async function agregarDashboard({
               $match: {
                 pagamentoStatus:
                   "pago",
+                ...(intervalo ? { pagoEm: intervalo } : {}),
               },
             },
             {
@@ -2122,6 +2024,7 @@ exports.admin = async (req, res) => {
             podeConfigurarImpressoras,
         },
       );
+    const timezoneEstabelecimento = getEstablishmentTimezone(configuracaoDocumento);
 
     const pedidosFiltrosPermitidos = ["hoje", "semana", "mes", "personalizado"];
     const pedidoPeriodoSolicitado = pedidosFiltrosPermitidos.includes(req.query.pedidoPeriodo)
@@ -2133,6 +2036,8 @@ exports.admin = async (req, res) => {
       pedidoPeriodoSolicitado,
       pedidoDataInicio,
       pedidoDataFim,
+      new Date(),
+      timezoneEstabelecimento,
     );
 
     const dashboardPeriodoConsulta = obterPeriodoRelatorio(
@@ -2141,6 +2046,8 @@ exports.admin = async (req, res) => {
         : "hoje",
       String(req.query.dashboardDataInicio || "").trim(),
       String(req.query.dashboardDataFim || "").trim(),
+      new Date(),
+      timezoneEstabelecimento,
     );
 
     const relatorioPeriodoConsulta = obterPeriodoRelatorio(
@@ -2149,6 +2056,8 @@ exports.admin = async (req, res) => {
         : "hoje",
       String(req.query.dataInicio || "").trim(),
       String(req.query.dataFim || "").trim(),
+      new Date(),
+      timezoneEstabelecimento,
     );
 
     const periodosConsulta = [pedidoPeriodo, dashboardPeriodoConsulta, relatorioPeriodoConsulta];
@@ -2158,10 +2067,14 @@ exports.admin = async (req, res) => {
     if (!consultaSemLimiteDeData) {
       const inicios = periodosConsulta.map(periodoConsulta => periodoConsulta.inicio.getTime());
       const fins = periodosConsulta.map(periodoConsulta => periodoConsulta.fim.getTime());
-      filtroDataPedidos.createdAt = {
+      const intervaloCarregamento = {
         $gte: new Date(Math.min(...inicios)),
         $lte: new Date(Math.max(...fins)),
       };
+      filtroDataPedidos.$or = [
+        { createdAt: intervaloCarregamento },
+        { pagoEm: intervaloCarregamento },
+      ];
     }
 
     const [
@@ -2491,6 +2404,8 @@ exports.admin = async (req, res) => {
         dashboardFiltroSolicitado,
         dashboardDataInicio,
         dashboardDataFim,
+        new Date(),
+        timezoneEstabelecimento,
       );
 
     const pedidosDashboard =
@@ -2602,6 +2517,8 @@ exports.admin = async (req, res) => {
         filtroSolicitado,
         dataInicio,
         dataFim,
+        new Date(),
+        timezoneEstabelecimento,
       );
 
     const canaisPermitidos = [
@@ -2666,6 +2583,7 @@ exports.admin = async (req, res) => {
             idEstabelecimento,
             periodo,
             canalAtual,
+            timeZone: timezoneEstabelecimento,
           })
         : {
             faturamento: 0,
@@ -2709,6 +2627,8 @@ exports.admin = async (req, res) => {
       menosVendidos:
         agregadoRelatorios
           .menosVendidos,
+      paidOrdersWithoutPaymentDate:
+        agregadoRelatorios.paidOrdersWithoutPaymentDate || 0,
       historico:
         pedidosFiltrados.slice(
           0,
@@ -2785,6 +2705,7 @@ exports.admin = async (req, res) => {
             custo: 0,
             lucro: 0,
             totalPedidos: 0,
+            paidOrdersWithoutPaymentDate: 0,
             grafico: {
               labels: [],
               valores: [],
@@ -2806,6 +2727,7 @@ exports.admin = async (req, res) => {
         diasRestantes,
 
         configuracao,
+        timezoneEstabelecimento,
         catalogoLink,
 
         dashboard:
@@ -4799,6 +4721,13 @@ exports.salvarImpressora = async (
       error,
     );
 
+    const validationResponse = responderErroValidacao(
+      req,
+      res,
+      error,
+      "configuracoes",
+    );
+    if (validationResponse) return validationResponse;
     return erroERedirecionar(
       req,
       res,
@@ -7573,19 +7502,30 @@ exports.impressorasAgente = async (req, res) => {
 
 exports.testarImpressoraRemota = async (req, res) => {
   try {
+    const lojaId = String(estabelecimentoId(req));
+    const configuracao = await Configuracao.findOne({ estabelecimentoId: lojaId }).lean();
+    const requestedPrinterId = printQueueService.calcularImpressoraId(req.body?.impressora || {});
+    const impressora = (configuracao?.impressoras || []).find(item =>
+      printQueueService.calcularImpressoraId(item) === requestedPrinterId);
+    if (!impressora) {
+      return res.status(404).json({
+        success: false,
+        message: "Impressora não encontrada nas configurações deste estabelecimento.",
+      });
+    }
     const jobId = crypto.randomUUID();
     const leaseId = crypto.randomUUID();
     const data = await printAgentHub.requestPrintJob(
-      String(estabelecimentoId(req)),
+      lojaId,
       "printer:test",
       {
         protocolVersion: PROTOCOL_VERSION,
         jobId,
         leaseId,
-        impressoraId: printQueueService.calcularImpressoraChave(req.body.impressora),
+        impressoraId: printQueueService.calcularImpressoraId(impressora),
         attempt: 1,
         deadline: new Date(Date.now() + 60_000).toISOString(),
-        impressora: req.body.impressora,
+        impressora: printQueueService.sanitizarImpressora(impressora),
       },
       20000,
     );
@@ -7736,12 +7676,15 @@ exports.agregarRelatorios =
 exports.agregarDashboard =
   agregarDashboard;
 exports._testing = {
+  agregarRelatorios,
   adicionarHistoricoFinanceiro,
   confirmarPedidoComEstoque,
   emailFuncionarioEmUso,
   exigirMovimentacaoEstoqueConcluida,
   montarFichaTecnicaProduto,
+  montarGraficoAgregado,
   normalizarAdicionais,
+  normalizarImpressoras,
   reservarCodigoAgente,
   idsDeIngredientesDesativadosReferenciados,
   validarFichaAntesDeSalvar,

@@ -314,6 +314,11 @@ const Configuracao = mongoose.model(
       descricao: { type: String, default: "", trim: true },
       telefone: { type: String, default: "", trim: true },
       endereco: { type: String, default: "", trim: true },
+      timezone: {
+        type: String,
+        enum: ["America/Sao_Paulo"],
+        default: "America/Sao_Paulo",
+      },
       fotoPerfil: { type: String, default: "" },
       fotoPerfilArquivo: { type: imagemArmazenadaSchema, default: null },
       impressoraNome: { type: String, default: "", trim: true },

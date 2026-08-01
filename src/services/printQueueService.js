@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("crypto");
+const { normalizePrinterLayoutConfig } = require("./printerLayoutConfig");
 const {
   AGENT_STATUSES,
   PROTOCOL_VERSION,
@@ -104,9 +105,10 @@ function sanitizarImpressora(impressora = {}) {
     "imprimirEndereco", "imprimirCpfCnpj", "imprimirObservacoes",
     "corteAutomatico",
   ];
-  return Object.fromEntries(allowed
+  const sanitized = Object.fromEntries(allowed
     .filter(key => impressora[key] !== undefined)
     .map(key => [key, impressora[key]]));
+  return normalizePrinterLayoutConfig(sanitized);
 }
 
 async function montarSnapshotValidado({
@@ -820,4 +822,5 @@ module.exports = {
   atualizarStatusDoAgente,
   consultarResultadoDesconhecido,
   reconciliarResumoDoAgente,
+  sanitizarImpressora,
 };
