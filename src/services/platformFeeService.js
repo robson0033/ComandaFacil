@@ -4,7 +4,13 @@ const crypto = require("crypto");
 
 const TERMS_TEXT = "Pix online: taxa de serviço Comanda Fácil sobre o total do pedido; tarifas Mercado Pago são da loja; o cliente não paga acréscimo.";
 
+function parseBooleanEnv(value, fallback = false) {
+  if (value === undefined || value === null || String(value).trim() === "") return fallback;
+  return ["1", "true", "yes", "on", "sim"].includes(String(value).trim().toLowerCase());
+}
+
 function getCurrentPlatformFeeConfig(env = process.env) {
+  const enabled = parseBooleanEnv(env.PLATFORM_PIX_FEE_ENABLED, false);
   const percentage = Number(env.PLATFORM_PIX_FEE_PERCENT || 1.5);
   const termsVersion = String(env.PLATFORM_PIX_TERMS_VERSION || "1.0").trim();
   if (!Number.isFinite(percentage) || percentage <= 0 || percentage >= 100) {
@@ -14,6 +20,7 @@ function getCurrentPlatformFeeConfig(env = process.env) {
     throw new Error("Versão dos termos Pix inválida.");
   }
   return {
+    enabled,
     percentage,
     termsVersion,
     termsHash: crypto.createHash("sha256").update(TERMS_TEXT).digest("hex"),
@@ -46,18 +53,18 @@ function centsToDecimal(cents) {
 function buildPlatformFeeSnapshot(total) {
   const config = getCurrentPlatformFeeConfig();
   const grossAmountCents = moneyToCents(total);
-  const platformFeeCents = calculatePlatformFeeCents(
-    grossAmountCents,
-    config.percentage,
-  );
+  const platformFeeCents = config.enabled
+    ? calculatePlatformFeeCents(grossAmountCents, config.percentage)
+    : 0;
   return {
     platformFeePercent: config.percentage,
     platformFeeCents,
-    platformFeeStatus: "requested",
+    platformFeeStatus: config.enabled ? "requested" : "not_applied",
     platformFeeTermsVersion: config.termsVersion,
     platformFeeCalculatedAt: new Date(),
     grossAmountCents,
     merchantAmountBeforeMpFeesCents: grossAmountCents - platformFeeCents,
+    platformFeeEnabled: config.enabled,
     platformFeeReversedCents: 0,
     platformFeeNetCents: 0,
   };
@@ -70,4 +77,5 @@ module.exports = {
   centsToDecimal,
   getCurrentPlatformFeeConfig,
   moneyToCents,
+  parseBooleanEnv,
 };

@@ -54,3 +54,35 @@ test("relatório considera somente Pix online e adicionais aparecem nos cards", 
   assert.match(view, /order-item-addons/);
   assert.match(view, /adicional\.nome/);
 });
+
+test("taxa pode ser desativada com segurança enquanto Split Payments não está habilitado", () => {
+  const { buildPlatformFeeSnapshot } = require("../src/services/platformFeeService");
+  const previous = process.env.PLATFORM_PIX_FEE_ENABLED;
+  process.env.PLATFORM_PIX_FEE_ENABLED = "false";
+  try {
+    const config = getCurrentPlatformFeeConfig(process.env);
+    const snapshot = buildPlatformFeeSnapshot(30);
+    assert.equal(config.enabled, false);
+    assert.equal(snapshot.platformFeeCents, 0);
+    assert.equal(snapshot.platformFeeStatus, "not_applied");
+    assert.equal(snapshot.merchantAmountBeforeMpFeesCents, 3000);
+  } finally {
+    if (previous === undefined) delete process.env.PLATFORM_PIX_FEE_ENABLED;
+    else process.env.PLATFORM_PIX_FEE_ENABLED = previous;
+  }
+});
+
+test("taxa volta a ser calculada quando Split Payments for habilitado", () => {
+  const { buildPlatformFeeSnapshot } = require("../src/services/platformFeeService");
+  const previous = process.env.PLATFORM_PIX_FEE_ENABLED;
+  process.env.PLATFORM_PIX_FEE_ENABLED = "true";
+  try {
+    const snapshot = buildPlatformFeeSnapshot(30);
+    assert.equal(snapshot.platformFeeCents, 45);
+    assert.equal(snapshot.platformFeeStatus, "requested");
+    assert.equal(snapshot.merchantAmountBeforeMpFeesCents, 2955);
+  } finally {
+    if (previous === undefined) delete process.env.PLATFORM_PIX_FEE_ENABLED;
+    else process.env.PLATFORM_PIX_FEE_ENABLED = previous;
+  }
+});

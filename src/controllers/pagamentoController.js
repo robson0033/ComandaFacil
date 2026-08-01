@@ -1533,7 +1533,10 @@ exports.gerarPixPedido = async (req, res) => {
     if (!acessoVenda.permitido) return respostaLojaIndisponivel(res);
 
     const { cfg: cfgPrivada, accessToken } = await configuracaoComToken(cfgPublica.estabelecimentoId);
-    await requirePlatformFeeAcceptance(cfgPublica.estabelecimentoId);
+    const platformFeeConfig = getCurrentPlatformFeeConfig();
+    if (platformFeeConfig.enabled) {
+      await requirePlatformFeeAcceptance(cfgPublica.estabelecimentoId);
+    }
     const feeSnapshot = buildPlatformFeeSnapshot(pedido.total);
     const attempt = await activeOrderPaymentAttempt({
       pedido,
@@ -1547,7 +1550,9 @@ exports.gerarPixPedido = async (req, res) => {
       headers: { "X-Idempotency-Key": attempt.idempotencyKey },
       body: JSON.stringify({
         transaction_amount: Number(pedido.total),
-        application_fee: centsToDecimal(attempt.platformFeeCents),
+        ...(platformFeeConfig.enabled && Number(attempt.platformFeeCents || 0) > 0
+          ? { application_fee: centsToDecimal(attempt.platformFeeCents) }
+          : {}),
         description: `Pedido ${String(pedido._id).slice(-6).toUpperCase()} - ${cfgPublica.nomeEstabelecimento}`,
         payment_method_id: "pix",
         external_reference: attempt.externalReference,
@@ -1579,7 +1584,7 @@ exports.gerarPixPedido = async (req, res) => {
     pedido.pixExpiraEm = data.date_of_expiration ? new Date(data.date_of_expiration) : null;
     pedido.platformFeePercent = attempt.platformFeePercent;
     pedido.platformFeeCents = attempt.platformFeeCents;
-    pedido.platformFeeStatus = "requested";
+    pedido.platformFeeStatus = attempt.platformFeeStatus || (platformFeeConfig.enabled ? "requested" : "not_applied");
     pedido.platformFeeTermsVersion = attempt.platformFeeTermsVersion;
     pedido.platformFeeCalculatedAt = attempt.platformFeeCalculatedAt;
     pedido.grossAmountCents = attempt.grossAmountCents;
@@ -1610,6 +1615,18 @@ exports.gerarPixPedido = async (req, res) => {
         success: false,
         code: error.code,
         message: "Pix online temporariamente indisponível. A loja precisa concluir a configuração do pagamento.",
+      });
+    }
+    const providerCauses = Array.isArray(error?.providerCauses)
+      ? error.providerCauses
+      : Array.isArray(error?.details?.providerCauses)
+        ? error.details.providerCauses
+        : [];
+    if (providerCauses.some(cause => String(cause?.code) === "2059")) {
+      return res.status(503).json({
+        success: false,
+        code: "PLATFORM_FEE_NOT_AVAILABLE",
+        message: "Pix online com taxa de serviço ainda não está habilitado para esta conexão Mercado Pago.",
       });
     }
     return res.status(status >= 400 && status < 500 ? status : 502).json({
