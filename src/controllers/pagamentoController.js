@@ -388,11 +388,18 @@ function classifyRemotePreapproval(preapproval) {
   const remoteStatus = String(preapproval?.status || "").trim().toLowerCase();
   const payerPresent = Boolean(String(preapproval?.payer_id || "").trim());
   const alreadyCancelled = ["canceled", "cancelled"].includes(remoteStatus);
-  const isAuthorizedSubscription = payerPresent
-    && ["authorized", "paused"].includes(remoteStatus);
-  const canAbandonLocally = remoteStatus === "pending" && !payerPresent;
+  const isAuthorizedSubscription = ["authorized", "paused"].includes(remoteStatus);
+  const canAbandonLocally = remoteStatus === "pending";
   const canRequestRemoteCancellation = isAuthorizedSubscription;
+  const classification = alreadyCancelled
+    ? "already_cancelled"
+    : canAbandonLocally
+      ? "checkout_pending"
+      : canRequestRemoteCancellation
+        ? "remote_subscription"
+        : "unknown";
   return {
+    classification,
     remoteStatus,
     payerPresent,
     isAuthorizedSubscription,
@@ -406,19 +413,26 @@ function classifyRemotePreapproval(preapproval) {
 }
 
 function logRemotePreapprovalSnapshot(preapproval, correlationId) {
-  console.info("mercado_pago_preapproval_snapshot", {
+  const preapprovalId = String(preapproval?.id || "");
+  console.info("mercado_pago_preapproval_inspection", {
     correlationId: String(correlationId || "") || null,
-    id: String(preapproval?.id || "").slice(0, 100) || null,
-    status: String(preapproval?.status || "").slice(0, 40) || null,
-    reason: String(preapproval?.reason || "").slice(0, 160) || null,
-    externalReference: String(preapproval?.external_reference || "").slice(0, 180) || null,
-    collectorId: String(preapproval?.collector_id || "").slice(0, 80) || null,
+    operation: "preapproval_cancel_inspection",
+    preapprovalIdSuffix: preapprovalId.slice(-8) || null,
+    remoteStatus: String(preapproval?.status || "").slice(0, 40) || null,
     payerIdPresent: Boolean(String(preapproval?.payer_id || "").trim()),
+    payerEmailPresent: Boolean(String(preapproval?.payer_email || preapproval?.payer?.email || "").trim()),
+    collectorIdPresent: Boolean(String(preapproval?.collector_id || "").trim()),
+    externalReferencePresent: Boolean(String(preapproval?.external_reference || "").trim()),
     initPointPresent: Boolean(String(preapproval?.init_point || "").trim()),
-    dateCreated: String(preapproval?.date_created || "").slice(0, 50) || null,
-    lastModified: String(preapproval?.last_modified || "").slice(0, 50) || null,
-    nextPaymentDate: String(preapproval?.next_payment_date || "").slice(0, 50) || null,
+    sandboxInitPointPresent: Boolean(String(preapproval?.sandbox_init_point || "").trim()),
     autoRecurringPresent: Boolean(preapproval?.auto_recurring),
+    autoRecurringCurrency: String(preapproval?.auto_recurring?.currency_id || "").slice(0, 10) || null,
+    autoRecurringFrequency: Number(preapproval?.auto_recurring?.frequency) || null,
+    autoRecurringFrequencyType: String(preapproval?.auto_recurring?.frequency_type || "").slice(0, 30) || null,
+    reasonPresent: Boolean(String(preapproval?.reason || "").trim()),
+    dateCreatedPresent: Boolean(String(preapproval?.date_created || "").trim()),
+    lastModifiedPresent: Boolean(String(preapproval?.last_modified || "").trim()),
+    nextPaymentDatePresent: Boolean(String(preapproval?.next_payment_date || "").trim()),
   });
 }
 
@@ -433,6 +447,22 @@ function assertRemotePreapprovalIdentity(remote, attempt, preapprovalId, endpoin
     error.endpointPath = endpointPath;
     throw error;
   }
+}
+
+function reconciliationAttemptUpdate(cause, now = new Date()) {
+  return {
+    $set: {
+      status: SUBSCRIPTION_ATTEMPT_STATUS.RECONCILIATION_REQUIRED,
+      cancelRequestedAt: null,
+      cancelRequestId: "",
+      reconciliationReason: cause?.classificationReason || "remote_status_not_supported",
+      reconciliationRequestedAt: now,
+      lastRemoteStatus: String(cause?.remoteStatus || ""),
+      lastRemoteCheckedAt: now,
+      erro: "Estado remoto exige reconciliação manual.",
+    },
+    $inc: { reconciliationAttempts: 1 },
+  };
 }
 
 async function cancelarPreapprovalRemoto(
@@ -454,10 +484,14 @@ async function cancelarPreapprovalRemoto(
   if (classification.alreadyCancelled) return { action: "cancel", status: remote.status };
   if (classification.canAbandonLocally) return { action: "abandon", status: "not_applicable" };
   if (classification.requiresReconciliation) {
-    const error = new Error("O estado remoto da tentativa exige reconciliação.");
+    const error = new Error("Não foi possível confirmar o estado da tentativa.");
     error.code = "SUBSCRIPTION_ATTEMPT_REQUIRES_RECONCILIATION";
     error.stage = "preapproval_cancel_classification";
     error.endpointPath = endpointPath;
+    error.responseReceived = true;
+    error.httpStatus = 200;
+    error.remoteStatus = classification.remoteStatus;
+    error.classificationReason = "remote_status_not_supported";
     throw error;
   }
   let cancelled;
@@ -480,14 +514,23 @@ async function cancelarPreapprovalRemoto(
     classification = classifyRemotePreapproval(remote);
     if (classification.alreadyCancelled) return { action: "cancel", status: remote.status };
     if (classification.canAbandonLocally) return { action: "abandon", status: "not_applicable" };
+    if (classification.requiresReconciliation) {
+      const error = new Error("Não foi possível confirmar o estado da tentativa.");
+      error.code = "SUBSCRIPTION_ATTEMPT_REQUIRES_RECONCILIATION";
+      error.stage = "preapproval_cancel_classification";
+      error.endpointPath = endpointPath;
+      error.responseReceived = true;
+      error.httpStatus = 200;
+      error.remoteStatus = classification.remoteStatus;
+      error.classificationReason = "remote_status_not_supported_after_cancel_rejection";
+      throw error;
+    }
     const error = new Error(
       cause?.providerResponse?.providerMessage
       || "O Mercado Pago rejeitou o cancelamento remoto.",
       { cause },
     );
-    error.code = classification.requiresReconciliation
-      ? "SUBSCRIPTION_ATTEMPT_REQUIRES_RECONCILIATION"
-      : "SUBSCRIPTION_REMOTE_CANCEL_REJECTED";
+    error.code = "SUBSCRIPTION_REMOTE_CANCEL_REJECTED";
     error.operation = cause?.operation;
     error.stage = "preapproval_cancel_rejected";
     error.endpointPath = endpointPath;
@@ -659,7 +702,13 @@ exports.cancelarTentativaAtiva = async (req, res) => {
       ativa: true,
       status: { $in: CANCELLABLE_ATTEMPT_STATUSES },
       expiresAt: { $gt: new Date() },
-      cancelRequestedAt: null,
+      $or: [
+        { cancelRequestedAt: null },
+        {
+          status: SUBSCRIPTION_ATTEMPT_STATUS.RECONCILIATION_REQUIRED,
+          cancelRequestId: { $in: ["", null] },
+        },
+      ],
     }, {
       $set: { cancelRequestedAt: new Date(), cancelRequestId },
     }, { returnDocument: "after" });
@@ -688,7 +737,7 @@ exports.cancelarTentativaAtiva = async (req, res) => {
         return res.status(200).json({
           ok: true,
           code: "SUBSCRIPTION_ATTEMPT_ALREADY_CANCELLED",
-          message: "Tentativa já cancelada.",
+          message: "A tentativa já estava cancelada.",
         });
       }
       const nonCancellable = await AssinaturaTentativa.findOne({
@@ -723,13 +772,7 @@ exports.cancelarTentativaAtiva = async (req, res) => {
           estabelecimentoId: estabId,
           cancelRequestId,
           ativa: true,
-        }, {
-          $set: {
-            status: SUBSCRIPTION_ATTEMPT_STATUS.RECONCILIATION_REQUIRED,
-            cancelRequestId: "",
-            erro: "Estado remoto exige reconciliação manual.",
-          },
-        }).catch(() => {});
+        }, reconciliationAttemptUpdate(cause)).catch(() => {});
         throw cause;
       }
       await AssinaturaTentativa.updateOne({
@@ -784,7 +827,7 @@ exports.cancelarTentativaAtiva = async (req, res) => {
         return res.status(200).json({
           ok: true,
           code: "SUBSCRIPTION_ATTEMPT_ALREADY_CANCELLED",
-          message: "Tentativa já cancelada.",
+          message: "A tentativa já estava cancelada.",
         });
       }
       return res.status(409).json({
@@ -800,7 +843,7 @@ exports.cancelarTentativaAtiva = async (req, res) => {
         ? "SUBSCRIPTION_ATTEMPT_ABANDONED"
         : "SUBSCRIPTION_ATTEMPT_CANCELLED",
       message: remote.action === "abandon"
-        ? "A tentativa de cartão foi cancelada."
+        ? "A tentativa de cartão foi descartada."
         : "Tentativa cancelada.",
     });
   } catch (error) {
@@ -820,7 +863,9 @@ exports.cancelarTentativaAtiva = async (req, res) => {
     return res.status(status).json({
       ok: false,
       code: responseCode,
-      message: error.message,
+      message: error.code === "SUBSCRIPTION_ATTEMPT_REQUIRES_RECONCILIATION"
+        ? "Não foi possível confirmar o estado da tentativa."
+        : error.message,
       correlationId: error.correlationId,
     });
   }
@@ -1343,26 +1388,86 @@ exports.statusPagamentoPedido = async (req, res) => {
   });
 };
 
-function eventData(req) {
-  const bodyType = String(req.body?.type || "").trim();
-  const queryType = String(req.query?.type || "").trim();
-  const resourceType = bodyType || queryType;
-  const action = String(req.body?.action || req.query?.action || resourceType).trim();
-  const bodyResourceId = req.body?.data?.id;
-  const queryResourceId = req.query?.["data.id"];
-  if (bodyType && queryType && bodyType !== queryType) {
-    throw new Error("Tipo de recurso divergente.");
+function webhookPayloadError(code, message) {
+  const error = new Error(message);
+  error.name = "MercadoPagoWebhookPayloadError";
+  error.code = code;
+  error.stage = "webhook_event_extract";
+  error.httpStatus = 400;
+  return error;
+}
+
+function extractMercadoPagoWebhookEvent(req) {
+  const typeCandidates = [
+    req.body?.type,
+    req.body?.topic,
+    req.query?.type,
+    req.query?.topic,
+  ].map(value => String(value || "").trim()).filter(Boolean);
+  const normalizedTypes = typeCandidates.map(value => (
+    value === "preapproval" ? "subscription_preapproval" : value
+  ));
+  if (new Set(normalizedTypes).size > 1) {
+    throw webhookPayloadError("WEBHOOK_EVENT_TYPE_DIVERGENT", "Tipo de recurso divergente.");
   }
-  if (bodyResourceId && queryResourceId
-    && String(bodyResourceId) !== String(queryResourceId)) {
-    throw new Error("Identificador de recurso divergente.");
+  const resourceType = normalizedTypes[0] || "";
+  const idCandidates = [
+    req.body?.data?.id,
+    req.query?.["data.id"],
+    req.body?.id,
+    req.query?.id,
+  ].map(value => String(value || "").trim()).filter(Boolean);
+  if (new Set(idCandidates).size > 1) {
+    throw webhookPayloadError("WEBHOOK_RESOURCE_ID_DIVERGENT", "Identificador de recurso divergente.");
   }
-  const resourceId = bodyResourceId || queryResourceId;
+  const resourceId = idCandidates[0] || "";
+  const eventAction = String(req.body?.action || req.query?.action || resourceType).trim();
+  if (!resourceId) {
+    throw webhookPayloadError("WEBHOOK_RESOURCE_ID_MISSING", "Identificador do recurso ausente.");
+  }
   if (!["payment", "subscription_preapproval"].includes(resourceType)) {
-    throw new Error("Tipo de evento não suportado.");
+    throw webhookPayloadError("WEBHOOK_EVENT_TYPE_UNSUPPORTED", "Tipo de evento não suportado.");
   }
-  if (!resourceId || action.length > 120) throw new Error("Evento malformado.");
-  return { resourceType, action, resourceId: String(resourceId) };
+  if (!eventAction || eventAction.length > 120) {
+    throw webhookPayloadError("WEBHOOK_EVENT_ACTION_INVALID", "Ação do evento inválida.");
+  }
+  return {
+    resourceId,
+    eventType: resourceType,
+    eventAction,
+    resourceType,
+    action: eventAction,
+  };
+}
+
+const eventData = extractMercadoPagoWebhookEvent;
+
+function webhookDiagnostic(error, req, data = {}, context = {}) {
+  const sanitized = sanitizeMercadoPagoError(error);
+  const resourceId = String(data.resourceId || "");
+  return {
+    correlationId: String(req?.correlationId || "") || null,
+    operation: "mercado_pago_webhook",
+    stage: sanitized.stage || String(context.stage || "webhook_unknown"),
+    method: String(req?.method || "POST").slice(0, 10),
+    path: String(req?.path || req?.originalUrl || "/webhook/mercado-pago").split("?")[0].slice(0, 200),
+    eventType: String(data.eventType || data.resourceType || "").slice(0, 80) || null,
+    eventAction: String(data.eventAction || data.action || "").slice(0, 120) || null,
+    resourceIdSuffix: resourceId.slice(-8) || null,
+    signaturePresent: Boolean(req?.get?.("x-signature")),
+    requestIdPresent: Boolean(req?.get?.("x-request-id")),
+    signatureValid: Boolean(context.signatureValid),
+    httpStatus: sanitized.status,
+    responseStatus: Number(context.responseStatus || 0) || null,
+    providerCode: sanitized.providerCode,
+    providerMessage: sanitized.providerMessage,
+    providerCauses: sanitized.providerCauses,
+    responseReceived: sanitized.responseReceived,
+    timeout: sanitized.timeout,
+    errorName: sanitized.errorName,
+    errorMessage: sanitized.message,
+    causeName: sanitized.causeName,
+  };
 }
 
 function webhookEventKey({
@@ -1743,16 +1848,17 @@ async function processWebhookEvent(event, loaded) {
 
 exports.webhook = async (req, res) => {
   let event;
-  let authenticated = false;
+  let data = {};
+  let signatureValid = false;
   try {
-    const data = eventData(req);
+    data = extractMercadoPagoWebhookEvent(req);
     const authenticity = validateMercadoPagoWebhook({
       signatureHeader: req.get("x-signature"),
       requestId: req.get("x-request-id"),
       resourceId: data.resourceId,
       secret: process.env.MERCADO_PAGO_WEBHOOK_SECRET,
     });
-    authenticated = true;
+    signatureValid = true;
     const loaded = await loadWebhookResource(data);
     if (String(loaded.resource?.id || "") !== String(authenticity.resourceId)) {
       throw new Error("Recurso financeiro retornado é divergente.");
@@ -1787,19 +1893,29 @@ exports.webhook = async (req, res) => {
         && event.processandoEm
         && Date.now() - new Date(event.processandoEm).getTime() < 5 * 60_000;
       if (event?.status === "processado" || processingIsRecent) {
-        return res.status(200).json({ received: true, duplicate: true });
+        return res.status(200).json({
+          ok: true,
+          code: "WEBHOOK_ALREADY_PROCESSED",
+          received: true,
+          duplicate: true,
+        });
       }
     }
 
     const claimed = await claimEvent(event);
-    if (!claimed) return res.status(200).json({ received: true, duplicate: true });
+    if (!claimed) return res.status(200).json({
+      ok: true,
+      code: "WEBHOOK_ALREADY_PROCESSED",
+      received: true,
+      duplicate: true,
+    });
     event = claimed;
     await processWebhookEvent(event, loaded);
     event.status = "processado";
     event.processadoEm = new Date();
     event.erro = "";
     await event.save();
-    return res.status(200).json({ received: true });
+    return res.status(200).json({ ok: true, code: "WEBHOOK_ACCEPTED", received: true });
   } catch (error) {
     if (event?._id) {
       await PaymentEvent.updateOne(
@@ -1811,15 +1927,40 @@ exports.webhook = async (req, res) => {
           },
         },
       ).catch(() => {});
-      console.error("Webhook Mercado Pago:", sanitizeMercadoPagoError(error));
-      return res.status(503).json({ received: false });
+      console.error("mercado_pago_webhook_error", webhookDiagnostic(error, req, data, {
+        signatureValid,
+        responseStatus: 503,
+      }));
+      return res.status(503).json({
+        ok: false,
+        code: error.code || "WEBHOOK_PROCESSING_RETRYABLE",
+        received: false,
+        correlationId: String(req.correlationId || ""),
+      });
     }
-    if (authenticated) {
-      console.error("Webhook Mercado Pago não persistido:", sanitizeMercadoPagoError(error));
-      return res.status(503).json({ received: false });
+    if (signatureValid) {
+      console.error("mercado_pago_webhook_error", webhookDiagnostic(error, req, data, {
+        signatureValid,
+        responseStatus: 503,
+      }));
+      return res.status(503).json({
+        ok: false,
+        code: error.code || "WEBHOOK_PROVIDER_RETRYABLE",
+        received: false,
+        correlationId: String(req.correlationId || ""),
+      });
     }
-    console.warn("Webhook Mercado Pago rejeitado:", sanitizeMercadoPagoError(error));
-    return res.status(401).json({ received: false });
+    const responseStatus = Number(error?.httpStatus || 401);
+    console.warn("mercado_pago_webhook_rejected", webhookDiagnostic(error, req, data, {
+      signatureValid,
+      responseStatus,
+    }));
+    return res.status(responseStatus).json({
+      ok: false,
+      code: error.code || "WEBHOOK_SIGNATURE_INVALID",
+      received: false,
+      correlationId: String(req.correlationId || ""),
+    });
   }
 };
 
@@ -1832,6 +1973,7 @@ exports._testing = {
   claimEvent,
   consumeOauthState,
   eventData,
+  extractMercadoPagoWebhookEvent,
   expirarTentativasVencidas,
   financialEffectiveDate,
   financialEventShouldApply,
@@ -1841,10 +1983,12 @@ exports._testing = {
   processOrderPayment,
   processPreapproval,
   processSubscriptionPayment,
+  reconciliationAttemptUpdate,
   subscriptionReference,
   tentativaPublica,
   attemptReference,
   webhookEventKey,
+  webhookDiagnostic,
   mercadoPagoConfigStatus,
   validarRedirectMercadoPago,
 };

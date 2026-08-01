@@ -7,6 +7,7 @@ const path = require("node:path");
 const test = require("node:test");
 const models = require("../src/models/painelModels");
 const pagamento = require("../src/controllers/pagamentoController");
+const { platformErrorLog } = require("../src/services/mercadoPagoPlatformService");
 const {
   BLOCKING_ATTEMPT_STATUSES,
   CANCELLABLE_ATTEMPT_STATUSES,
@@ -59,9 +60,13 @@ test("estados bloqueadores são centralizados e excluem estados terminais", () =
   }
 });
 
-test("modelo preserva cancelamento, autor e solicitação de corrida", () => {
+test("modelo preserva cancelamento, autor, claim e diagnóstico de reconciliação", () => {
   const schema = models.AssinaturaTentativa.schema;
-  for (const field of ["cancelRequestedAt", "cancelRequestId", "cancelledAt", "cancelledBy", "remoteCancellationStatus"]) {
+  for (const field of [
+    "cancelRequestedAt", "cancelRequestId", "cancelledAt", "cancelledBy", "remoteCancellationStatus",
+    "reconciliationReason", "reconciliationRequestedAt", "reconciliationAttempts",
+    "lastRemoteStatus", "lastRemoteCheckedAt",
+  ]) {
     assert.ok(schema.path(field), field);
   }
 });
@@ -237,6 +242,109 @@ test("preapproval pending sem pagador é abandonado localmente sem PUT", async (
     if (previous === undefined) delete process.env.MERCADO_PAGO_PLATFORM_USER_ID;
     else process.env.MERCADO_PAGO_PLATFORM_USER_ID = previous;
   }
+});
+
+test("preapproval pending com pagador também é checkout abandonável sem PUT", async () => {
+  const stored = attempt({ mercadoPagoPreapprovalId: "pre-pending-payer" });
+  const calls = [];
+  const previous = process.env.MERCADO_PAGO_PLATFORM_USER_ID;
+  process.env.MERCADO_PAGO_PLATFORM_USER_ID = "platform-1";
+  try {
+    const result = await pagamento._testing.cancelarPreapprovalRemoto(stored, "cancel-key", async (endpoint, options) => {
+      calls.push({ endpoint, options });
+      return {
+        id: "pre-pending-payer",
+        status: "pending",
+        payer_id: "payer-optional",
+        collector_id: "platform-1",
+        external_reference: `assinatura-tentativa:${stored.attemptId}:estabelecimento:${STORE_A}`,
+      };
+    });
+    assert.deepEqual(result, { action: "abandon", status: "not_applicable" });
+    assert.equal(calls.length, 1);
+    assert.equal(calls.some(call => call.options.method === "PUT"), false);
+    assert.equal(pagamento._testing.classifyRemotePreapproval({ status: "pending", payer_id: "payer" }).classification, "checkout_pending");
+  } finally {
+    if (previous === undefined) delete process.env.MERCADO_PAGO_PLATFORM_USER_ID;
+    else process.env.MERCADO_PAGO_PLATFORM_USER_ID = previous;
+  }
+});
+
+test("authorized e paused não dependem de payer_id para permitir canceled", () => {
+  for (const status of ["authorized", "paused"]) {
+    const classification = pagamento._testing.classifyRemotePreapproval({ status });
+    assert.equal(classification.classification, "remote_subscription");
+    assert.equal(classification.canRequestRemoteCancellation, true);
+    assert.equal(classification.requiresReconciliation, false);
+  }
+});
+
+test("status nulo ou desconhecido exige reconciliação com GET 200 registrado", async () => {
+  for (const status of [null, "future_status"]) {
+    const stored = attempt({ mercadoPagoPreapprovalId: "pre-secret-12345678" });
+    const previous = process.env.MERCADO_PAGO_PLATFORM_USER_ID;
+    const originalInfo = console.info;
+    const logs = [];
+    process.env.MERCADO_PAGO_PLATFORM_USER_ID = "platform-1";
+    console.info = (name, data) => logs.push({ name, data });
+    try {
+      await assert.rejects(pagamento._testing.cancelarPreapprovalRemoto(stored, "cancel-key", async () => ({
+        id: "pre-secret-12345678",
+        status,
+        payer_id: "payer-secret",
+        payer_email: "pessoa@example.com",
+        collector_id: "platform-1",
+        external_reference: `assinatura-tentativa:${stored.attemptId}:estabelecimento:${STORE_A}`,
+        init_point: "https://example.invalid/secret",
+        auto_recurring: { currency_id: "BRL", frequency: 1, frequency_type: "months" },
+      })), error => {
+        assert.equal(error.code, "SUBSCRIPTION_ATTEMPT_REQUIRES_RECONCILIATION");
+        assert.equal(error.responseReceived, true);
+        assert.equal(error.httpStatus, 200);
+        assert.equal(error.remoteStatus, status || "");
+        assert.equal(error.classificationReason, "remote_status_not_supported");
+        return true;
+      });
+      assert.equal(logs.length, 1);
+      assert.equal(logs[0].name, "mercado_pago_preapproval_inspection");
+      assert.equal(logs[0].data.preapprovalIdSuffix, "12345678");
+      assert.equal(logs[0].data.remoteStatus, status || null);
+      assert.equal(logs[0].data.payerIdPresent, true);
+      assert.equal(logs[0].data.payerEmailPresent, true);
+      const serialized = JSON.stringify(logs[0]);
+      assert.equal(serialized.includes("pre-secret-12345678"), false);
+      assert.equal(serialized.includes("payer-secret"), false);
+      assert.equal(serialized.includes("pessoa@example.com"), false);
+      assert.equal(serialized.includes("https://example.invalid/secret"), false);
+    } finally {
+      console.info = originalInfo;
+      if (previous === undefined) delete process.env.MERCADO_PAGO_PLATFORM_USER_ID;
+      else process.env.MERCADO_PAGO_PLATFORM_USER_ID = previous;
+    }
+  }
+});
+
+test("erro de classificação registra GET 200 e libera claim para nova tentativa", () => {
+  const error = Object.assign(new Error("Não foi possível confirmar o estado da tentativa."), {
+    code: "SUBSCRIPTION_ATTEMPT_REQUIRES_RECONCILIATION",
+    stage: "preapproval_cancel_classification",
+    responseReceived: true,
+    httpStatus: 200,
+    remoteStatus: "future_status",
+    classificationReason: "remote_status_not_supported",
+  });
+  const logged = platformErrorLog(error, { correlationId: "corr-safe" });
+  assert.equal(logged.responseReceived, true);
+  assert.equal(logged.httpStatus, 200);
+  assert.equal(logged.remoteStatus, "future_status");
+  assert.equal(logged.classificationReason, "remote_status_not_supported");
+
+  const update = pagamento._testing.reconciliationAttemptUpdate(error, new Date("2026-08-01T00:00:00Z"));
+  assert.equal(update.$set.cancelRequestedAt, null);
+  assert.equal(update.$set.cancelRequestId, "");
+  assert.equal(update.$set.lastRemoteStatus, "future_status");
+  assert.equal(update.$inc.reconciliationAttempts, 1);
+  assert.ok(CANCELLABLE_ATTEMPT_STATUSES.includes("reconciliation_required"));
 });
 
 test("preapproval remoto já canceled é idempotente e não envia PUT", async () => {

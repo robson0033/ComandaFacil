@@ -169,6 +169,8 @@ function platformErrorLog(error, context = {}) {
     providerMessage: provider.providerMessage || null,
     providerCauses: Array.isArray(provider.providerCauses) ? provider.providerCauses : [],
     responseReceived: Boolean(error?.responseReceived),
+    remoteStatus: String(error?.remoteStatus || "").slice(0, 40) || null,
+    classificationReason: String(error?.classificationReason || "").slice(0, 100) || null,
     timeout: Boolean(error?.timeout),
     configPresent: platformConfigPresence(),
   };

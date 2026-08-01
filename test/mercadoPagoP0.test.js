@@ -2,6 +2,7 @@
 
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
+const fs = require("node:fs");
 const test = require("node:test");
 const {
   parseSignature,
@@ -67,7 +68,7 @@ test("webhook: cabeçalhos ausentes", () => {
   assert.throws(() => validateMercadoPagoWebhook({
     resourceId: "123",
     secret: "secret",
-  }), /ausentes/);
+  }), { code: "WEBHOOK_SIGNATURE_MISSING" });
 });
 
 test("webhook: timestamp expirado", () => {
@@ -99,12 +100,144 @@ test("webhook: parser aceita ts e v1 sem confiar na ordem", () => {
   });
 });
 
-test("webhook: erro sanitizado não expõe mensagem original", () => {
+test("webhook: erro sanitizado preserva diagnóstico estruturado", () => {
   const result = sanitizeMercadoPagoError(
-    Object.assign(new Error("token super secreto"), { status: 401 }),
+    Object.assign(new Error("Assinatura do webhook inválida."), {
+      status: 401,
+      code: "WEBHOOK_SIGNATURE_INVALID",
+      stage: "webhook_signature_validate",
+    }),
   );
-  assert.equal(result.message, "Falha na integração Mercado Pago (HTTP 401).");
-  assert.doesNotMatch(JSON.stringify(result), /super secreto/);
+  assert.equal(result.message, "Assinatura do webhook inválida.");
+  assert.equal(result.status, 401);
+  assert.equal(result.code, "WEBHOOK_SIGNATURE_INVALID");
+  assert.equal(result.stage, "webhook_signature_validate");
+});
+
+test("webhook: diagnóstico remove token, secret e dados pessoais", () => {
+  const previousToken = process.env.MERCADO_PAGO_ACCESS_TOKEN;
+  const previousSecret = process.env.MERCADO_PAGO_WEBHOOK_SECRET;
+  process.env.MERCADO_PAGO_ACCESS_TOKEN = "APP_USR_TOKEN_SUPER_SECRETO";
+  process.env.MERCADO_PAGO_WEBHOOK_SECRET = "WEBHOOK_SECRET_SUPER_SECRETO";
+  try {
+    const result = sanitizeMercadoPagoError(Object.assign(
+      new Error("Bearer APP_USR_TOKEN_SUPER_SECRETO pessoa@example.com WEBHOOK_SECRET_SUPER_SECRETO"),
+      { providerResponse: { providerMessage: "pessoa@example.com" } },
+    ));
+    const serialized = JSON.stringify(result);
+    assert.doesNotMatch(serialized, /APP_USR_TOKEN_SUPER_SECRETO|WEBHOOK_SECRET_SUPER_SECRETO|pessoa@example\.com/);
+  } finally {
+    if (previousToken === undefined) delete process.env.MERCADO_PAGO_ACCESS_TOKEN;
+    else process.env.MERCADO_PAGO_ACCESS_TOKEN = previousToken;
+    if (previousSecret === undefined) delete process.env.MERCADO_PAGO_WEBHOOK_SECRET;
+    else process.env.MERCADO_PAGO_WEBHOOK_SECRET = previousSecret;
+  }
+});
+
+test("webhook: secret, assinatura e request ID ausentes têm códigos específicos", () => {
+  assert.throws(() => validateMercadoPagoWebhook({ resourceId: "123" }), {
+    code: "WEBHOOK_SECRET_MISSING",
+    httpStatus: 503,
+  });
+  assert.throws(() => validateMercadoPagoWebhook({ resourceId: "123", secret: "secret" }), {
+    code: "WEBHOOK_SIGNATURE_MISSING",
+    httpStatus: 401,
+  });
+  assert.throws(() => validateMercadoPagoWebhook({
+    resourceId: "123",
+    secret: "secret",
+    signatureHeader: "ts=123,v1=abc",
+  }), { code: "WEBHOOK_REQUEST_ID_MISSING" });
+});
+
+test("webhook: extrai IDs de body, query e aliases topic/id", () => {
+  const fixtures = [
+    { body: { type: "payment", data: { id: "pay-body" } }, query: {} },
+    { body: { type: "payment" }, query: { "data.id": "pay-query" } },
+    { body: { topic: "payment", id: "pay-flat" }, query: {} },
+    { body: {}, query: { topic: "preapproval", id: "pre-query" } },
+  ];
+  assert.deepEqual(fixtures.map(value => pagamento._testing.extractMercadoPagoWebhookEvent(value)), [
+    { resourceId: "pay-body", eventType: "payment", eventAction: "payment", resourceType: "payment", action: "payment" },
+    { resourceId: "pay-query", eventType: "payment", eventAction: "payment", resourceType: "payment", action: "payment" },
+    { resourceId: "pay-flat", eventType: "payment", eventAction: "payment", resourceType: "payment", action: "payment" },
+    { resourceId: "pre-query", eventType: "subscription_preapproval", eventAction: "subscription_preapproval", resourceType: "subscription_preapproval", action: "subscription_preapproval" },
+  ]);
+});
+
+test("webhook: ID ausente retorna erro controlado, não INTERNAL_ERROR", async () => {
+  const previousSecret = process.env.MERCADO_PAGO_WEBHOOK_SECRET;
+  process.env.MERCADO_PAGO_WEBHOOK_SECRET = "test-secret";
+  const req = {
+    body: { type: "payment" },
+    query: {},
+    method: "POST",
+    path: "/webhook/mercado-pago",
+    correlationId: "corr-webhook",
+    get() { return undefined; },
+  };
+  const res = {
+    statusCode: 200,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.payload = payload; return this; },
+  };
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  try {
+    await pagamento.webhook(req, res);
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.payload.code, "WEBHOOK_RESOURCE_ID_MISSING");
+    assert.notEqual(res.payload.code, "INTERNAL_ERROR");
+  } finally {
+    console.warn = originalWarn;
+    if (previousSecret === undefined) delete process.env.MERCADO_PAGO_WEBHOOK_SECRET;
+    else process.env.MERCADO_PAGO_WEBHOOK_SECRET = previousSecret;
+  }
+});
+
+test("webhook: diagnóstico preserva causa sem IDs ou assinatura completos", () => {
+  const error = Object.assign(new Error("Pagamento não encontrado."), {
+    code: "not_found",
+    stage: "webhook_resource_lookup",
+    httpStatus: 404,
+    responseReceived: true,
+    providerResponse: { providerCode: "not_found", providerMessage: "Payment not found", providerCauses: [] },
+  });
+  const req = {
+    method: "POST",
+    path: "/webhook/mercado-pago",
+    correlationId: "corr-safe",
+    get(name) { return name === "x-signature" ? "secret-signature" : "request-full"; },
+  };
+  const log = pagamento._testing.webhookDiagnostic(error, req, {
+    resourceId: "payment-full-secret-12345678",
+    eventType: "payment",
+    eventAction: "payment.updated",
+  }, { signatureValid: true, responseStatus: 503 });
+  assert.equal(log.httpStatus, 404);
+  assert.equal(log.providerMessage, "Payment not found");
+  assert.equal(log.stage, "webhook_resource_lookup");
+  assert.equal(log.resourceIdSuffix, "12345678");
+  assert.equal(log.responseStatus, 503);
+  assert.doesNotMatch(JSON.stringify(log), /secret-signature|request-full|payment-full-secret/);
+});
+
+test("webhook: rota é pública e não usa login, sessão, CSRF ou Origin", () => {
+  const source = fs.readFileSync("route.js", "utf8");
+  const match = source.match(/route\.post\(\s*'\/webhook\/mercado-pago',[\s\S]*?\);/);
+  assert.ok(match);
+  assert.match(match[0], /limiteWebhook,[\s\S]*pagamento\.webhook/);
+  assert.doesNotMatch(match[0], /loginRequired|csrf|sess|origin|carregarAssinatura/iu);
+});
+
+test("webhook: controller responde somente JSON, sem flash ou redirect", () => {
+  const source = fs.readFileSync("src/controllers/pagamentoController.js", "utf8");
+  const start = source.indexOf("exports.webhook =");
+  const end = source.indexOf("exports.assinaturaDoUsuario", start);
+  const handler = source.slice(start, end);
+  assert.doesNotMatch(handler, /req\.flash|res\.redirect/);
+  assert.match(handler, /WEBHOOK_ACCEPTED/);
+  assert.match(handler, /WEBHOOK_ALREADY_PROCESSED/);
 });
 
 test("webhook: replay conhecido produz a mesma eventKey", () => {
