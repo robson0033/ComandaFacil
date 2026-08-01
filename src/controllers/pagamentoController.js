@@ -40,6 +40,7 @@ const {
   validatePaymentIdentity,
 } = require("../services/mercadoPagoService");
 const {
+  extractMercadoPagoProviderDetails,
   sanitizeMercadoPagoError,
   validateMercadoPagoWebhook,
 } = require("../middleware/mercadoPagoSecurity");
@@ -681,11 +682,28 @@ async function mp(path, options = {}, accessToken = process.env.MERCADO_PAGO_ACC
         ...(options.headers || {}),
       },
     });
-    const data = await response.json().catch(() => ({}));
+    const rawBody = await response.text();
+    let data = {};
+    if (rawBody) {
+      try {
+        data = JSON.parse(rawBody);
+      } catch {
+        data = { message: rawBody.slice(0, 300) };
+      }
+    }
     if (!response.ok) {
-      const error = new Error("Falha na API do Mercado Pago.");
+      const providerResponse = extractMercadoPagoProviderDetails(data);
+      const error = new Error(
+        providerResponse.providerMessage
+        || `Mercado Pago respondeu HTTP ${response.status}.`,
+      );
+      error.name = "MercadoPagoHttpError";
       error.status = response.status;
-      error.code = data.code || data.error || "";
+      error.httpStatus = response.status;
+      error.code = providerResponse.providerCode || "MERCADO_PAGO_HTTP_ERROR";
+      error.providerResponse = providerResponse;
+      error.responseReceived = true;
+      error.endpointPath = path;
       throw error;
     }
     return data;

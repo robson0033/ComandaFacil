@@ -129,6 +129,34 @@ function validateMercadoPagoWebhook({
   };
 }
 
+
+function extractMercadoPagoProviderDetails(data) {
+  const source = data && typeof data === "object" ? data : {};
+  const rawCauses = Array.isArray(source.cause)
+    ? source.cause
+    : Array.isArray(source.causes)
+      ? source.causes
+      : [];
+  const safe = value => String(value ?? "").trim();
+  return {
+    providerCode: safe(source.code || source.error || source.status) || null,
+    providerMessage: safe(
+      source.message
+      || source.error_description
+      || source.detail
+      || source.title,
+    ).slice(0, 300) || null,
+    providerCauses: rawCauses.slice(0, 10).map(cause => ({
+      code: safe(cause?.code || cause?.error || cause?.type).slice(0, 100) || null,
+      description: safe(
+        cause?.description
+        || cause?.message
+        || cause?.detail,
+      ).slice(0, 240) || null,
+    })),
+  };
+}
+
 function sanitizeMercadoPagoError(error) {
   const status = Number(error?.httpStatus || error?.status || error?.statusCode || 0);
   const code = String(error?.code || "").slice(0, 80);
@@ -168,6 +196,7 @@ function sanitizeMercadoPagoError(error) {
 }
 
 module.exports = {
+  extractMercadoPagoProviderDetails,
   DEFAULT_TOLERANCE_SECONDS,
   normalizeResourceId,
   parseSignature,
