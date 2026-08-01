@@ -48,6 +48,6 @@ test("webhook e fallback priorizam tentativa persistida e legado é explicitamen
   const source = fs.readFileSync("src/controllers/pagamentoController.js", "utf8");
   assert.match(source, /OrderPaymentAttempt\.findOne\(\{ paymentId: data\.resourceId \}\)/);
   assert.match(source, /legacyReference: true/);
-  assert.match(source, /applyOrderPayment\(claimed, payment, attempt\)/);
+  assert.match(source, /applyOrderPayment\(claimed, payment, attempt, "status_fallback"/);
   assert.match(source, /Moeda do pagamento divergente/);
 });

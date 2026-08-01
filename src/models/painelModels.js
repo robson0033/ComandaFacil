@@ -562,6 +562,8 @@ const Pedido = mongoose.model(
 
       telefoneCliente: { type: String, default: "", trim: true },
       telefoneNormalizado: { type: String, default: "", trim: true, index: true },
+      codigoPublico: { type: String, trim: true, uppercase: true },
+      codigoPublicoFinal: { type: String, trim: true, uppercase: true },
       emailCliente: { type: String, default: "", trim: true, lowercase: true },
       enderecoEntrega: { type: String, default: "", trim: true },
       acompanhamentoTokenHash: {
@@ -825,6 +827,23 @@ const Pedido = mongoose.model(
   ),
 );
 
+Pedido.schema.index(
+  { estabelecimentoId: 1, codigoPublico: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { codigoPublico: { $type: "string", $gt: "" } },
+    name: "pedido_codigo_publico_tenant_unico",
+  },
+);
+Pedido.schema.index(
+  {
+    estabelecimentoId: 1,
+    telefoneNormalizado: 1,
+    codigoPublicoFinal: 1,
+    createdAt: -1,
+  },
+  { name: "pedido_consulta_publica_segura" },
+);
 Pedido.schema.index(
   { acompanhamentoTokenHash: 1 },
   {
@@ -1102,6 +1121,12 @@ const printJobSchema = new mongoose.Schema({
     required: true,
     index: true,
   },
+  motivo: {
+    type: String,
+    enum: ["order_created", "payment_approved", "manual"],
+    default: "order_created",
+  },
+  paymentIdSuffix: { type: String, default: "", maxlength: 16 },
   impressoraChave: { type: String, required: true, trim: true },
   impressora: { type: mongoose.Schema.Types.Mixed, required: true },
   estabelecimento: { type: mongoose.Schema.Types.Mixed, required: true },

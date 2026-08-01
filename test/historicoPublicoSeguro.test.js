@@ -233,16 +233,16 @@ test("rate limit separa IP e slug e responde JSON 429", () => {
   assert.equal(bloqueada.body.code, "MUITAS_TENTATIVAS");
 });
 
-test("frontend não usa localStorage como autoridade e exige verificação OTP", () => {
+test("frontend não usa localStorage como autoridade e consulta por telefone e código", () => {
   const view = fs.readFileSync("src/views/catalogo-publico.ejs", "utf8");
   const routes = fs.readFileSync("route.js", "utf8");
   assert.doesNotMatch(view, /pedidos-acompanhamento:\$\{slug\}/);
   assert.doesNotMatch(view, /localStorage\.getItem\(trackingStorageKey/);
-  assert.match(view, /orderLookupIdentifier/);
-  assert.match(view, /orderLookupCode/);
-  assert.match(routes, /pedidos\/consulta\/iniciar/);
-  assert.match(routes, /pedidos\/consulta\/verificar/);
-  assert.match(routes, /pedidos\/consulta\/sair/);
+  assert.match(view, /orderLookupPhone/);
+  assert.match(view, /orderLookupSuffix/);
+  assert.match(view, /orderLookupFull/);
+  assert.match(routes, /pedidos\/consultar/);
+  assert.doesNotMatch(view, /pedidos\/consulta\/(?:iniciar|verificar)/);
   assert.doesNotMatch(routes, /pedido\/:token|pedidos\/:pedidoId\/pix/);
   assert.match(routes, /catalogo\/:slug\/pedido\/consultar/);
   assert.match(routes, /catalogo\/:slug\/pedido\/avaliacao/);

@@ -23,6 +23,10 @@ const { registroModel } = require("../models/registroModel");
 const {
   gerarTokenAcompanhamento,
 } = require("./pedidoPublicoTokenService");
+const {
+  codigoFinal,
+  gerarCodigoPublico,
+} = require("./pedidoPublicCodeService");
 
 const INSTANCE_ID = `${os.hostname()}:${process.pid}:${crypto.randomUUID()}`;
 const MAX_ATTEMPTS = 5;
@@ -55,6 +59,23 @@ function text(value, max) {
 function number(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function isPixOnlineOrder(pedido = {}) {
+  return ["pix", "pix_online"].includes(
+    String(pedido.formaPagamento || "").toLowerCase(),
+  );
+}
+
+function isOrderEligibleForAutomaticPrint(pedido = {}) {
+  if (!pedido || pedido.status === "cancelado" || pedido.excluido === true) {
+    return false;
+  }
+  if (isPixOnlineOrder(pedido)) {
+    return pedido.pagamentoStatus === "pago"
+      && pedido.mercadoPagoStatus === "approved";
+  }
+  return true;
 }
 
 function erroPedidoIndisponivel() {
@@ -138,7 +159,7 @@ async function montarSnapshotValidado({
     },
     pedido: {
       id: String(pedido._id),
-      numero: String(pedido._id).slice(-6).toUpperCase(),
+      numero: text(pedido.codigoPublico, 8),
       origem,
       canal: text(pedido.canal || "retirada", 30),
       mesaNumero,
@@ -187,6 +208,7 @@ async function contextoDoPedido(pedido, options = {}) {
 async function criarJobsAutomaticos(pedido, options = {}) {
   assertAcceptingWork();
   await validarPedidoDisponivel(pedido, { session: options.session });
+  if (!isOrderEligibleForAutomaticPrint(pedido)) return [];
   const { configuracao, dono } = await contextoDoPedido(pedido, options);
   const impressoras = (configuracao?.impressoras || []).filter(item =>
     ["automatica", "manual_automatica"].includes(item.modo));
@@ -204,6 +226,10 @@ async function criarJobsAutomaticos(pedido, options = {}) {
         estabelecimentoId: pedido.estabelecimentoId,
         pedidoId: pedido._id,
         tipo: "automatica",
+        motivo: isPixOnlineOrder(pedido) ? "payment_approved" : "order_created",
+        paymentIdSuffix: isPixOnlineOrder(pedido)
+          ? String(pedido.mercadoPagoPaymentId || "").slice(-8)
+          : "",
         impressoraChave: calcularImpressoraChave(impressora),
         ...snapshot,
         status: "pendente",
@@ -239,6 +265,7 @@ async function criarJobManual({
     estabelecimentoId: pedido.estabelecimentoId,
     pedidoId: pedido._id,
     tipo: "manual",
+    motivo: "manual",
     impressoraChave: calcularImpressoraChave(impressora),
     ...snapshot,
     status: "pendente",
@@ -251,11 +278,14 @@ async function criarJobManual({
   return job;
 }
 
-async function criarPedidoComJobsAutomaticos(dados) {
+async function criarPedidoComJobsAutomaticos(dados, tentativaCodigo = 0) {
   assertAcceptingWork();
   const tokenAcompanhamento = gerarTokenAcompanhamento();
+  const codigoPublico = gerarCodigoPublico();
   const dadosComToken = {
     ...dados,
+    codigoPublico,
+    codigoPublicoFinal: codigoFinal(codigoPublico),
     acompanhamentoTokenHash: tokenAcompanhamento.hash,
     acompanhamentoTokenCriadoEm: tokenAcompanhamento.criadoEm,
     acompanhamentoTokenExpiraEm: tokenAcompanhamento.expiraEm,
@@ -273,11 +303,28 @@ async function criarPedidoComJobsAutomaticos(dados) {
     });
     return pedido;
   } catch (error) {
+    const colisaoCodigo = Number(error?.code) === 11000
+      && (error?.keyPattern?.codigoPublico
+        || String(error?.message || "").includes("pedido_codigo_publico_tenant_unico"));
+    if (colisaoCodigo && tentativaCodigo < 5) {
+      return criarPedidoComJobsAutomaticos(dados, tentativaCodigo + 1);
+    }
     const unsupported = /Transaction numbers|replica set|transactions are not supported/i
       .test(String(error?.message || ""));
     if (!unsupported) throw error;
     console.warn("MongoDB sem transações; usando criação idempotente com reconciliador.");
-    const pedido = await Pedido.create(dadosComToken);
+    let pedido;
+    try {
+      pedido = await Pedido.create(dadosComToken);
+    } catch (fallbackError) {
+      const colisaoFallback = Number(fallbackError?.code) === 11000
+        && (fallbackError?.keyPattern?.codigoPublico
+          || String(fallbackError?.message || "").includes("pedido_codigo_publico_tenant_unico"));
+      if (colisaoFallback && tentativaCodigo < 5) {
+        return criarPedidoComJobsAutomaticos(dados, tentativaCodigo + 1);
+      }
+      throw fallbackError;
+    }
     await criarJobsAutomaticos(pedido);
     Object.defineProperty(pedido, "acompanhamentoToken", {
       value: tokenAcompanhamento.token,
@@ -806,6 +853,8 @@ module.exports = {
   criarJobManual,
   criarJobsAutomaticos,
   criarPedidoComJobsAutomaticos,
+  isOrderEligibleForAutomaticPrint,
+  isPixOnlineOrder,
   drenarFilaDoEstabelecimento,
   montarSnapshotValidado,
   prepararEntrega,

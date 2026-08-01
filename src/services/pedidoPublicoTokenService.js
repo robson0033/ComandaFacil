@@ -57,7 +57,7 @@ async function buscarPedidoPorToken({
 }
 
 function codigoPublico(pedido) {
-  return String(pedido?._id || "").slice(-6).toUpperCase();
+  return String(pedido?.codigoPublico || "").toUpperCase();
 }
 
 function statusPagamentoPublico(status) {

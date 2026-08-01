@@ -173,7 +173,7 @@ test("payloads armazenados não são usados como HTML nos fluxos críticos", () 
   const mesa = fs.readFileSync("src/views/mesa-publica.ejs", "utf8");
   const admin = fs.readFileSync("src/views/admin-real.ejs", "utf8");
   assert.match(catalogo, /name\.textContent = String\(item\.nome/);
-  assert.match(catalogo, /mostrarMensagemPedidos\('orders-error', error\.message\)/);
+  assert.match(catalogo, /mostrarMensagemPedidos\('orders-error', data\.message/);
   assert.equal(
     mesa.includes("querySelector('.cart-item-name').textContent"),
     true,

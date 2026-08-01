@@ -1747,6 +1747,12 @@
     const closePixPaymentModal =
       document.querySelector("#closePixPaymentModal");
 
+    let pixPollingTimer = null;
+    let pixPollingStartedAt = 0;
+    let pixPollingInFlight = false;
+    let pixPollingContext = null;
+    let pixPreviousFocus = null;
+
     const orderForm =
       document.querySelector("#orderForm");
 
@@ -2483,15 +2489,83 @@
     }
 
     function openPixPaymentModal() {
+      pixPreviousFocus = document.activeElement;
       orderModal.classList.remove("open");
       pixPaymentModal.classList.add("open");
       document.body.classList.add("modal-open");
     }
 
     function closePixModal() {
+      if (pixPollingTimer) clearTimeout(pixPollingTimer);
+      pixPollingTimer = null;
+      pixPollingContext = null;
       pixPaymentModal.classList.remove("open");
       document.body.classList.remove("modal-open");
+      document.querySelector("#pixQrImage").removeAttribute("src");
+      document.querySelector("#pixCopyCode").value = "";
+      pixPreviousFocus?.focus?.();
+      pixPreviousFocus = null;
     }
+
+    function pixPollingDelay() {
+      const elapsed = Date.now() - pixPollingStartedAt;
+      if (elapsed < 30_000) return 2_000;
+      if (elapsed < 120_000) return 5_000;
+      return 10_000;
+    }
+
+    function schedulePixPolling(delay = pixPollingDelay()) {
+      if (!pixPollingContext || pixPollingTimer || document.hidden) return;
+      pixPollingTimer = setTimeout(() => {
+        pixPollingTimer = null;
+        void pollPixStatus();
+      }, delay);
+    }
+
+    async function pollPixStatus() {
+      if (!pixPollingContext || pixPollingInFlight || document.hidden) return;
+      pixPollingInFlight = true;
+      try {
+        const statusResponse = await fetch(
+          `/catalogo/${encodeURIComponent(storeSlug)}/pedido/pagamento-status`,
+          { method: "POST", headers: { "Authorization": `Bearer ${pixPollingContext.token}` } }
+        );
+        const statusResult = await statusResponse.json();
+        if (!statusResponse.ok) throw new Error("Falha temporária ao confirmar pagamento.");
+        if (statusResult.pagamentoStatus === "pago") {
+          document.querySelector("#pixPaymentStatus").textContent = "✅ Pagamento aprovado.";
+          const card = document.querySelector(`[data-public-order-code="${CSS.escape(pixPollingContext.codigoPublico)}"]`);
+          const badge = card?.querySelector(".payment-status");
+          if (badge) { badge.className = "customer-order-badge payment-status paid"; badge.textContent = "Pagamento: Pago"; }
+          formMessage.className = "form-message success";
+          formMessage.textContent = "Pagamento confirmado! Seu pedido foi enviado para a loja.";
+          setTimeout(closePixModal, 700);
+          return;
+        }
+        if (["cancelado", "rejected", "cancelled", "canceled", "expired", "refunded", "charged_back"]
+          .includes(String(statusResult.pagamentoStatus || statusResult.status || "").toLowerCase())) {
+          document.querySelector("#pixPaymentStatus").textContent = "Pagamento não aprovado.";
+          if (pixPollingTimer) clearTimeout(pixPollingTimer);
+          pixPollingTimer = null;
+          pixPollingContext = null;
+          return;
+        }
+        schedulePixPolling();
+      } catch (_) {
+        schedulePixPolling();
+      } finally {
+        pixPollingInFlight = false;
+      }
+    }
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        if (pixPollingTimer) clearTimeout(pixPollingTimer);
+        pixPollingTimer = null;
+      } else if (pixPollingContext) {
+        schedulePixPolling(0);
+      }
+    });
 
     function atualizarEndereco() {
       const delivery =
@@ -2692,6 +2766,10 @@
         formMessage.className = "form-message success";
         formMessage.textContent =
           `Pedido #${result.numeroPedido} enviado. Use “Meus pedidos” para acompanhar.`;
+        window.mostrarSucessoPedido?.(
+          result.codigoPublico || result.numeroPedido,
+          result.emailAviso || ""
+        );
         window.registrarPedidoAcompanhamento?.({
           codigoPublico: result.numeroPedido,
           token: result.acompanhamentoToken,
@@ -2727,23 +2805,13 @@
             document.querySelector("#copyPixButton").textContent = "Código copiado";
           };
 
-          const interval = setInterval(async () => {
-            const statusResponse = await fetch(
-              `/catalogo/${encodeURIComponent(storeSlug)}/pedido/pagamento-status`,
-              {
-                method: "POST",
-                headers: {
-                  "Authorization": `Bearer ${result.acompanhamentoToken}`
-                }
-              }
-            );
-            const statusResult = await statusResponse.json();
-            if (statusResult.pagamentoStatus === "pago") {
-              clearInterval(interval);
-              document.querySelector("#pixPaymentStatus").textContent =
-                "✅ Pagamento aprovado. Pedido confirmado!";
-            }
-          }, 5000);
+          if (pixPollingTimer) clearTimeout(pixPollingTimer);
+          pixPollingStartedAt = Date.now();
+          pixPollingContext = {
+            token: result.acompanhamentoToken,
+            codigoPublico: result.codigoPublico || result.numeroPedido
+          };
+          schedulePixPolling(2_000);
         }
 
         cart = [];
@@ -2975,16 +3043,13 @@
       <button type="button" id="closeMyOrders" class="my-orders-close" aria-label="Fechar">✕</button>
     </header>
     <div class="my-orders-body">
-      <p style="margin-top:0;color:#74645d">Informe o telefone ou e-mail usado no pedido. Enviaremos um código para confirmar sua identidade.</p>
-      <form id="orderLookupStart" class="my-orders-form">
-        <label>Telefone ou e-mail<input id="orderLookupIdentifier" required autocomplete="email"></label>
-        <button type="submit">Enviar código de verificação</button>
+      <p style="margin-top:0;color:#74645d">Informe o telefone usado na compra e os últimos quatro caracteres do número do pedido.</p>
+      <form id="orderLookupForm" class="my-orders-form">
+        <label>Telefone usado no pedido<input id="orderLookupPhone" required inputmode="tel" autocomplete="tel"></label>
+        <label>Últimos 4 caracteres do pedido<input id="orderLookupSuffix" required maxlength="4" pattern="[A-Fa-f0-9]{4}" autocomplete="off"></label>
+        <label id="orderLookupFullLabel" hidden>Número completo do pedido<input id="orderLookupFull" maxlength="8" pattern="[A-Fa-f0-9]{8}" autocomplete="off"></label>
+        <button type="button" id="orderLookupButton">Consultar pedido</button>
       </form>
-      <form id="orderLookupVerify" class="my-orders-form" hidden>
-        <label>Código de 6 dígitos<input id="orderLookupCode" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"></label>
-        <button type="submit">Verificar código</button>
-      </form>
-      <button type="button" id="orderLookupLogout" hidden>Sair dos meus pedidos</button>
       <div id="myOrdersResult" class="my-orders-result"></div>
     </div>
   </div>
@@ -3009,6 +3074,27 @@
 >
   Falar no WhatsApp
 </a>
+</dialog>
+
+<dialog id="orderLookupLoading" aria-labelledby="orderLookupLoadingTitle">
+  <div class="my-orders-shell" aria-busy="true">
+    <h2 id="orderLookupLoadingTitle">Consultando pedido...</h2>
+    <p>Aguarde enquanto localizamos as informações.</p>
+  </div>
+</dialog>
+
+<dialog id="orderSuccessDialog">
+  <div class="my-orders-shell">
+    <h2>Pedido realizado com sucesso!</h2>
+    <p>Número do pedido: <strong id="orderSuccessCode"></strong></p>
+    <p>Guarde este número para acompanhar seu pedido.</p>
+    <p id="orderSuccessWarning" hidden></p>
+    <div class="my-orders-form">
+      <button type="button" id="copyOrderCode">Copiar número</button>
+      <button type="button" id="trackCreatedOrder">Acompanhar pedido</button>
+      <button type="button" id="closeOrderSuccess">Fechar</button>
+    </div>
+  </div>
 </dialog>
 
 <script nonce="<%= cspNonce %>">
@@ -3062,6 +3148,7 @@
       );
       const card = document.createElement('article');
       card.className = 'customer-order-card';
+      card.dataset.publicOrderCode = String(order.codigoPublico || '');
       card.innerHTML = '<div class="customer-order-head"><div><div class="customer-order-number"></div><div class="customer-order-date"></div></div><div class="customer-order-badges"><span class="customer-order-badge order-status"></span><span class="customer-order-badge payment-status"></span></div></div><div class="customer-order-delivery"><strong>Entrega: </strong><span></span></div><div class="customer-order-message"></div><div class="customer-order-items"></div><div class="customer-order-footer"><div class="customer-order-total"></div></div>';
       card.querySelector('.customer-order-number').textContent =
         `Pedido #${String(order.codigoPublico || '')}`;
@@ -3114,18 +3201,6 @@
     resultBox.replaceChildren(...cards);
   }
 
-  async function carregarPedidos() {
-    try {
-      mostrarMensagemPedidos('orders-loading', 'Atualizando pedidos...');
-      const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/pedidos/consulta`);
-      const data = await response.json();
-      if (!response.ok) throw new Error('Verifique sua identidade para consultar os pedidos.');
-      renderOrders(data.pedidos || []);
-    } catch (error) {
-      mostrarMensagemPedidos('orders-error', error.message);
-    }
-  }
-
   document.querySelector('#openMyOrders').onclick = async () => {
     dialog.showModal();
   };
@@ -3133,38 +3208,90 @@
   dialog.addEventListener('click', event => {
     if (event.target === dialog) dialog.close();
   });
-  const startForm = document.querySelector('#orderLookupStart');
-  const verifyForm = document.querySelector('#orderLookupVerify');
-  const logoutButton = document.querySelector('#orderLookupLogout');
-  startForm.addEventListener('submit', async event => {
-    event.preventDefault();
-    const identificador = document.querySelector('#orderLookupIdentifier').value.trim();
-    const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/pedidos/consulta/iniciar`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identificador })
-    });
-    const data = await response.json();
-    mostrarMensagemPedidos('orders-loading', data.message);
-    verifyForm.hidden = false;
+  const lookupButton = document.querySelector('#orderLookupButton');
+  const lookupPhone = document.querySelector('#orderLookupPhone');
+  const lookupSuffix = document.querySelector('#orderLookupSuffix');
+  const lookupFull = document.querySelector('#orderLookupFull');
+  const lookupFullLabel = document.querySelector('#orderLookupFullLabel');
+  const loadingDialog = document.querySelector('#orderLookupLoading');
+  let consultaEmAndamento = false;
+
+  async function parseJsonSafe(response) {
+    try { return await response.json(); } catch (_) {
+      return { ok: false, message: 'A resposta do servidor não pôde ser lida.' };
+    }
+  }
+
+  lookupButton.addEventListener('click', async () => {
+    if (consultaEmAndamento) return;
+    const telefone = lookupPhone.value.replace(/\D/g, '').slice(-11);
+    const codigoFinal = lookupSuffix.value.trim().toUpperCase();
+    const codigoCompleto = lookupFullLabel.hidden
+      ? ''
+      : lookupFull.value.trim().toUpperCase();
+    if (telefone.length < 10 || !/^[A-F0-9]{4}$/.test(codigoFinal)
+      || (!lookupFullLabel.hidden && !/^[A-F0-9]{8}$/.test(codigoCompleto))) {
+      mostrarMensagemPedidos('orders-error', 'Informe um telefone válido e o código solicitado.');
+      return;
+    }
+    consultaEmAndamento = true;
+    lookupButton.disabled = true;
+    lookupButton.textContent = 'Consultando...';
+    loadingDialog.showModal();
+    try {
+      const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/pedidos/consultar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telefone, codigoFinal, ...(codigoCompleto ? { codigoCompleto } : {}) })
+      });
+      const data = await parseJsonSafe(response);
+      if (!response.ok || !data.ok) {
+        if (data.code === 'ORDER_LOOKUP_FULL_CODE_REQUIRED') {
+          lookupFullLabel.hidden = false;
+          lookupFull.focus();
+        }
+        mostrarMensagemPedidos('orders-error', data.message || 'Não foi possível localizar o pedido com os dados informados.');
+        return;
+      }
+      renderOrders([data.pedido]);
+    } catch (_) {
+      mostrarMensagemPedidos('orders-error', 'Não foi possível consultar o pedido agora.');
+    } finally {
+      if (loadingDialog.open) loadingDialog.close();
+      document.body.style.overflow = '';
+      document.body.removeAttribute('aria-busy');
+      consultaEmAndamento = false;
+      lookupButton.disabled = false;
+      lookupButton.textContent = 'Consultar pedido';
+      lookupButton.focus();
+    }
   });
-  verifyForm.addEventListener('submit', async event => {
-    event.preventDefault();
-    const identificador = document.querySelector('#orderLookupIdentifier').value.trim();
-    const codigo = document.querySelector('#orderLookupCode').value.trim();
-    const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/pedidos/consulta/verificar`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identificador, codigo })
-    });
-    const data = await response.json();
-    if (!response.ok) return mostrarMensagemPedidos('orders-error', data.message || 'Código inválido.');
-    startForm.hidden = true; verifyForm.hidden = true; logoutButton.hidden = false;
-    await carregarPedidos();
+
+  const successDialog = document.querySelector('#orderSuccessDialog');
+  let ultimoCodigoPublico = '';
+  window.mostrarSucessoPedido = (codigo, aviso) => {
+    ultimoCodigoPublico = String(codigo || '').toUpperCase();
+    document.querySelector('#orderSuccessCode').textContent = `#${ultimoCodigoPublico}`;
+    const warning = document.querySelector('#orderSuccessWarning');
+    warning.textContent = String(aviso || '');
+    warning.hidden = !aviso;
+    successDialog.showModal();
+  };
+  document.querySelector('#copyOrderCode').addEventListener('click', async event => {
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(ultimoCodigoPublico);
+      else {
+        const area = document.createElement('textarea');
+        area.value = ultimoCodigoPublico; area.readOnly = true; area.style.position = 'fixed'; area.style.opacity = '0';
+        document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove();
+      }
+      event.currentTarget.textContent = 'Número copiado';
+    } catch (_) { event.currentTarget.textContent = 'Não foi possível copiar'; }
   });
-  logoutButton.addEventListener('click', async () => {
-    await fetch(`/catalogo/${encodeURIComponent(slug)}/pedidos/consulta/sair`, { method: 'POST' });
-    resultBox.replaceChildren(); startForm.hidden = false; verifyForm.hidden = true; logoutButton.hidden = true;
-    document.querySelector('#orderLookupCode').value = '';
+  document.querySelector('#trackCreatedOrder').addEventListener('click', () => {
+    successDialog.close(); dialog.showModal(); lookupSuffix.value = ultimoCodigoPublico.slice(-4); lookupPhone.focus();
   });
+  document.querySelector('#closeOrderSuccess').addEventListener('click', () => successDialog.close());
   resultBox.addEventListener('click', async event => {
     const button = event.target.closest('[data-rate-product]');
     if (!button) return;

@@ -105,7 +105,10 @@ test("criação automática gera um job por impressora", async t => {
     printer({ deviceName: "Cozinha" }),
     printer({ deviceName: "Caixa", modo: "manual_automatica" }),
   ];
-  const jobs = await queue.criarJobsAutomaticos(order(), {
+  const jobs = await queue.criarJobsAutomaticos(order({
+    pagamentoStatus: "pago",
+    mercadoPagoStatus: "approved",
+  }), {
     configuracao: config(printers),
     dono: { cpfCnpj: "" },
   });
@@ -134,11 +137,49 @@ test("erro de índice duplicado é tratado como idempotência", async t => {
     throw error;
   };
   t.after(() => { PrintJob.create = original; });
-  const jobs = await queue.criarJobsAutomaticos(order(), {
+  const jobs = await queue.criarJobsAutomaticos(order({
+    pagamentoStatus: "pago",
+    mercadoPagoStatus: "approved",
+  }), {
     configuracao: config([printer()]),
     dono: {},
   });
   assert.deepEqual(jobs, []);
+});
+
+test("Pix pendente ou não aprovado nunca cria job automático", async t => {
+  const original = PrintJob.create;
+  let calls = 0;
+  PrintJob.create = async () => { calls += 1; };
+  t.after(() => { PrintJob.create = original; });
+  const options = { configuracao: config([printer()]), dono: {} };
+  for (const mercadoPagoStatus of [
+    "pending", "in_process", "rejected", "expired", "cancelled", "refunded",
+  ]) {
+    await queue.criarJobsAutomaticos(order({ mercadoPagoStatus }), options);
+  }
+  assert.equal(calls, 0);
+});
+
+test("Pix aprovado cria snapshot pago com motivo financeiro", async t => {
+  const original = PrintJob.create;
+  let created;
+  PrintJob.create = async docs => {
+    [created] = docs;
+    return [created];
+  };
+  t.after(() => { PrintJob.create = original; });
+  await queue.criarJobsAutomaticos(order({
+    pagamentoStatus: "pago",
+    mercadoPagoStatus: "approved",
+    formaPagamento: "pix_online",
+    mercadoPagoPaymentId: "123456789",
+    pagoEm: new Date(),
+  }), { configuracao: config([printer()]), dono: {} });
+  assert.equal(created.motivo, "payment_approved");
+  assert.equal(created.paymentIdSuffix, "23456789");
+  assert.equal(created.pedido.pagamentoStatus, "pago");
+  assert.equal(created.pedido.formaPagamento, "pix_online");
 });
 
 test("duas impressões manuais intencionais recebem jobIds diferentes", async t => {

@@ -25,6 +25,7 @@ const {
   extrairBearerToken,
 } = require("../services/pedidoPublicoTokenService");
 const { baixarEstoqueDoPedido, restaurarEstoqueDoPedido } = require("../services/estoqueService");
+const printQueueService = require("../services/printQueueService");
 const { registroModel } = require("../models/registroModel");
 const {
   paidPeriod,
@@ -1418,7 +1419,7 @@ exports.gerarPixPedido = async (req, res) => {
     attempt.lastCheckedAt = new Date();
     await attempt.save();
 
-    pedido.formaPagamento = "pix";
+    pedido.formaPagamento = "pix_online";
     pedido.mercadoPagoPaymentId = String(data.id);
     pedido.mercadoPagoStatus = String(data.status || "pending");
     pedido.pixCopiaCola = data.point_of_interaction?.transaction_data?.qr_code || "";
@@ -1459,7 +1460,7 @@ exports.statusPagamentoPedido = async (req, res) => {
   });
   if (!pedido) return res.status(404).json({ success: false, message: "Pedido não encontrado." });
   const cooldownPassed = !pedido.mercadoPagoLastCheckedAt
-    || Date.now() - new Date(pedido.mercadoPagoLastCheckedAt).getTime() >= 5_000;
+    || Date.now() - new Date(pedido.mercadoPagoLastCheckedAt).getTime() >= 2_500;
   if (pedido.pagamentoStatus === "pendente" && pedido.mercadoPagoPaymentId && cooldownPassed) {
     const claimed = await Pedido.findOneAndUpdate({
       _id: pedido._id,
@@ -1470,7 +1471,7 @@ exports.statusPagamentoPedido = async (req, res) => {
         { mercadoPagoCheckLockedUntil: { $lt: new Date() } },
       ],
     }, { $set: {
-      mercadoPagoCheckLockedUntil: new Date(Date.now() + 10_000),
+      mercadoPagoCheckLockedUntil: new Date(Date.now() + 5_000),
       mercadoPagoLastCheckedAt: new Date(),
     } }, { returnDocument: "after" });
     if (claimed) {
@@ -1499,7 +1500,7 @@ exports.statusPagamentoPedido = async (req, res) => {
           });
         }
         const payment = await mp(`/v1/payments/${encodeURIComponent(claimed.mercadoPagoPaymentId)}`, {}, accessToken);
-        await applyOrderPayment(claimed, payment, attempt);
+        await applyOrderPayment(claimed, payment, attempt, "status_fallback", req.correlationId);
       } finally {
         await Pedido.updateOne({ _id: pedido._id }, { $set: { mercadoPagoCheckLockedUntil: null } });
       }
@@ -1509,6 +1510,7 @@ exports.statusPagamentoPedido = async (req, res) => {
   return res.json({
     success: true,
     pagamentoStatus: current?.pagamentoStatus || pedido.pagamentoStatus,
+    status: current?.mercadoPagoStatus || pedido.mercadoPagoStatus || "pending",
     pagoEm: current?.pagoEm || null,
   });
 };
@@ -1666,7 +1668,82 @@ async function claimEvent(eventDocument) {
   );
 }
 
-async function applyOrderPayment(pedido, payment, attempt = null) {
+async function processApprovedOrderPayment({
+  pedido,
+  payment,
+  attempt = null,
+  confirmationSource = "webhook",
+  correlationId = "",
+}) {
+  const startedAt = Date.now();
+  const approvedAt = payment.date_approved
+    ? new Date(payment.date_approved)
+    : new Date();
+  if (pedido.status === "cancelado") {
+    await Pedido.updateOne({
+      _id: pedido._id,
+      estabelecimentoId: pedido.estabelecimentoId,
+    }, { $set: {
+      pagamentoInconsistente: true,
+      pagamentoInconsistencia: "Pagamento aprovado após cancelamento do pedido.",
+      mercadoPagoStatus: "approved",
+    } });
+    return { pedido, stateTransitionApplied: false, jobs: [] };
+  }
+
+  assertStockCompleted(await baixarEstoqueDoPedido(pedido._id));
+  const transitioned = await Pedido.findOneAndUpdate({
+    _id: pedido._id,
+    estabelecimentoId: pedido.estabelecimentoId,
+    pagamentoStatus: { $ne: "pago" },
+    status: { $ne: "cancelado" },
+  }, { $set: {
+    pagamentoStatus: "pago",
+    pagoEm: approvedAt,
+    mercadoPagoPaymentId: String(payment.id),
+    mercadoPagoStatus: "approved",
+    formaPagamento: "pix_online",
+  } }, { returnDocument: "after" });
+
+  let jobs = [];
+  if (transitioned) {
+    await Pedido.updateOne({ _id: transitioned._id }, { $push: {
+      historicoFinanceiro: {
+        paymentId: String(payment.id),
+        status: "approved",
+        formaPagamento: "pix_online",
+        registradoEm: new Date(),
+      },
+    } });
+    jobs = await printQueueService.criarJobsAutomaticos(transitioned);
+  }
+  const current = transitioned || await Pedido.findOne({
+    _id: pedido._id,
+    estabelecimentoId: pedido.estabelecimentoId,
+  });
+  console.info("order_pix_confirmation", {
+    operation: "order_pix_confirmation",
+    stage: "approved_processed",
+    orderIdSuffix: String(pedido._id).slice(-6),
+    paymentIdSuffix: String(payment.id).slice(-8),
+    paymentStatus: "approved",
+    stateTransitionApplied: Boolean(transitioned),
+    printJobCreated: jobs.length > 0,
+    printJobDeduplicated: Boolean(transitioned) && jobs.length === 0,
+    confirmationSource,
+    durationMs: Date.now() - startedAt,
+    correlationId: String(correlationId || "").slice(0, 100),
+  });
+  return { pedido: current, stateTransitionApplied: Boolean(transitioned), jobs };
+}
+
+async function applyOrderPayment(
+  pedido,
+  payment,
+  attempt = null,
+  confirmationSource = "webhook",
+  correlationId = "",
+) {
   const { cfg } = await configuracaoComToken(pedido.estabelecimentoId);
   const expectedReference = attempt?.externalReference || `pedido:${pedido._id}`;
   if (attempt) {
@@ -1701,22 +1778,19 @@ async function applyOrderPayment(pedido, payment, attempt = null) {
       externalReference: expectedReference,
       collectorId: attempt?.expectedCollectorId || cfg.mercadoPago.userId,
     });
-    if (pedido.status === "cancelado") {
-      pedido.pagamentoInconsistente = true;
-      pedido.pagamentoInconsistencia = "Pagamento aprovado após cancelamento do pedido.";
-      await pedido.save();
-      return;
-    }
-    if (pedido.pagamentoStatus !== "pago") {
-      assertStockCompleted(await baixarEstoqueDoPedido(pedido._id));
-      pedido.pagamentoStatus = "pago";
-      pedido.pagoEm = payment.date_approved ? new Date(payment.date_approved) : new Date();
-    }
+    const approved = await processApprovedOrderPayment({
+      pedido,
+      payment,
+      attempt,
+      confirmationSource,
+      correlationId,
+    });
+    pedido = approved.pedido || pedido;
   } else if (["cancelled", "rejected", "refunded", "charged_back"].includes(payment.status)) {
     assertStockCompleted(await restaurarEstoqueDoPedido(pedido._id));
     pedido.pagamentoStatus = "cancelado";
   }
-  await pedido.save();
+  if (payment.status !== "approved") await pedido.save();
   if (attempt) {
     attempt.status = String(payment.status || attempt.status);
     attempt.lastCheckedAt = new Date();
@@ -1735,7 +1809,7 @@ async function processOrderPayment(event, pedido, payment, attempt = null) {
   if (attempt && event.eventKey && !attempt.webhookEvents.includes(event.eventKey)) {
     attempt.webhookEvents.push(event.eventKey);
   }
-  return applyOrderPayment(pedido, payment, attempt);
+  return applyOrderPayment(pedido, payment, attempt, "webhook", event?.requestId);
 }
 
 function parseSubscriptionReference(value) {
@@ -2196,6 +2270,7 @@ exports._testing = {
   parseSubscriptionReference,
   parseSubscriptionPixResponse,
   processOrderPayment,
+  processApprovedOrderPayment,
   processPreapproval,
   processSubscriptionPayment,
   reconciliationAttemptUpdate,

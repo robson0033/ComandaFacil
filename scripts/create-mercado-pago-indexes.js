@@ -13,6 +13,7 @@ const {
   Pedido,
   OrderPaymentAttempt,
   PrintAgent,
+  PrintJob,
 } = require("../src/models/painelModels");
 const { registroModel } = require("../src/models/registroModel");
 
@@ -73,6 +74,27 @@ const definitions = [
     model: Pedido,
     key: { estabelecimentoId: 1, excluido: 1, createdAt: -1 },
     options: { name: "pedido_estabelecimento_excluido_data" },
+    expectedType: "objectId",
+  },
+  {
+    model: Pedido,
+    key: { estabelecimentoId: 1, codigoPublico: 1 },
+    options: {
+      unique: true,
+      partialFilterExpression: { codigoPublico: { $type: "string", $gt: "" } },
+      name: "pedido_codigo_publico_tenant_unico",
+    },
+    expectedType: "objectId",
+  },
+  {
+    model: Pedido,
+    key: {
+      estabelecimentoId: 1,
+      telefoneNormalizado: 1,
+      codigoPublicoFinal: 1,
+      createdAt: -1,
+    },
+    options: { name: "pedido_consulta_publica_segura" },
     expectedType: "objectId",
   },
   {
@@ -182,6 +204,21 @@ const definitions = [
     expectedType: "objectId",
   },
   {
+    model: PrintJob,
+    key: {
+      estabelecimentoId: 1,
+      pedidoId: 1,
+      impressoraChave: 1,
+      tipo: 1,
+    },
+    options: {
+      unique: true,
+      partialFilterExpression: { tipo: "automatica" },
+      name: "printjob_automatico_unico",
+    },
+    expectedType: "objectId",
+  },
+  {
     model: PrintAgent,
     key: { tokenHash: 1 },
     options: {
@@ -232,6 +269,8 @@ const purposes = {
   assinatura_estabelecimento_unico: "manter uma assinatura canônica por loja",
   configuracao_estabelecimento_unico: "manter uma configuração canônica por loja",
   pedido_estabelecimento_excluido_data: "listar pedidos da loja por exclusão e data",
+  pedido_codigo_publico_tenant_unico: "garantir código público único dentro da loja",
+  pedido_consulta_publica_segura: "consultar pedido por loja, telefone e final do código",
   auditoria_operation_key_unico: "deduplicar uma operação auditada",
   auditoria_estabelecimento_data: "consultar auditoria da loja em ordem temporal",
   pedido_acompanhamento_token_hash_unico: "impedir compartilhamento de token de acompanhamento",
@@ -245,6 +284,7 @@ const purposes = {
   print_agent_estabelecimento_unico: "manter um agente de impressão por loja",
   print_agent_token_hash_unico: "impedir reutilização do token do agente",
   print_agent_codigo_ativo_unico: "impedir reutilização do código de vínculo ativo",
+  printjob_automatico_unico: "impedir mais de um job automático por loja, pedido e impressora",
   oauth_state_hash_unico: "garantir state OAuth de uso único",
   oauth_state_expiracao_ttl: "remover state OAuth depois da data de expiração",
 };
@@ -382,9 +422,13 @@ async function inspectUniqueData(collection, definition) {
         : {}),
     },
   };
+  const keyFields = Object.keys(definition.key);
+  const groupId = keyFields.length === 1
+    ? `$${field}`
+    : Object.fromEntries(keyFields.map(key => [key, `$${key}`]));
   const duplicateGroups = await collection.aggregate([
     { $match: combineMatch(base, validMatch) },
-    { $group: { _id: `$${field}`, quantidade: { $sum: 1 } } },
+    { $group: { _id: groupId, quantidade: { $sum: 1 } } },
     { $match: { quantidade: { $gt: 1 } } },
     {
       $group: {

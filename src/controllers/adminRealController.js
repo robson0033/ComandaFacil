@@ -19,7 +19,10 @@ const {
   PrintJob,
   OrderLookupVerification,
 } = require("../models/painelModels");
-const { enviarCodigoConsultaPedidos } = require("../services/emailService");
+const {
+  enviarCodigoConsultaPedidos,
+  enviarConfirmacaoPedido,
+} = require("../services/emailService");
 
 const printAgentHub = require("../services/printAgentHub");
 const printQueueService = require("../services/printQueueService");
@@ -46,6 +49,11 @@ const {
   extrairBearerToken,
   serializarPedidoPublico,
 } = require("../services/pedidoPublicoTokenService");
+const {
+  codigoFinalValido,
+  codigoPublicoValido,
+  normalizarCodigoPublico,
+} = require("../services/pedidoPublicCodeService");
 const {
   carregarIdentidadeAtual,
   encerrarSessao,
@@ -7104,10 +7112,9 @@ exports.criarPedidoCatalogo =
             configuracao.estabelecimentoId,
 
           cliente,
-          emailCliente:
-            formaPagamento === "pix"
-              ? emailCliente
-              : "",
+          emailCliente: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente)
+            ? emailCliente
+            : "",
           telefoneCliente: telefone,
           telefoneNormalizado:
             normalizarTelefonePublico(telefone),
@@ -7152,16 +7159,39 @@ exports.criarPedidoCatalogo =
               : null,
         });
 
+      let emailAviso = "";
+      if (pedido.emailCliente) {
+        try {
+          const proprietario = await registroModel.findById(
+            configuracao.estabelecimentoId,
+          ).select("email").lean();
+          await enviarConfirmacaoPedido({
+            email: pedido.emailCliente,
+            cliente,
+            codigoPublico: pedido.codigoPublico,
+            nomeLoja: configuracao.nomeEstabelecimento,
+            emailLoja: proprietario?.email,
+            total,
+            acompanhamentoUrl: `${obterBaseUrl(req)}/catalogo/${encodeURIComponent(configuracao.slug)}#meus-pedidos`,
+          });
+        } catch (emailError) {
+          emailAviso = "Pedido criado, mas não foi possível enviar o e-mail. Guarde o número do pedido.";
+          console.warn("order_confirmation_email_failed", {
+            correlationId: req.correlationId,
+            stage: "confirmation_email",
+          });
+        }
+      }
+
       return res.status(201).json({
         success: true,
 
         message:
           "Pedido enviado com sucesso.",
 
-        numeroPedido:
-          String(pedido._id)
-            .slice(-6)
-            .toUpperCase(),
+        numeroPedido: pedido.codigoPublico,
+        codigoPublico: pedido.codigoPublico,
+        emailAviso,
         acompanhamentoToken:
           pedido.acompanhamentoToken,
         acompanhamentoTokenExpiraEm:
@@ -7190,6 +7220,97 @@ exports.criarPedidoCatalogo =
 function normalizarTelefonePublico(value = "") {
   return String(value).replace(/\D/g, "").slice(-11);
 }
+
+function mascararEnderecoPublico(value = "") {
+  const texto = String(value || "").trim();
+  if (!texto) return "";
+  const [logradouro = "", numero = ""] = texto.split(",");
+  const palavras = logradouro.split(/\s+/).filter(Boolean).map((palavra, indice) =>
+    indice === 0 || palavra.length < 3
+      ? palavra
+      : `${palavra[0]}${"*".repeat(Math.min(4, palavra.length - 1))}`);
+  return `${palavras.join(" ")}${numero ? ", nº ***" : ""}`.slice(0, 180);
+}
+
+function serializarConsultaPublica(pedido) {
+  return {
+    codigoPublico: String(pedido.codigoPublico || ""),
+    data: pedido.createdAt,
+    status: pedido.status,
+    pagamentoStatus: pedido.pagamentoStatus,
+    formaEntrega: pedido.canal,
+    itens: (pedido.itens || []).slice(0, 100).map(item => ({
+      nome: String(item.nome || "Item").slice(0, 160),
+      quantidade: Math.max(1, Number(item.quantidade) || 1),
+    })),
+    total: Number(pedido.total || 0),
+    previsao: pedido.previsaoEntrega || null,
+    enderecoResumido: pedido.canal === "delivery"
+      ? mascararEnderecoPublico(pedido.enderecoEntrega)
+      : "",
+  };
+}
+
+exports.consultarPedidoPublico = async (req, res) => {
+  const startedAt = Date.now();
+  const generic = () => res.status(404).json({
+    ok: false,
+    code: "ORDER_LOOKUP_NOT_FOUND",
+    message: "Não foi possível localizar o pedido com os dados informados.",
+  });
+  try {
+    const telefone = normalizarTelefonePublico(req.body?.telefone);
+    const codigoRecebido = normalizarCodigoPublico(
+      req.body?.codigoCompleto || req.body?.codigoFinal,
+    );
+    const completo = Boolean(req.body?.codigoCompleto);
+    if (telefone.length < 10
+      || (completo ? !codigoPublicoValido(codigoRecebido) : !codigoFinalValido(codigoRecebido))) {
+      return res.status(400).json({
+        ok: false,
+        code: "ORDER_LOOKUP_INVALID_INPUT",
+        message: "Informe um telefone válido e quatro caracteres do pedido.",
+      });
+    }
+    const configuracao = await Configuracao.findOne({ slug: req.params.slug })
+      .select("estabelecimentoId timezone").lean();
+    if (!configuracao) return generic();
+    const filtro = {
+      estabelecimentoId: configuracao.estabelecimentoId,
+      telefoneNormalizado: telefone,
+      excluido: { $ne: true },
+      createdAt: { $gte: new Date(Date.now() - 90 * 86400000) },
+      ...(completo
+        ? { codigoPublico: codigoRecebido }
+        : { codigoPublicoFinal: codigoRecebido }),
+    };
+    const pedidos = await Pedido.find(filtro)
+      .select("codigoPublico createdAt status pagamentoStatus canal itens.nome itens.quantidade total previsaoEntrega enderecoEntrega")
+      .sort({ createdAt: -1 }).limit(2).lean();
+    if (!pedidos.length) return generic();
+    if (!completo && pedidos.length > 1) {
+      return res.status(409).json({
+        ok: false,
+        code: "ORDER_LOOKUP_FULL_CODE_REQUIRED",
+        message: "Encontramos mais de um pedido. Informe o número completo do pedido.",
+      });
+    }
+    return res.json({ ok: true, pedido: serializarConsultaPublica(pedidos[0]) });
+  } catch (error) {
+    console.warn("order_public_lookup_failed", {
+      correlationId: req.correlationId,
+      stage: "lookup",
+    });
+    return res.status(500).json({
+      ok: false,
+      code: "ORDER_LOOKUP_FAILED",
+      message: "Não foi possível consultar o pedido agora.",
+    });
+  } finally {
+    const remaining = 180 - (Date.now() - startedAt);
+    if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining));
+  }
+};
 
 const ORDER_LOOKUP_GENERIC = {
   ok: true,
@@ -7661,6 +7782,14 @@ exports.imprimirPedidoRemoto = async (req, res) => {
       registroModel.findById(lojaId).select("cpfCnpj").lean(),
     ]);
     if (!pedido) return res.status(404).json({ success: false, message: "Pedido não encontrado." });
+    if (["pix", "pix_online"].includes(String(pedido.formaPagamento || ""))
+      && pedido.pagamentoStatus !== "pago") {
+      return res.status(409).json({
+        success: false,
+        code: "PIX_PAYMENT_REQUIRED_FOR_PRINT",
+        message: "A impressão do pedido Pix será liberada após a confirmação do pagamento.",
+      });
+    }
     const impressoras = (configuracao?.impressoras || []).filter(item =>
       ["manual", "manual_automatica"].includes(item.modo));
     if (!impressoras.length) {
