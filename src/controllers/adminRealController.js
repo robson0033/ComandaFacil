@@ -5375,9 +5375,10 @@ exports.arquivarPedido = async (req, res) => {
             pedido.telefoneCliente ||
             '',
 
-          email:
-            pedido.emailCliente ||
-            '',
+          rua: pedido.ruaEntrega || '',
+          numeroEndereco: pedido.numeroEntrega || '',
+          bairro: pedido.bairroEntrega || '',
+          referencia: pedido.referenciaEntrega || '',
 
           formaPagamento:
             pedido.formaPagamento ||
@@ -5669,16 +5670,6 @@ const criarPedidoCatalogoAnterior = async (
     };
 
     const formaPagamento = aliasesPagamento[formaPagamentoBruta] || 'nao_informado';
-
-    if (formaPagamento === 'pix') {
-      const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente);
-      if (!emailValido) {
-        return res.status(400).json({
-          success: false,
-          message: 'Informe um e-mail válido para gerar o pagamento Pix.',
-        });
-      }
-    }
 
     const precisaTroco = formaPagamento === 'dinheiro' &&
       ['true', '1', 'sim', 'on'].includes(String(req.body.precisaTroco || '').toLowerCase());
@@ -6760,21 +6751,18 @@ exports.criarPedidoCatalogo =
         req.body.canal || "",
       ).trim();
 
-      const enderecoEntrega =
-        String(
-          req.body.enderecoEntrega ||
-            "",
-        ).trim();
+      const ruaEntrega = String(req.body.ruaEntrega || "").trim();
+      const numeroEntrega = String(req.body.numeroEntrega || "").trim();
+      const bairroEntrega = String(req.body.bairroEntrega || "").trim();
+      const referenciaEntrega = String(req.body.referenciaEntrega || "").trim();
+      const enderecoEntrega = [ruaEntrega, numeroEntrega, bairroEntrega]
+        .filter(Boolean)
+        .join(", ");
 
       const observacao = String(
         req.body.observacao || "",
       ).trim();
 
-      const emailCliente = String(
-        req.body.emailCliente || req.body.email || "",
-      )
-        .trim()
-        .toLowerCase();
 
       // A forma de pagamento precisa ser lida nesta função, pois esta é a
       // implementação final exportada pelo controller. Aceita também nomes
@@ -6803,19 +6791,6 @@ exports.criarPedidoCatalogo =
       const formaPagamento =
         mapaFormaPagamento[formaPagamentoOriginal] ||
         "nao_informado";
-
-      if (formaPagamento === "pix") {
-        const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-          emailCliente,
-        );
-
-        if (!emailValido) {
-          return res.status(400).json({
-            success: false,
-            message: "Informe um e-mail válido para gerar o pagamento Pix.",
-          });
-        }
-      }
 
       const precisaTroco =
         formaPagamento === "dinheiro" &&
@@ -6877,12 +6852,12 @@ exports.criarPedidoCatalogo =
 
       if (
         canal === "delivery" &&
-        !enderecoEntrega
+        (!ruaEntrega || !numeroEntrega || !bairroEntrega)
       ) {
         return res.status(400).json({
           success: false,
           message:
-            "Informe o endereço de entrega.",
+            "Informe rua, número e bairro para a entrega.",
         });
       }
 
@@ -7145,19 +7120,18 @@ exports.criarPedidoCatalogo =
             configuracao.estabelecimentoId,
 
           cliente,
-          emailCliente: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente)
-            ? emailCliente
-            : "",
+          emailCliente: "",
           telefoneCliente: telefone,
           telefoneNormalizado:
             normalizarTelefonePublico(telefone),
 
           canal,
 
-          enderecoEntrega:
-            canal === "delivery"
-              ? enderecoEntrega
-              : "",
+          enderecoEntrega: canal === "delivery" ? enderecoEntrega : "",
+          ruaEntrega: canal === "delivery" ? ruaEntrega : "",
+          numeroEntrega: canal === "delivery" ? numeroEntrega : "",
+          bairroEntrega: canal === "delivery" ? bairroEntrega : "",
+          referenciaEntrega: canal === "delivery" ? referenciaEntrega : "",
 
           itens,
           observacao,
@@ -7192,29 +7166,7 @@ exports.criarPedidoCatalogo =
               : null,
         });
 
-      let emailAviso = "";
-      if (pedido.emailCliente) {
-        try {
-          const proprietario = await registroModel.findById(
-            configuracao.estabelecimentoId,
-          ).select("email").lean();
-          await enviarConfirmacaoPedido({
-            email: pedido.emailCliente,
-            cliente,
-            codigoPublico: pedido.codigoPublico,
-            nomeLoja: configuracao.nomeEstabelecimento,
-            emailLoja: proprietario?.email,
-            total,
-            acompanhamentoUrl: `${obterBaseUrl(req)}/catalogo/${encodeURIComponent(configuracao.slug)}#meus-pedidos`,
-          });
-        } catch (emailError) {
-          emailAviso = "Pedido criado, mas não foi possível enviar o e-mail. Guarde o número do pedido.";
-          console.warn("order_confirmation_email_failed", {
-            correlationId: req.correlationId,
-            stage: "confirmation_email",
-          });
-        }
-      }
+      const emailAviso = "";
 
       return res.status(201).json({
         success: true,

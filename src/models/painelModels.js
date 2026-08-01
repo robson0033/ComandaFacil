@@ -569,6 +569,10 @@ const Pedido = mongoose.model(
       codigoPublicoFinal: { type: String, trim: true, uppercase: true },
       emailCliente: { type: String, default: "", trim: true, lowercase: true },
       enderecoEntrega: { type: String, default: "", trim: true },
+      ruaEntrega: { type: String, default: "", trim: true, maxlength: 180 },
+      numeroEntrega: { type: String, default: "", trim: true, maxlength: 40 },
+      bairroEntrega: { type: String, default: "", trim: true, maxlength: 120 },
+      referenciaEntrega: { type: String, default: "", trim: true, maxlength: 240 },
       acompanhamentoTokenHash: {
         type: String,
         select: false,

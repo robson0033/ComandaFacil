@@ -3708,7 +3708,10 @@
             String(pedido._id).slice(-6).toUpperCase(),
             pedido.cliente,
             pedido.telefoneCliente,
-            pedido.emailCliente,
+            pedido.ruaEntrega,
+            pedido.numeroEntrega,
+            pedido.bairroEntrega,
+            pedido.referenciaEntrega,
             pedido.enderecoEntrega
           ].filter(Boolean).join(' ').toLowerCase() %>"
         >
@@ -3755,10 +3758,12 @@
               <%= pedido.cliente || 'Cliente não informado' %>
             </div>
 
-            <div>
-              <strong>E-mail:</strong>
-              <%= pedido.emailCliente || 'Não informado' %>
-            </div>
+            <% if (pedido.canal === 'delivery') { %>
+              <div><strong>Rua:</strong> <%= pedido.ruaEntrega || pedido.enderecoEntrega || 'Não informado' %></div>
+              <div><strong>Número:</strong> <%= pedido.numeroEntrega || 'Não informado' %></div>
+              <div><strong>Bairro:</strong> <%= pedido.bairroEntrega || 'Não informado' %></div>
+              <div><strong>Referência:</strong> <%= pedido.referenciaEntrega || 'Não informado' %></div>
+            <% } %>
 
             <% if (pedido.telefoneCliente) { %>
               <div>
@@ -8261,10 +8266,6 @@ function criarCardPedido(
       ${escaparHtml(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ')}
     </div>
 
-    <div style="margin-top:7px;">
-      <strong>E-mail:</strong>
-      ${escaparHtml(pedido.email || 'Não informado')}
-    </div>
 
     ${
       pedido.telefone
@@ -8298,19 +8299,12 @@ function criarCardPedido(
       </div>
     ` : ''}
 
-    ${
-      pedido.canal === 'delivery' &&
-      pedido.endereco
-        ? `
-          <div style="margin-top:7px;">
-            <strong>Endereço:</strong>
-            ${escaparHtml(
-              pedido.endereco
-            )}
-          </div>
-        `
-        : ''
-    }
+    ${pedido.canal === 'delivery' ? `
+      <div style="margin-top:7px;"><strong>Rua:</strong> ${escaparHtml(pedido.rua || pedido.endereco || 'Não informado')}</div>
+      <div style="margin-top:7px;"><strong>Número:</strong> ${escaparHtml(pedido.numeroEndereco || 'Não informado')}</div>
+      <div style="margin-top:7px;"><strong>Bairro:</strong> ${escaparHtml(pedido.bairro || 'Não informado')}</div>
+      <div style="margin-top:7px;"><strong>Referência:</strong> ${escaparHtml(pedido.referencia || 'Não informado')}</div>
+    ` : ''}
 
     <div class="order-items">
       ${criarHtmlItensPedido(

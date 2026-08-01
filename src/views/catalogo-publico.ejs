@@ -1475,20 +1475,24 @@
           </select>
         </div>
 
-        <div
-          class="form-field full"
-          id="enderecoField"
-        >
-          <label for="enderecoEntrega">
-            Endereço de entrega
-          </label>
+        <div class="form-field full delivery-address-field" id="enderecoField">
+          <label for="ruaEntrega">Rua</label>
+          <input id="ruaEntrega" name="ruaEntrega" placeholder="Nome da rua" required>
+        </div>
 
-          <input
-            id="enderecoEntrega"
-            name="enderecoEntrega"
-            placeholder="Rua, número, bairro e referência"
-            required
-          >
+        <div class="form-field delivery-address-field">
+          <label for="numeroEntrega">Número</label>
+          <input id="numeroEntrega" name="numeroEntrega" placeholder="Ex.: 03" required>
+        </div>
+
+        <div class="form-field delivery-address-field">
+          <label for="bairroEntrega">Bairro</label>
+          <input id="bairroEntrega" name="bairroEntrega" placeholder="Nome do bairro" required>
+        </div>
+
+        <div class="form-field full delivery-address-field">
+          <label for="referenciaEntrega">Ponto de referência</label>
+          <input id="referenciaEntrega" name="referenciaEntrega" placeholder="Ex.: próximo à praça">
         </div>
 
         <div class="form-field full">
@@ -1498,18 +1502,6 @@
             <option value="dinheiro">Dinheiro na entrega/retirada</option>
             <option value="cartao">Cartão na entrega/retirada</option>
           </select>
-        </div>
-
-        <div class="form-field full hidden" id="emailPixField">
-          <label for="emailPix">E-mail para o pagamento Pix</label>
-          <input
-            type="email"
-            id="emailPix"
-            name="emailPix"
-            placeholder="cliente@email.com"
-            autocomplete="email"
-          >
-          <small style="display:block;margin-top:6px;color:#786b66">O Mercado Pago exige um e-mail válido para gerar o Pix.</small>
         </div>
 
         <div class="form-field full">
@@ -1762,8 +1754,10 @@
     const enderecoField =
       document.querySelector("#enderecoField");
 
-    const enderecoEntrega =
-      document.querySelector("#enderecoEntrega");
+    const ruaEntrega = document.querySelector("#ruaEntrega");
+    const numeroEntrega = document.querySelector("#numeroEntrega");
+    const bairroEntrega = document.querySelector("#bairroEntrega");
+    const referenciaEntrega = document.querySelector("#referenciaEntrega");
 
     const observacaoFinal =
       document.querySelector("#observacaoFinal");
@@ -2572,16 +2566,18 @@
         canalPedido.value ===
         "delivery";
 
-      enderecoField.classList.toggle(
-        "hidden",
-        !delivery
-      );
+      document.querySelectorAll(".delivery-address-field").forEach(field => {
+        field.classList.toggle("hidden", !delivery);
+      });
 
-      enderecoEntrega.required =
-        delivery;
+      [ruaEntrega, numeroEntrega, bairroEntrega].forEach(input => {
+        if (input) input.required = delivery;
+      });
 
       if (!delivery) {
-        enderecoEntrega.value = "";
+        [ruaEntrega, numeroEntrega, bairroEntrega, referenciaEntrega].forEach(input => {
+          if (input) input.value = "";
+        });
       }
     }
 
@@ -2645,20 +2641,6 @@
         }
       }
     );
-
-    const formaPagamentoSelect = document.querySelector("#formaPagamento");
-    const emailPixField = document.querySelector("#emailPixField");
-    const emailPixInput = document.querySelector("#emailPix");
-
-    function atualizarCampoEmailPix() {
-      const pixSelecionado = formaPagamentoSelect.value === "pix";
-      emailPixField.classList.toggle("hidden", !pixSelecionado);
-      emailPixInput.required = pixSelecionado;
-      if (!pixSelecionado) emailPixInput.value = "";
-    }
-
-    formaPagamentoSelect.addEventListener("change", atualizarCampoEmailPix);
-    atualizarCampoEmailPix();
 
     const trocoModal = document.querySelector("#trocoModal");
     const closeTrocoModalBtn = document.querySelector("#closeTrocoModal");
@@ -2930,10 +2912,12 @@
         cliente: String(formData.get("cliente") || "").trim(),
         telefone: String(formData.get("telefone") || "").trim(),
         canal: String(formData.get("canal") || ""),
-        enderecoEntrega: String(formData.get("enderecoEntrega") || "").trim(),
+        ruaEntrega: String(formData.get("ruaEntrega") || "").trim(),
+        numeroEntrega: String(formData.get("numeroEntrega") || "").trim(),
+        bairroEntrega: String(formData.get("bairroEntrega") || "").trim(),
+        referenciaEntrega: String(formData.get("referenciaEntrega") || "").trim(),
         observacao: String(formData.get("observacao") || "").trim(),
         formaPagamento: String(formData.get("formaPagamento") || "nao_informado"),
-        emailCliente: String(formData.get("emailPix") || "").trim().toLowerCase(),
         precisaTroco: false,
         trocoPara: null,
         itens: cart.map(item => ({
@@ -2946,15 +2930,6 @@
           observacao: String(item.observacao || "")
         }))
       };
-
-      if (payload.formaPagamento === "pix") {
-        const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.emailCliente);
-        if (!emailValido) {
-          formMessage.className = "form-message error";
-          formMessage.textContent = "Informe um e-mail válido para gerar o pagamento Pix.";
-          emailPixInput.focus();
-          return;
-        }
       }
 
       if (payload.formaPagamento === "dinheiro") {

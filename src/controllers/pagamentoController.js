@@ -70,6 +70,20 @@ const estabelecimentoId = req =>
   req.session.user.estabelecimentoId || req.session.user.id;
 const baseUrl = req =>
   String(process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+const getPixTechnicalPayerEmail = () => {
+  const candidates = [
+    process.env.MERCADO_PAGO_PIX_PAYER_EMAIL,
+    process.env.SMTP_FROM,
+    process.env.SMTP_USER,
+  ];
+  for (const candidate of candidates) {
+    const match = String(candidate || "").match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    if (match) return match[0].toLowerCase();
+  }
+  const error = new Error("E-mail técnico do Pix não configurado.");
+  error.code = "PIX_PAYER_EMAIL_NOT_CONFIGURED";
+  throw error;
+};
 const platformCollectorId = () => {
   const value = String(process.env.MERCADO_PAGO_PLATFORM_USER_ID || "").trim();
   if (!value) throw new Error("Conta principal da plataforma não configurada.");
@@ -1508,13 +1522,7 @@ exports.gerarPixPedido = async (req, res) => {
       collectorId: cfgPrivada.mercadoPago.userId,
       feeSnapshot,
     });
-    const emailCliente = String(pedido.emailCliente || "").trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente)) {
-      return res.status(400).json({
-        success: false,
-        message: "Informe um e-mail válido para gerar o pagamento Pix.",
-      });
-    }
+    const payerEmail = getPixTechnicalPayerEmail();
 
     const data = await mp("/v1/payments", {
       method: "POST",
@@ -1526,7 +1534,7 @@ exports.gerarPixPedido = async (req, res) => {
         payment_method_id: "pix",
         external_reference: attempt.externalReference,
         notification_url: `${baseUrl(req)}/webhook/mercado-pago`,
-        payer: { email: emailCliente, first_name: pedido.cliente || "Cliente" },
+        payer: { email: payerEmail, first_name: pedido.cliente || "Cliente" },
       }),
     }, accessToken);
     if (!data.id) throw new Error("Resposta de pagamento inválida.");
@@ -1577,6 +1585,13 @@ exports.gerarPixPedido = async (req, res) => {
         success: false,
         code: error.code,
         message: "Pix online temporariamente indisponível. A loja precisa aceitar os termos dos pagamentos online.",
+      });
+    }
+    if (error?.code === "PIX_PAYER_EMAIL_NOT_CONFIGURED") {
+      return res.status(503).json({
+        success: false,
+        code: error.code,
+        message: "Pix online temporariamente indisponível. A loja precisa concluir a configuração do pagamento.",
       });
     }
     return res.status(status >= 400 && status < 500 ? status : 502).json({
