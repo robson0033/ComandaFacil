@@ -134,7 +134,7 @@ test("JSON embutido em EJS passa exclusivamente pelo helper central", () => {
     .map(match => match[1].trim())
     .filter(value => !value.startsWith("lojaDisponivel"));
   assert.equal(
-    rawOutputs.every(value => value.startsWith("safeJsonForHtml(")),
+    rawOutputs.every(value => value.startsWith("safeJsonForHtml(") || value.startsWith("include(")),
     true,
   );
   assert.doesNotMatch(source, /<%-\s*JSON\.stringify/);

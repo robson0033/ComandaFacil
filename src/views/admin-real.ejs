@@ -10,6 +10,7 @@
   <meta name="csrf-token" content="<%= csrfToken %>">
 
   <title>ComandaFacíl | Painel Administrativo</title>
+  <link rel="stylesheet" href="/assets/css/admin-loading.css">
 
   <style>
     * {
@@ -3346,7 +3347,7 @@
             </strong>
           </div>
 
-          <form action="/login/logout" method="POST" style="margin:0">
+          <form action="/login/logout" method="POST" style="margin:0" data-admin-loading-skip>
             <input type="hidden" name="_csrf" value="<%= csrfToken %>">
             <button class="logout" type="submit">Sair</button>
           </form>
@@ -6840,6 +6841,8 @@
   id="orderToastContainer"
 ></div>
 
+  <%- include('includes/admin-loading') %>
+  <script src="/js/adminLoading.js" nonce="<%= cspNonce %>"></script>
   <script nonce="<%= cspNonce %>">
     const mutatingAdminMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
     const secoesPainelPermitidas = new Set([
@@ -6920,13 +6923,14 @@
       setTimeout(() => toast.remove(), 6000);
     }
 
-    async function adminFetch(resource, options = {}) {
-      const method = String(options.method || 'GET').toUpperCase();
+    async function adminFetch(resource, options = {}, loadingOptions = {}) {
+      const { skipAdminLoading = false, ...fetchOptions } = options;
+      const method = String(fetchOptions.method || 'GET').toUpperCase();
       const target = new URL(String(resource), window.location.href);
       const sameAdminOrigin =
         target.origin === window.location.origin &&
         target.pathname.startsWith('/admin');
-      const headers = new Headers(options.headers || {});
+      const headers = new Headers(fetchOptions.headers || {});
       if (sameAdminOrigin && mutatingAdminMethods.has(method)) {
         const csrfToken = obterCsrfTokenAtual();
         if (!csrfToken) {
@@ -6935,18 +6939,34 @@
           throw error;
         }
         headers.set('X-CSRF-Token', csrfToken);
-        if (options.body instanceof FormData) {
-          options.body.set('_csrf', csrfToken);
+        if (fetchOptions.body instanceof FormData) {
+          fetchOptions.body.set('_csrf', csrfToken);
         }
       }
       if (sameAdminOrigin && !headers.has('Accept')) {
         headers.set('Accept', 'application/json');
       }
-      const response = await window.fetch(resource, {
-        ...options,
+      const request = () => window.fetch(resource, {
+        ...fetchOptions,
         credentials: 'same-origin',
         headers
       });
+      const action = loadingOptions.action || (
+        /pagamento|payment/i.test(target.pathname) ? 'payment' :
+        method === 'DELETE' || /excluir|arquivar|remover/i.test(target.pathname) ? 'delete' :
+        /cancelar|desconectar/i.test(target.pathname) ? 'cancel' :
+        fetchOptions.body instanceof FormData ? 'upload' :
+        method === 'POST' ? 'save' : 'update'
+      );
+      const shouldShowLoading = sameAdminOrigin
+        && mutatingAdminMethods.has(method)
+        && !skipAdminLoading;
+      const response = shouldShowLoading
+        ? await window.AdminLoading.run(
+          request,
+          window.AdminLoading.messages[action] || window.AdminLoading.messages.default
+        )
+        : await request();
       if (response.status === 401) {
         const payload = await response.clone().json().catch(() => ({}));
         mostrarErroAdministrativo(payload);
@@ -8625,7 +8645,7 @@ document.addEventListener(
       try {
         const response = await adminFetch(
           `${printAgentUrl}/network/scan`,
-          { method: 'POST' }
+          { method: 'POST', skipAdminLoading: true }
         );
 
         const result = await response.json();
@@ -8707,6 +8727,7 @@ document.addEventListener(
           `${printAgentUrl}/teste`,
           {
             method: 'POST',
+            skipAdminLoading: true,
             headers: {
               'Content-Type':
                 'application/json'
@@ -8800,7 +8821,7 @@ async function imprimirPedido(
   modo = 'manual'
 ) {
   const response = await adminFetch(`/admin/agente/pedidos/${encodeURIComponent(pedidoId)}/imprimir`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ modo })
+    method: 'POST', skipAdminLoading: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ modo })
   });
 
   const result = await response.json();
@@ -8877,6 +8898,7 @@ async function acompanharJobsImpressao(jobIds, button) {
         `${printAgentUrl}/jobs/${encodeURIComponent(jobId)}/reconcile`,
         {
           method: 'POST',
+          skipAdminLoading: true,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action })
         }
@@ -9674,6 +9696,49 @@ if (podeReceberNotificacoes) {
         button.disabled = false;
         button.textContent = textoOriginal;
         mostrarErroAdministrativo({ message: error.message });
+      }
+    });
+
+    document.addEventListener('submit', event => {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement) || event.defaultPrevented) return;
+      if (form.matches('[data-admin-loading-skip]')) return;
+      const method = String(form.method || 'GET').toUpperCase();
+      const target = new URL(form.action || window.location.href, window.location.href);
+      if (!mutatingAdminMethods.has(method) || target.origin !== window.location.origin || !target.pathname.startsWith('/admin')) return;
+      if (!form.checkValidity()) return;
+      if (form.dataset.submitting === 'true') {
+        event.preventDefault();
+        return;
+      }
+
+      const submitter = event.submitter;
+      if (submitter?.name) {
+        const mirror = document.createElement('input');
+        mirror.type = 'hidden';
+        mirror.name = submitter.name;
+        mirror.value = submitter.value;
+        mirror.dataset.adminLoadingSubmitter = 'true';
+        form.appendChild(mirror);
+      }
+      form.dataset.submitting = 'true';
+      const action = form.dataset.loadingAction || (
+        form.enctype === 'multipart/form-data' ? 'upload' :
+        /pagamento/i.test(target.pathname) ? 'payment' :
+        /excluir|arquivar|remover/i.test(target.pathname) ? 'delete' :
+        /cancelar|desconectar/i.test(target.pathname) ? 'cancel' : 'save'
+      );
+      const options = {
+        ...(window.AdminLoading.messages[action] || window.AdminLoading.messages.default),
+        ...(form.dataset.loadingTitle ? { title: form.dataset.loadingTitle } : {}),
+        ...(form.dataset.loadingMessage ? { message: form.dataset.loadingMessage } : {}),
+      };
+      if (submitter?.dataset.loadingTitle) options.title = submitter.dataset.loadingTitle;
+      if (submitter?.dataset.loadingMessage) options.message = submitter.dataset.loadingMessage;
+      window.AdminLoading.show(options);
+      if (submitter) {
+        submitter.disabled = true;
+        submitter.setAttribute('aria-disabled', 'true');
       }
     });
 
