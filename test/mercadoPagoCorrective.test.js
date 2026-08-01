@@ -167,6 +167,7 @@ test("OAuth: dois callbacks concorrentes consomem state uma única vez", async (
         id: "507f191e810c19729de860ea",
         estabelecimentoId: "507f191e810c19729de860ea",
       },
+      mpOauthCodeVerifier: "verifier-pkce-concorrente",
       save(callback) { callback(); },
     },
   });

@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("crypto");
+const validator = require("validator");
 const {
   Assinatura,
   AssinaturaTentativa,
@@ -29,6 +30,13 @@ const {
   sanitizeMercadoPagoError,
   validateMercadoPagoWebhook,
 } = require("../middleware/mercadoPagoSecurity");
+const {
+  assertPlatformPaymentConfig,
+  platformErrorLog,
+  requestPlatform,
+  validatePlatformAccount,
+  validatePlatformPaymentConfig,
+} = require("../services/mercadoPagoPlatformService");
 const {
   safeFlash,
   saveSessionOrRun,
@@ -59,6 +67,7 @@ const attemptReference = attempt =>
   `assinatura-tentativa:${attempt.attemptId}:estabelecimento:${attempt.estabelecimentoId}`;
 
 function mercadoPagoConfigStatus(scope = "all") {
+  if (scope === "subscription") return validatePlatformPaymentConfig();
   const groups = {
     oauth: [
       "MP_CLIENT_ID",
@@ -112,6 +121,7 @@ function mercadoPagoConfigStatus(scope = "all") {
 }
 
 function assertMercadoPagoConfig(scope = "all") {
+  if (scope === "subscription") return assertPlatformPaymentConfig();
   const status = mercadoPagoConfigStatus(scope);
   if (status.missing.length) {
     const error = new Error("Integração Mercado Pago incompleta.");
@@ -127,25 +137,28 @@ function wantsJson(req) {
 }
 
 function safeMercadoPagoFailure(error) {
-  const sanitized = sanitizeMercadoPagoError(error);
+  const safeSpecific = [
+    "PLATFORM_ACCOUNT_MISMATCH",
+    "PLATFORM_MP_TIMEOUT",
+    "SUBSCRIPTION_PIX_DATA_MISSING",
+    "SUBSCRIPTION_CHECKOUT_URL_MISSING",
+    "SUBSCRIPTION_CHECKOUT_URL_INVALID",
+    "SUBSCRIPTION_PAYER_EMAIL_INVALID",
+    "ASSINATURA_ATIVA",
+    "TENTATIVA_METODO_DIFERENTE",
+  ].includes(error?.code) || String(error?.code || "").endsWith("_MISSING");
   return {
     ok: false,
-    code: String(error?.code || "MERCADO_PAGO_INTEGRATION_FAILED").slice(0, 80),
-    message: error?.code === "MERCADO_PAGO_CONFIG_INCOMPLETA"
-      ? "A integração Mercado Pago não está completamente configurada no servidor."
-      : sanitized.message,
+    code: String(error?.code || "PLATFORM_MP_INTEGRATION_FAILED").slice(0, 80),
+    message: safeSpecific || error?.code === "APP_URL_INVALID"
+      ? String(error?.message || "Configuração de pagamento inválida.")
+      : "Não foi possível concluir a operação com o Mercado Pago.",
     correlationId: String(error?.correlationId || ""),
   };
 }
 
 async function validarContaPrincipalMercadoPago() {
-  const account = await mp("/users/me");
-  if (!account?.id || String(account.id) !== platformCollectorId()) {
-    const error = new Error("A credencial da plataforma pertence a outra conta Mercado Pago.");
-    error.code = "MERCADO_PAGO_PLATFORM_ACCOUNT_MISMATCH";
-    throw error;
-  }
-  return String(account.id);
+  return validatePlatformAccount();
 }
 
 function validarRedirectMercadoPago(value) {
@@ -160,6 +173,17 @@ function validarRedirectMercadoPago(value) {
     || host.endsWith(".mercadopago.com.ar");
   if (!permitido) throw new Error("URL de pagamento não pertence ao Mercado Pago.");
   return url.toString();
+}
+
+function validarEmailPagador(dono) {
+  const email = String(dono?.email || "").trim().toLowerCase();
+  if (!validator.isEmail(email)) {
+    const error = new Error("Cadastre um e-mail válido antes de iniciar o pagamento.");
+    error.code = "SUBSCRIPTION_PAYER_EMAIL_INVALID";
+    error.stage = "payer_validation";
+    throw error;
+  }
+  return email;
 }
 
 function planoPagoVigente(assinatura, now = new Date()) {
@@ -329,16 +353,10 @@ function manterTesteOuStatusAtual(assinatura) {
 }
 
 function flashSafeIntegrationError(req, error) {
-  const sanitized = sanitizeMercadoPagoError(error);
-  console.error("Mercado Pago:", {
-    ...sanitized,
-    internalCode: String(error?.code || "").slice(0, 80) || null,
-    missing: Array.isArray(error?.missing) ? error.missing.slice(0, 12) : undefined,
-    correlationId: String(req?.correlationId || "") || undefined,
-  });
-  safeFlash(req, "errors", error?.code === "MERCADO_PAGO_CONFIG_INCOMPLETA"
-    ? "A integração Mercado Pago não está completamente configurada no servidor."
-    : "Não foi possível concluir a operação com o Mercado Pago.");
+  error.correlationId ||= String(req?.correlationId || "");
+  console.error("mercado_pago_platform_error", platformErrorLog(error, {
+    correlationId: error.correlationId,
+  }));
 }
 
 exports.pagina = async (req, res) => {
@@ -365,7 +383,16 @@ exports.pagina = async (req, res) => {
     });
   } catch (error) {
     flashSafeIntegrationError(req, error);
-    return saveSessionOrRun(req, () => res.redirect("/admin"));
+    return res.status(500).render("assinatura", {
+      assinatura: req.assinatura?.toObject?.() || { status: "indisponível" },
+      valorPlano: valorPlano(),
+      dono: null,
+      pix: null,
+      diasRestantes: res.locals.diasRestantes || 0,
+      csrfToken: res.locals.csrfToken,
+      integracaoMercadoPago: validatePlatformPaymentConfig(),
+      errors: [`Não foi possível carregar a assinatura. Código: ${error.correlationId || "indisponível"}`],
+    });
   }
 };
 
@@ -376,24 +403,27 @@ exports.assinarCartao = async (req, res) => {
     await validarContaPrincipalMercadoPago();
     const assinatura = await assinaturaDoUsuario(req);
     const dono = await registroModel.findById(id).lean();
+    const payerEmail = validarEmailPagador(dono);
     const { attempt, created } = await obterOuCriarTentativa(assinatura, "cartao");
     if (!created) {
       if (attempt.redirectUrl) {
         const redirectUrl = validarRedirectMercadoPago(attempt.redirectUrl);
         return wantsJson(req)
-          ? res.status(200).json({ ok: true, code: "SUBSCRIPTION_REDIRECT_READY", redirectUrl })
+          ? res.status(200).json({ ok: true, code: "SUBSCRIPTION_CHECKOUT_CREATED", checkoutUrl: redirectUrl })
           : res.redirect(303, redirectUrl);
       }
       safeFlash(req, "success", "Sua solicitação de assinatura já está sendo processada.");
       return saveSessionOrRun(req, () => res.redirect("/assinatura"));
     }
-    const data = await mp("/preapproval", {
+    const data = await requestPlatform("/preapproval", {
+      operation: "create_subscription_checkout",
+      stage: "preapproval_create",
       method: "POST",
-      headers: { "X-Idempotency-Key": attempt.idempotencyKey },
-      body: JSON.stringify({
+      idempotencyKey: attempt.idempotencyKey,
+      body: {
         reason: "Plano Profissional ComandaFácil",
         external_reference: attemptReference(attempt),
-        payer_email: dono.email,
+        payer_email: payerEmail,
         auto_recurring: {
           frequency: 1,
           frequency_type: "months",
@@ -402,10 +432,25 @@ exports.assinarCartao = async (req, res) => {
         },
         back_url: `${baseUrl(req)}/assinatura/retorno`,
         status: "pending",
-      }),
+      },
     });
-    if (!data.id || !data.init_point) throw new Error("Resposta de assinatura inválida.");
-    const redirectSeguro = validarRedirectMercadoPago(data.init_point);
+    if (!data.id || !data.init_point) {
+      const error = new Error("O Mercado Pago não retornou a URL do checkout.");
+      error.code = "SUBSCRIPTION_CHECKOUT_URL_MISSING";
+      error.stage = "preapproval_response_validation";
+      error.endpointPath = "/preapproval";
+      throw error;
+    }
+    let redirectSeguro;
+    try {
+      redirectSeguro = validarRedirectMercadoPago(data.init_point);
+    } catch (cause) {
+      const error = new Error("O Mercado Pago retornou uma URL de checkout inválida.", { cause });
+      error.code = "SUBSCRIPTION_CHECKOUT_URL_INVALID";
+      error.stage = "preapproval_redirect_validation";
+      error.endpointPath = "/preapproval";
+      throw error;
+    }
     await AssinaturaTentativa.updateOne(
       { _id: attempt._id, status: "criando", ativa: true },
       {
@@ -427,7 +472,7 @@ exports.assinarCartao = async (req, res) => {
     assinatura.proximaCobranca = null;
     await assinatura.save();
     return wantsJson(req)
-      ? res.status(200).json({ ok: true, code: "SUBSCRIPTION_REDIRECT_READY", redirectUrl: redirectSeguro })
+      ? res.status(200).json({ ok: true, code: "SUBSCRIPTION_CHECKOUT_CREATED", checkoutUrl: redirectSeguro })
       : res.redirect(303, redirectSeguro);
   } catch (error) {
     if (!["ASSINATURA_ATIVA", "TENTATIVA_METODO_DIFERENTE"].includes(error?.code)) {
@@ -450,7 +495,7 @@ exports.assinarCartao = async (req, res) => {
     flashSafeIntegrationError(req, error);
     if (wantsJson(req)) {
       const payload = safeMercadoPagoFailure(error);
-      return res.status(error?.code === "MERCADO_PAGO_CONFIG_INCOMPLETA" ? 503 : 502).json(payload);
+      return res.status(String(error?.code || "").includes("MISSING") || error?.code === "APP_URL_INVALID" ? 503 : 502).json(payload);
     }
     return saveSessionOrRun(req, () => res.redirect("/assinatura"));
   }
@@ -463,6 +508,7 @@ exports.gerarPix = async (req, res) => {
     const id = estabelecimentoId(req);
     const assinatura = await assinaturaDoUsuario(req);
     const dono = await registroModel.findById(id).lean();
+    const payerEmail = validarEmailPagador(dono);
     const { attempt, created } = await obterOuCriarTentativa(assinatura, "pix");
     if (!created) {
       if (!attempt.pixCopiaCola) {
@@ -470,7 +516,14 @@ exports.gerarPix = async (req, res) => {
         return saveSessionOrRun(req, () => res.redirect("/assinatura"));
       }
       if (wantsJson(req)) {
-        return res.status(200).json({ ok: true, code: "PIX_READY", pix: pixDaTentativa(attempt) });
+        return res.status(200).json({
+          ok: true,
+          code: "SUBSCRIPTION_PIX_CREATED",
+          paymentId: String(attempt.mercadoPagoPaymentId || ""),
+          qrCode: attempt.pixCopiaCola,
+          qrCodeBase64: attempt.pixQrCodeBase64,
+          expiresAt: attempt.expiresAt?.toISOString?.() || String(attempt.expiresAt || ""),
+        });
       }
       return res.render("assinatura", {
         assinatura: assinatura.toObject(),
@@ -483,19 +536,29 @@ exports.gerarPix = async (req, res) => {
         integracaoMercadoPago: mercadoPagoConfigStatus("subscription"),
       });
     }
-    const data = await mp("/v1/payments", {
+    const data = await requestPlatform("/v1/payments", {
+      operation: "create_subscription_pix",
+      stage: "pix_payment_create",
       method: "POST",
-      headers: { "X-Idempotency-Key": attempt.idempotencyKey },
-      body: JSON.stringify({
+      idempotencyKey: attempt.idempotencyKey,
+      body: {
         transaction_amount: valorPlano(),
+        currency_id: "BRL",
         description: "Plano mensal ComandaFácil",
         payment_method_id: "pix",
         external_reference: attemptReference(attempt),
         notification_url: `${baseUrl(req)}/webhook/mercado-pago`,
-        payer: { email: dono.email, first_name: dono.nome || "Cliente" },
-      }),
+        payer: { email: payerEmail, first_name: dono.nome || "Cliente" },
+      },
     });
-    if (!data.id) throw new Error("Resposta de pagamento inválida.");
+    const transactionData = data.point_of_interaction?.transaction_data;
+    if (!data.id || !transactionData?.qr_code || !transactionData?.qr_code_base64) {
+      const error = new Error("O Mercado Pago não retornou os dados necessários do Pix.");
+      error.code = "SUBSCRIPTION_PIX_DATA_MISSING";
+      error.stage = "pix_response_validation";
+      error.endpointPath = "/v1/payments";
+      throw error;
+    }
 
     const pixQrCodeBase64 =
       data.point_of_interaction?.transaction_data?.qr_code_base64 || "";
@@ -527,7 +590,14 @@ exports.gerarPix = async (req, res) => {
 
     const pix = { qrCodeBase64: pixQrCodeBase64, copiaCola: pixCopiaCola };
     if (wantsJson(req)) {
-      return res.status(200).json({ ok: true, code: "PIX_READY", pix });
+      return res.status(200).json({
+        ok: true,
+        code: "SUBSCRIPTION_PIX_CREATED",
+        paymentId: String(data.id),
+        qrCode: pixCopiaCola,
+        qrCodeBase64: pixQrCodeBase64,
+        expiresAt: String(data.date_of_expiration || attempt.expiresAt?.toISOString?.() || ""),
+      });
     }
     return res.render("assinatura", {
       assinatura: assinatura.toObject(),
@@ -560,7 +630,7 @@ exports.gerarPix = async (req, res) => {
     flashSafeIntegrationError(req, error);
     if (wantsJson(req)) {
       const payload = safeMercadoPagoFailure(error);
-      return res.status(error?.code === "MERCADO_PAGO_CONFIG_INCOMPLETA" ? 503 : 502).json(payload);
+      return res.status(String(error?.code || "").includes("MISSING") || error?.code === "APP_URL_INVALID" ? 503 : 502).json(payload);
     }
     return saveSessionOrRun(req, () => res.redirect("/assinatura"));
   }
@@ -572,7 +642,7 @@ exports.retorno = async (req, res) => {
     "success",
     "Pagamento iniciado. A liberação ocorrerá somente após confirmação financeira.",
   );
-  return saveSessionOrRun(req, () => res.redirect("/admin"));
+  return saveSessionOrRun(req, () => res.redirect("/assinatura"));
 };
 
 exports.conectarMercadoPago = async (req, res) => {
@@ -1168,7 +1238,10 @@ async function loadWebhookResource(data) {
   if (data.resourceType === "subscription_preapproval") {
     return {
       kind: "preapproval",
-      resource: await mp(`/preapproval/${encodeURIComponent(data.resourceId)}`),
+      resource: await requestPlatform(`/preapproval/${encodeURIComponent(data.resourceId)}`, {
+        operation: "load_subscription_preapproval_webhook",
+        stage: "webhook_resource_lookup",
+      }),
     };
   }
   const pedido = await Pedido.findOne({
@@ -1189,7 +1262,10 @@ async function loadWebhookResource(data) {
   }
   return {
     kind: "subscription",
-    resource: await mp(`/v1/payments/${encodeURIComponent(data.resourceId)}`),
+    resource: await requestPlatform(`/v1/payments/${encodeURIComponent(data.resourceId)}`, {
+      operation: "load_subscription_payment_webhook",
+      stage: "webhook_resource_lookup",
+    }),
   };
 }
 

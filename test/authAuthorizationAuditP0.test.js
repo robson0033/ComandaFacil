@@ -28,9 +28,9 @@ function routeInventory() {
   return rows;
 }
 
-test("inventário possui 79 rotas e não contém método/path duplicado", () => {
+test("inventário possui 81 rotas e não contém método/path duplicado", () => {
   const inventory = routeInventory();
-  assert.equal(inventory.length, 79);
+  assert.equal(inventory.length, 81);
   const keys = inventory.map(item => `${item.method} ${item.path}`);
   assert.equal(new Set(keys).size, keys.length);
 });

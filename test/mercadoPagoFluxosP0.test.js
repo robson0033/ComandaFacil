@@ -25,15 +25,17 @@ test("assinatura via cartão e Pix usa JSON sem depender de submit nativo", () =
   assert.match(view, /data-subscription-payment="pix"/);
   assert.match(view, /X-CSRF-Token/);
   assert.match(view, /Accept:\s*'application\/json'/);
-  assert.match(controller, /SUBSCRIPTION_REDIRECT_READY/);
-  assert.match(controller, /PIX_READY/);
+  assert.match(controller, /SUBSCRIPTION_CHECKOUT_CREATED/);
+  assert.match(controller, /SUBSCRIPTION_PIX_CREATED/);
 });
 
 test("credencial principal é validada por users me antes da cobrança", () => {
   const controller = read("src/controllers/pagamentoController.js");
+  const platformService = read("src/services/mercadoPagoPlatformService.js");
   assert.match(controller, /async function validarContaPrincipalMercadoPago/);
-  assert.match(controller, /await mp\("\/users\/me"\)/);
-  assert.match(controller, /MERCADO_PAGO_PLATFORM_ACCOUNT_MISMATCH/);
+  assert.match(controller, /validatePlatformAccount/);
+  assert.match(platformService, /requestPlatform\("\/users\/me"/);
+  assert.match(platformService, /PLATFORM_ACCOUNT_MISMATCH/);
 });
 
 test("configuração OAuth e assinatura são avaliadas separadamente", () => {

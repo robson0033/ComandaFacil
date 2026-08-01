@@ -342,6 +342,7 @@ function oauthRequest({ state, stored, storeId = "507f1f77bcf86cd799439011" }) {
     session: {
       user: { id: storeId, estabelecimentoId: storeId },
       mpOauthState: stored,
+      mpOauthCodeVerifier: "verifier-pkce-valido",
       save(callback) { callback(); },
     },
   };

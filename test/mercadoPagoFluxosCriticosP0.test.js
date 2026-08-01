@@ -43,5 +43,5 @@ test("redirect de assinatura é validado para HTTPS do Mercado Pago", () => {
 test("tela usa marca Comanda Fácil e bloqueia envio duplo", () => {
   assert.doesNotMatch(assinaturaView, /ComandaMix/);
   assert.match(assinaturaView, /form\.dataset\.submitting/);
-  assert.match(assinaturaView, /Aguarde\.\.\./);
+  assert.match(assinaturaView, /Processando\.\.\./);
 });

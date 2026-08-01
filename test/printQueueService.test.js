@@ -480,7 +480,7 @@ test("lease expirado vira resultado desconhecido para reconciliação", async t 
   assert.equal(update.$set.status, "resultado_desconhecido");
 });
 
-test("agente que não conhece resultado mantém conciliação sem reenvio cego", async t => {
+test("agente que confirma não ter recebido libera retry seguro sem reenvio cego", async t => {
   const original = PrintJob.findOneAndUpdate;
   let finalUpdate;
   PrintJob.findOneAndUpdate = async (query, update) => {
@@ -497,16 +497,18 @@ test("agente que não conhece resultado mantém conciliação sem reenvio cego",
     wake() {},
   });
   const id = crypto.randomUUID();
+  const leaseId = crypto.randomUUID();
   await queue.consultarResultadoDesconhecido({
     _id: "job",
     jobId: id,
     estabelecimentoId: "loja",
     status: "resultado_desconhecido",
     lockedBy: queue.INSTANCE_ID,
-    leaseToken: "lease",
+    leaseToken: leaseId,
+    ultimoLeaseId: leaseId,
   }, { connected: true });
-  assert.equal(finalUpdate.$set.status, "resultado_desconhecido");
-  assert.match(finalUpdate.$set.erro, /conciliação manual/);
+  assert.equal(finalUpdate.$set.status, "aguardando_retry");
+  assert.match(finalUpdate.$set.erro, /não recebeu/);
 });
 
 test("agente que confirma enviado conclui sem chamar impressão novamente", async t => {
@@ -521,6 +523,7 @@ test("agente que confirma enviado conclui sem chamar impressão novamente", asyn
     lockedBy: queue.INSTANCE_ID,
     leaseToken: leaseId,
     impressoraChave: "usb:mock",
+    impressora: { tipoConexao: "usb", deviceName: "mock" },
     recebidoEm: new Date(),
   });
   PrintJob.findOneAndUpdate = async (query, update) => {
@@ -568,6 +571,7 @@ test("resultado desconhecido é preservado e falha antes do envio é única cond
     lockedBy: queue.INSTANCE_ID,
     leaseToken: leaseId,
     impressoraChave: "usb:mock",
+    impressora: { tipoConexao: "usb", deviceName: "mock" },
     tentativas: 1,
   });
   PrintJob.findOneAndUpdate = async (filter, value) => {
@@ -606,6 +610,7 @@ test("reconciliação é isolada pela loja e idempotente", async t => {
       status: "resultado_desconhecido",
       leaseToken: leaseId,
       impressoraChave: "usb:mock",
+      impressora: { tipoConexao: "usb", deviceName: "mock" },
     };
   };
   PrintJob.findOneAndUpdate = async () => {
