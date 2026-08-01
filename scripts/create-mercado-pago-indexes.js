@@ -11,11 +11,52 @@ const {
   OAuthState,
   PaymentEvent,
   Pedido,
+  OrderPaymentAttempt,
   PrintAgent,
 } = require("../src/models/painelModels");
 const { registroModel } = require("../src/models/registroModel");
 
 const definitions = [
+  {
+    model: OrderPaymentAttempt,
+    key: { publicReference: 1 },
+    options: { unique: true, name: "order_attempt_public_reference_unique" },
+    expectedType: "string",
+  },
+  {
+    model: OrderPaymentAttempt,
+    key: { externalReference: 1 },
+    options: { unique: true, name: "order_attempt_external_reference_unique" },
+    expectedType: "string",
+  },
+  {
+    model: OrderPaymentAttempt,
+    key: { paymentId: 1 },
+    options: {
+      unique: true,
+      partialFilterExpression: { paymentId: { $type: "string", $gt: "" } },
+      name: "order_attempt_payment_id_unique",
+    },
+    expectedType: "string",
+  },
+  {
+    model: OrderPaymentAttempt,
+    key: { idempotencyKey: 1 },
+    options: { unique: true, name: "order_attempt_idempotency_unique" },
+    expectedType: "string",
+  },
+  {
+    model: OrderPaymentAttempt,
+    key: { estabelecimentoId: 1, pedidoId: 1, createdAt: -1 },
+    options: { name: "order_attempt_tenant_order" },
+    expectedType: "objectId",
+  },
+  {
+    model: OrderPaymentAttempt,
+    key: { estabelecimentoId: 1, status: 1 },
+    options: { name: "order_attempt_tenant_status" },
+    expectedType: "objectId",
+  },
   {
     model: Assinatura,
     key: { estabelecimentoId: 1 },
@@ -181,6 +222,33 @@ const definitions = [
   },
 ];
 
+const purposes = {
+  order_attempt_public_reference_unique: "identidade pública única da tentativa de pagamento do pedido",
+  order_attempt_external_reference_unique: "correlação única enviada ao provedor",
+  order_attempt_payment_id_unique: "impedir reutilização do pagamento confirmado pelo provedor",
+  order_attempt_idempotency_unique: "deduplicar a criação lógica da tentativa",
+  order_attempt_tenant_order: "consultar histórico da tentativa por loja e pedido",
+  order_attempt_tenant_status: "consultar tentativas por loja e estado",
+  assinatura_estabelecimento_unico: "manter uma assinatura canônica por loja",
+  configuracao_estabelecimento_unico: "manter uma configuração canônica por loja",
+  pedido_estabelecimento_excluido_data: "listar pedidos da loja por exclusão e data",
+  auditoria_operation_key_unico: "deduplicar uma operação auditada",
+  auditoria_estabelecimento_data: "consultar auditoria da loja em ordem temporal",
+  pedido_acompanhamento_token_hash_unico: "impedir compartilhamento de token de acompanhamento",
+  pedido_payment_id_unico: "impedir o mesmo pagamento em pedidos diferentes",
+  assinatura_payment_id_unico: "impedir o mesmo Pix em assinaturas diferentes",
+  assinatura_preapproval_id_unico: "impedir a mesma recorrência em assinaturas diferentes",
+  payment_event_key_unico: "processar cada evento de pagamento uma única vez",
+  assinatura_tentativa_attempt_unico: "identificar unicamente a tentativa de assinatura",
+  assinatura_tentativa_ativa_global_unica: "permitir no máximo uma tentativa ativa por loja",
+  funcionario_email_global_unico: "manter identidade de login de funcionário globalmente única",
+  print_agent_estabelecimento_unico: "manter um agente de impressão por loja",
+  print_agent_token_hash_unico: "impedir reutilização do token do agente",
+  print_agent_codigo_ativo_unico: "impedir reutilização do código de vínculo ativo",
+  oauth_state_hash_unico: "garantir state OAuth de uso único",
+  oauth_state_expiracao_ttl: "remover state OAuth depois da data de expiração",
+};
+
 function canonicalize(value) {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value && typeof value === "object") {
@@ -228,42 +296,80 @@ function combineMatch(base, condition) {
   return { $and: [base, condition] };
 }
 
+function formatIndexCommand(collectionName, definition) {
+  return `db.${collectionName}.createIndex(${JSON.stringify(definition.key)}, ${JSON.stringify(definition.options)})`;
+}
+
+function describeDefinition(collectionName, definition) {
+  const options = normalizedOptions(definition.options);
+  return {
+    collection: collectionName,
+    name: definition.options.name,
+    fields: definition.key,
+    options,
+    unique: options.unique,
+    sparse: options.sparse,
+    partialFilterExpression: options.partialFilterExpression,
+    ttl: options.expireAfterSeconds,
+    purpose: purposes[definition.options.name] || "índice controlado pela aplicação",
+    inspection: definition.options.unique
+      ? "agrupar pelos campos do índice após aplicar o partialFilterExpression e contar grupos com quantidade > 1"
+      : options.expireAfterSeconds !== null
+        ? "contar expiresAt ausente, null e com tipo BSON diferente de date"
+        : "comparar nome, key e opções com o catálogo de índices",
+  };
+}
+
+function eligibilityFilter(definition) {
+  return definition.options.partialFilterExpression || {};
+}
+
+function isPartial(definition) {
+  return Boolean(definition.options.partialFilterExpression);
+}
+
 async function inspectUniqueData(collection, definition) {
   if (!definition.options.unique) return [];
   const field = Object.keys(definition.key)[0];
-  const base = definition.options.partialFilterExpression || {};
+  const base = eligibilityFilter(definition);
   const conflicts = [];
   const missing = await collection.countDocuments(
-    combineMatch(base, { [field]: { $exists: false } }),
+    { [field]: { $exists: false } },
   );
   const nulls = await collection.countDocuments(
-    combineMatch(base, { [field]: { $type: "null" } }),
+    { [field]: { $type: "null" } },
   );
   const empty = await collection.countDocuments(
-    combineMatch(base, { [field]: "" }),
+    { [field]: "" },
   );
   const incompatible = definition.expectedType
     ? await collection.countDocuments(
-      combineMatch(base, {
+      {
         [field]: {
           $exists: true,
           $ne: null,
           $not: { $type: definition.expectedType },
         },
-      }),
+      },
     )
     : 0;
 
-  if (missing > 1) conflicts.push({ type: "campo ausente", count: missing });
-  if (nulls > 1) conflicts.push({ type: "valor null", count: nulls });
-  if (missing + nulls > 1) {
+  if (!isPartial(definition) && missing > 1) {
+    conflicts.push({ type: "campo ausente", count: missing });
+  }
+  if (!isPartial(definition) && nulls > 1) {
+    conflicts.push({ type: "valor null", count: nulls });
+  }
+  if (!isPartial(definition) && missing + nulls > 1) {
     conflicts.push({
       type: "ausente/null combinados",
       count: missing + nulls,
     });
   }
-  if (empty > 1) conflicts.push({ type: "string vazia", count: empty });
-  if (incompatible) {
+  if (!isPartial(definition) && empty > 1) {
+    conflicts.push({ type: "string vazia", count: empty });
+  }
+  if (!isPartial(definition) && incompatible) {
     conflicts.push({ type: "tipo incompatível", count: incompatible });
   }
 
@@ -274,7 +380,6 @@ async function inspectUniqueData(collection, definition) {
       ...(definition.expectedType
         ? { $type: definition.expectedType }
         : {}),
-      ...(definition.expectedType === "string" ? { $gt: "" } : {}),
     },
   };
   const duplicateGroups = await collection.aggregate([
@@ -296,7 +401,41 @@ async function inspectUniqueData(collection, definition) {
       groups: duplicateGroups[0].grupos,
     });
   }
+  conflicts.diagnostics = {
+    missing,
+    nulls,
+    empty,
+    incompatible,
+    partialFilterExpression: definition.options.partialFilterExpression || null,
+    excludedByPartialFilter: isPartial(definition),
+    duplicateDocuments: duplicateGroups[0]?.documentos || 0,
+    duplicateGroups: duplicateGroups[0]?.grupos || 0,
+  };
   return conflicts;
+}
+
+async function inspectTtlData(collection, definition) {
+  const field = Object.keys(definition.key)[0];
+  const missing = await collection.countDocuments({ [field]: { $exists: false } });
+  const nulls = await collection.countDocuments({ [field]: { $type: "null" } });
+  const incompatible = await collection.countDocuments({
+    [field]: { $exists: true, $ne: null, $not: { $type: "date" } },
+  });
+  return {
+    diagnostics: { missing, nulls, empty: 0, incompatible },
+    conflicts: incompatible
+      ? [{ type: "TTL com tipo diferente de Date", count: incompatible }]
+      : [],
+  };
+}
+
+function applyPriority(definition) {
+  if (Object.prototype.hasOwnProperty.call(
+    definition.options,
+    "expireAfterSeconds",
+  )) return 3;
+  if (definition.options.unique) return 2;
+  return 1;
 }
 
 function describeConflict(collectionName, definition, conflict) {
@@ -311,6 +450,8 @@ async function auditDefinitions({
   indexDefinitions = definitions,
   dryRun,
   apply,
+  validateAfterApply = false,
+  verbose = false,
   log = console,
 }) {
   const plan = [];
@@ -319,6 +460,12 @@ async function auditDefinitions({
   for (const definition of indexDefinitions) {
     const collection = definition.model.collection;
     const collectionName = collection.collectionName;
+    if (verbose) {
+      log.log(`definição: ${JSON.stringify(describeDefinition(
+        collectionName,
+        definition,
+      ))}`);
+    }
     const indexes = await collection.indexes();
     const byName = indexes.find(
       index => index.name === definition.options.name,
@@ -328,9 +475,9 @@ async function auditDefinitions({
         log.log(`${collectionName}.${definition.options.name}: existente`);
         plan.push({ definition, collection, status: "existing", index: byName });
       } else {
-        blockers.push(
-          `${collectionName}.${definition.options.name}: o nome existe com opções incompatíveis.`,
-        );
+        const message = `${collectionName}.${definition.options.name}: o nome existe com definição divergente; decisão manual obrigatória.`;
+        blockers.push(message);
+        plan.push({ definition, collection, status: "divergent", index: byName });
       }
       continue;
     }
@@ -352,14 +499,32 @@ async function auditDefinitions({
       continue;
     }
     if (sameKey.length) {
-      blockers.push(
-        `${collectionName}.${definition.options.name}: a mesma key existe com opções incompatíveis.`,
-      );
+      const message = `${collectionName}.${definition.options.name}: a mesma key existe com opções incompatíveis; decisão manual obrigatória.`;
+      blockers.push(message);
+      plan.push({ definition, collection, status: "divergent", indexes: sameKey });
       continue;
     }
 
     log.log(`${collectionName}.${definition.options.name}: ausente`);
-    const dataConflicts = await inspectUniqueData(collection, definition);
+    log.log(`comando: ${formatIndexCommand(collectionName, definition)}`);
+    let dataConflicts = [];
+    let diagnostics = null;
+    if (definition.options.unique) {
+      dataConflicts = await inspectUniqueData(collection, definition);
+      diagnostics = dataConflicts.diagnostics;
+    } else if (Object.prototype.hasOwnProperty.call(
+      definition.options,
+      "expireAfterSeconds",
+    )) {
+      const ttlInspection = await inspectTtlData(collection, definition);
+      dataConflicts = ttlInspection.conflicts;
+      diagnostics = ttlInspection.diagnostics;
+    }
+    if (diagnostics) {
+      log.log(
+        `${collectionName}.${definition.options.name}: ausentes=${diagnostics.missing}, null=${diagnostics.nulls}, vazios=${diagnostics.empty}, incompatíveis=${diagnostics.incompatible}, duplicidades=${diagnostics.duplicateDocuments || 0} documento(s) em ${diagnostics.duplicateGroups || 0} grupo(s)`,
+      );
+    }
     for (const conflict of dataConflicts) {
       blockers.push(describeConflict(
         collectionName,
@@ -367,27 +532,51 @@ async function auditDefinitions({
         conflict,
       ));
     }
-    plan.push({ definition, collection, status: "missing" });
+    plan.push({ definition, collection, status: "missing", diagnostics });
   }
 
   if (blockers.length) {
     blockers.forEach(message => log.error(message));
-    throw new Error(
-      "Conflitos impedem a aplicação segura; nenhum índice foi criado.",
-    );
-  }
-
-  if (apply && !dryRun) {
-    for (const item of plan.filter(entry => entry.status === "missing")) {
-      await item.collection.createIndex(
-        item.definition.key,
-        item.definition.options,
-      );
-      log.log(
-        `${item.collection.collectionName}.${item.definition.options.name}: criado`,
+    if (apply && !dryRun) {
+      throw new Error(
+        "Conflitos impedem a aplicação segura; nenhum índice foi criado.",
       );
     }
   }
+
+  if (apply && !dryRun && !blockers.length) {
+    const missing = plan
+      .filter(entry => entry.status === "missing")
+      .sort((left, right) =>
+        applyPriority(left.definition) - applyPriority(right.definition));
+    for (const item of missing) {
+      try {
+        await item.collection.createIndex(
+          item.definition.key,
+          item.definition.options,
+        );
+        log.log(
+          `${item.collection.collectionName}.${item.definition.options.name}: criado`,
+        );
+      } catch (error) {
+        throw new Error(
+          `${item.collection.collectionName}.${item.definition.options.name}: falha ao criar; execução interrompida: ${error.message}`,
+        );
+      }
+    }
+    if (validateAfterApply) {
+      for (const item of plan) {
+        const indexes = await item.collection.indexes();
+        if (!indexes.some(index => equivalentIndex(index, item.definition))) {
+          throw new Error(
+            `${item.collection.collectionName}.${item.definition.options.name}: validação final divergente.`,
+          );
+        }
+      }
+    }
+  }
+  plan.blockers = blockers;
+  plan.safeToApply = blockers.length === 0;
   return plan;
 }
 
@@ -416,11 +605,15 @@ async function inspectCrossCollectionIdentity({ apply, log = console }) {
       );
     }
   }
+  return count;
 }
 
 async function run() {
   const dryRun = process.argv.includes("--dry-run");
   const apply = process.argv.includes("--apply");
+  if (dryRun && apply) {
+    throw new Error("Use somente um modo: --dry-run ou --apply.");
+  }
   if (!dryRun && !apply) {
     throw new Error(
       "Use --dry-run para inspecionar ou --apply para criar índices ausentes.",
@@ -437,8 +630,15 @@ async function run() {
 
   await mongoose.connect(process.env.CONNECTIONSTRING, { autoIndex: false });
   try {
-    await inspectCrossCollectionIdentity({ apply });
-    await auditDefinitions({ dryRun, apply });
+    const identityConflicts = await inspectCrossCollectionIdentity({ apply });
+    const plan = await auditDefinitions({
+      dryRun,
+      apply,
+      validateAfterApply: apply,
+      verbose: true,
+    });
+    const safeToApply = plan.safeToApply && identityConflicts === 0;
+    console.log(`SAFE_TO_APPLY=${safeToApply ? "true" : "false"}`);
   } finally {
     await mongoose.disconnect();
   }
@@ -455,8 +655,11 @@ module.exports = {
   auditDefinitions,
   canonicalize,
   definitions,
+  describeDefinition,
   equivalentIndex,
+  formatIndexCommand,
   inspectUniqueData,
+  inspectTtlData,
   normalizedOptions,
   sameIndexKey,
 };

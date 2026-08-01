@@ -14,6 +14,7 @@ const {
   OAuthState,
   PaymentEvent,
   Pedido,
+  OrderPaymentAttempt,
 } = require("../models/painelModels");
 const {
   consultarAcessoVenda,
@@ -1310,6 +1311,37 @@ async function configuracaoComToken(estabelecimento) {
   };
 }
 
+const orderAttemptExternalReference = publicReference =>
+  `order_payment_attempt:${publicReference}`;
+const isOpaqueOrderReference = value =>
+  /^order_payment_attempt:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
+
+async function activeOrderPaymentAttempt({ pedido, collectorId }) {
+  const current = await OrderPaymentAttempt.findOne({
+    estabelecimentoId: pedido.estabelecimentoId,
+    pedidoId: pedido._id,
+    paymentMethod: "pix",
+    status: { $in: ["creating", "pending", "in_process"] },
+    expiresAt: { $gt: new Date() },
+    legacyReference: false,
+  }).sort({ createdAt: -1 });
+  if (current) return current;
+  const publicReference = crypto.randomUUID();
+  return OrderPaymentAttempt.create({
+    publicReference,
+    externalReference: orderAttemptExternalReference(publicReference),
+    estabelecimentoId: pedido.estabelecimentoId,
+    pedidoId: pedido._id,
+    expectedCollectorId: String(collectorId),
+    expectedAmount: Number(pedido.total),
+    currency: "BRL",
+    status: "creating",
+    paymentMethod: "pix",
+    idempotencyKey: crypto.randomUUID(),
+    expiresAt: new Date(Date.now() + 30 * 60_000),
+  });
+}
+
 exports.gerarPixPedido = async (req, res) => {
   try {
     const token = extrairBearerToken(req);
@@ -1346,6 +1378,10 @@ exports.gerarPixPedido = async (req, res) => {
     if (!acessoVenda.permitido) return respostaLojaIndisponivel(res);
 
     const { cfg: cfgPrivada, accessToken } = await configuracaoComToken(cfgPublica.estabelecimentoId);
+    const attempt = await activeOrderPaymentAttempt({
+      pedido,
+      collectorId: cfgPrivada.mercadoPago.userId,
+    });
     const emailCliente = String(pedido.emailCliente || "").trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente)) {
       return res.status(400).json({
@@ -1356,12 +1392,12 @@ exports.gerarPixPedido = async (req, res) => {
 
     const data = await mp("/v1/payments", {
       method: "POST",
-      headers: { "X-Idempotency-Key": `pedido-${pedido._id}` },
+      headers: { "X-Idempotency-Key": attempt.idempotencyKey },
       body: JSON.stringify({
         transaction_amount: Number(pedido.total),
         description: `Pedido ${String(pedido._id).slice(-6).toUpperCase()} - ${cfgPublica.nomeEstabelecimento}`,
         payment_method_id: "pix",
-        external_reference: `pedido:${pedido._id}`,
+        external_reference: attempt.externalReference,
         notification_url: `${baseUrl(req)}/webhook/mercado-pago`,
         payer: { email: emailCliente, first_name: pedido.cliente || "Cliente" },
       }),
@@ -1370,9 +1406,17 @@ exports.gerarPixPedido = async (req, res) => {
     validatePaymentIdentity(data, {
       paymentId: data.id,
       amount: pedido.total,
-      externalReference: `pedido:${pedido._id}`,
-      collectorId: cfgPrivada.mercadoPago.userId,
+      externalReference: attempt.externalReference,
+      collectorId: attempt.expectedCollectorId,
     });
+
+    attempt.paymentId = String(data.id);
+    attempt.status = String(data.status || "pending");
+    attempt.expiresAt = data.date_of_expiration
+      ? new Date(data.date_of_expiration)
+      : attempt.expiresAt;
+    attempt.lastCheckedAt = new Date();
+    await attempt.save();
 
     pedido.formaPagamento = "pix";
     pedido.mercadoPagoPaymentId = String(data.id);
@@ -1431,9 +1475,31 @@ exports.statusPagamentoPedido = async (req, res) => {
     } }, { returnDocument: "after" });
     if (claimed) {
       try {
-        const { accessToken } = await configuracaoComToken(cfg.estabelecimentoId);
+        const { cfg: privateConfig, accessToken } = await configuracaoComToken(cfg.estabelecimentoId);
+        let attempt = await OrderPaymentAttempt.findOne({
+          estabelecimentoId: cfg.estabelecimentoId,
+          pedidoId: claimed._id,
+          paymentId: claimed.mercadoPagoPaymentId,
+        }).sort({ createdAt: -1 });
+        if (!attempt) {
+          attempt = await OrderPaymentAttempt.create({
+            publicReference: crypto.randomUUID(),
+            externalReference: `pedido:${claimed._id}`,
+            estabelecimentoId: cfg.estabelecimentoId,
+            pedidoId: claimed._id,
+            paymentId: claimed.mercadoPagoPaymentId,
+            expectedCollectorId: String(privateConfig.mercadoPago.userId),
+            expectedAmount: Number(claimed.total),
+            currency: "BRL",
+            status: String(claimed.mercadoPagoStatus || "pending"),
+            paymentMethod: "pix",
+            idempotencyKey: `legacy-${crypto.randomUUID()}`,
+            expiresAt: claimed.pixExpiraEm || new Date(Date.now() + 24 * 60 * 60_000),
+            legacyReference: true,
+          });
+        }
         const payment = await mp(`/v1/payments/${encodeURIComponent(claimed.mercadoPagoPaymentId)}`, {}, accessToken);
-        await applyOrderPayment(claimed, payment);
+        await applyOrderPayment(claimed, payment, attempt);
       } finally {
         await Pedido.updateOne({ _id: pedido._id }, { $set: { mercadoPagoCheckLockedUntil: null } });
       }
@@ -1600,14 +1666,27 @@ async function claimEvent(eventDocument) {
   );
 }
 
-async function applyOrderPayment(pedido, payment) {
+async function applyOrderPayment(pedido, payment, attempt = null) {
   const { cfg } = await configuracaoComToken(pedido.estabelecimentoId);
+  const expectedReference = attempt?.externalReference || `pedido:${pedido._id}`;
+  if (attempt) {
+    if (String(attempt.estabelecimentoId) !== String(pedido.estabelecimentoId)
+      || String(attempt.pedidoId) !== String(pedido._id)) {
+      throw new Error("Tentativa de pagamento não pertence ao pedido e estabelecimento esperados.");
+    }
+    if (!attempt.legacyReference && !isOpaqueOrderReference(attempt.externalReference)) {
+      throw new Error("Referência opaca da tentativa é inválida.");
+    }
+  }
   validatePaymentIdentity(payment, {
-    paymentId: pedido.mercadoPagoPaymentId,
-    amount: pedido.total,
-    externalReference: `pedido:${pedido._id}`,
-    collectorId: cfg.mercadoPago.userId,
+    paymentId: attempt?.paymentId || pedido.mercadoPagoPaymentId,
+    amount: attempt?.expectedAmount ?? pedido.total,
+    externalReference: expectedReference,
+    collectorId: attempt?.expectedCollectorId || cfg.mercadoPago.userId,
   });
+  if (payment.currency_id && String(payment.currency_id) !== String(attempt?.currency || "BRL")) {
+    throw new Error("Moeda do pagamento divergente.");
+  }
   pedido.mercadoPagoStatus = String(payment.status || "");
   const alreadyRecorded = pedido.historicoFinanceiro.some(item =>
     String(item.paymentId) === String(payment.id) && String(item.status) === String(payment.status));
@@ -1617,10 +1696,10 @@ async function applyOrderPayment(pedido, payment) {
 
   if (payment.status === "approved") {
     validateApprovedPayment(payment, {
-      paymentId: pedido.mercadoPagoPaymentId,
-      amount: pedido.total,
-      externalReference: `pedido:${pedido._id}`,
-      collectorId: cfg.mercadoPago.userId,
+      paymentId: attempt?.paymentId || pedido.mercadoPagoPaymentId,
+      amount: attempt?.expectedAmount ?? pedido.total,
+      externalReference: expectedReference,
+      collectorId: attempt?.expectedCollectorId || cfg.mercadoPago.userId,
     });
     if (pedido.status === "cancelado") {
       pedido.pagamentoInconsistente = true;
@@ -1638,13 +1717,25 @@ async function applyOrderPayment(pedido, payment) {
     pedido.pagamentoStatus = "cancelado";
   }
   await pedido.save();
+  if (attempt) {
+    attempt.status = String(payment.status || attempt.status);
+    attempt.lastCheckedAt = new Date();
+    if (payment.status === "approved") {
+      attempt.processedAt = attempt.processedAt || new Date();
+      attempt.reconciliationStatus = "processed";
+    }
+    await attempt.save();
+  }
   return pedido;
 }
 
-async function processOrderPayment(event, pedido, payment) {
+async function processOrderPayment(event, pedido, payment, attempt = null) {
   event.estabelecimentoId = pedido.estabelecimentoId;
   event.pedidoId = pedido._id;
-  return applyOrderPayment(pedido, payment);
+  if (attempt && event.eventKey && !attempt.webhookEvents.includes(event.eventKey)) {
+    attempt.webhookEvents.push(event.eventKey);
+  }
+  return applyOrderPayment(pedido, payment, attempt);
 }
 
 function parseSubscriptionReference(value) {
@@ -1895,15 +1986,54 @@ async function loadWebhookResource(data) {
       }),
     };
   }
+  const attempt = await OrderPaymentAttempt.findOne({ paymentId: data.resourceId });
+  if (attempt) {
+    const pedido = await Pedido.findOne({
+      _id: attempt.pedidoId,
+      estabelecimentoId: attempt.estabelecimentoId,
+      excluido: { $ne: true },
+    });
+    if (!pedido) throw new Error("Pedido da tentativa de pagamento não encontrado.");
+    const { accessToken } = await configuracaoComToken(attempt.estabelecimentoId);
+    return {
+      kind: "order",
+      attempt,
+      pedido,
+      resource: await mp(`/v1/payments/${encodeURIComponent(data.resourceId)}`, {}, accessToken),
+    };
+  }
   const pedido = await Pedido.findOne({
     mercadoPagoPaymentId: data.resourceId,
     excluido: { $ne: true },
   });
   if (pedido) {
-    const { accessToken } = await configuracaoComToken(pedido.estabelecimentoId);
+    const { cfg, accessToken } = await configuracaoComToken(pedido.estabelecimentoId);
+    const legacyExternalReference = `pedido:${pedido._id}`;
+    let legacyAttempt = await OrderPaymentAttempt.findOne({
+      paymentId: data.resourceId,
+      legacyReference: true,
+    });
+    if (!legacyAttempt) {
+      legacyAttempt = await OrderPaymentAttempt.create({
+        publicReference: crypto.randomUUID(),
+        externalReference: legacyExternalReference,
+        estabelecimentoId: pedido.estabelecimentoId,
+        pedidoId: pedido._id,
+        paymentId: String(data.resourceId),
+        expectedCollectorId: String(cfg.mercadoPago.userId),
+        expectedAmount: Number(pedido.total),
+        currency: "BRL",
+        status: String(pedido.mercadoPagoStatus || "pending"),
+        paymentMethod: "pix",
+        idempotencyKey: `legacy-${crypto.randomUUID()}`,
+        expiresAt: pedido.pixExpiraEm || new Date(Date.now() + 24 * 60 * 60_000),
+        legacyReference: true,
+      });
+    }
     return {
       kind: "order",
       pedido,
+      attempt: legacyAttempt,
       resource: await mp(
         `/v1/payments/${encodeURIComponent(data.resourceId)}`,
         {},
@@ -1925,7 +2055,7 @@ async function processWebhookEvent(event, loaded) {
     return processPreapproval(event, loaded.resource);
   }
   if (loaded.kind === "order") {
-    return processOrderPayment(event, loaded.pedido, loaded.resource);
+    return processOrderPayment(event, loaded.pedido, loaded.resource, loaded.attempt || null);
   }
   return processSubscriptionPayment(event, loaded.resource);
 }
@@ -2075,5 +2205,8 @@ exports._testing = {
   webhookEventKey,
   webhookDiagnostic,
   mercadoPagoConfigStatus,
+  orderAttemptExternalReference,
+  isOpaqueOrderReference,
+  applyOrderPayment,
   validarRedirectMercadoPago,
 };

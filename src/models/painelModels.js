@@ -1238,6 +1238,37 @@ const paymentEventSchema = new mongoose.Schema({
 paymentEventSchema.index({ eventKey: 1 }, { unique: true, name: "payment_event_key_unico" });
 const PaymentEvent = mongoose.model("PaymentEvent", paymentEventSchema);
 
+const orderPaymentAttemptSchema = new mongoose.Schema({
+  publicReference: { type: String, required: true, immutable: true },
+  externalReference: { type: String, required: true, immutable: true },
+  estabelecimentoId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+  pedidoId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: "Pedido", index: true },
+  paymentId: { type: String, default: "", trim: true },
+  expectedCollectorId: { type: String, required: true, immutable: true },
+  expectedAmount: { type: Number, required: true, min: 0 },
+  currency: { type: String, enum: ["BRL"], default: "BRL" },
+  status: { type: String, default: "creating", index: true },
+  paymentMethod: { type: String, enum: ["pix"], default: "pix" },
+  idempotencyKey: { type: String, required: true, immutable: true },
+  expiresAt: { type: Date, required: true },
+  lastCheckedAt: { type: Date, default: null },
+  processedAt: { type: Date, default: null },
+  reconciliationStatus: { type: String, default: "pending" },
+  webhookEvents: { type: [String], default: [] },
+  legacyReference: { type: Boolean, default: false },
+}, opts);
+orderPaymentAttemptSchema.index({ publicReference: 1 }, { unique: true, name: "order_attempt_public_reference_unique" });
+orderPaymentAttemptSchema.index({ externalReference: 1 }, { unique: true, name: "order_attempt_external_reference_unique" });
+orderPaymentAttemptSchema.index({ paymentId: 1 }, {
+  unique: true,
+  partialFilterExpression: { paymentId: { $type: "string", $gt: "" } },
+  name: "order_attempt_payment_id_unique",
+});
+orderPaymentAttemptSchema.index({ idempotencyKey: 1 }, { unique: true, name: "order_attempt_idempotency_unique" });
+orderPaymentAttemptSchema.index({ estabelecimentoId: 1, pedidoId: 1, createdAt: -1 }, { name: "order_attempt_tenant_order" });
+orderPaymentAttemptSchema.index({ estabelecimentoId: 1, status: 1 }, { name: "order_attempt_tenant_status" });
+const OrderPaymentAttempt = mongoose.model("OrderPaymentAttempt", orderPaymentAttemptSchema);
+
 const orderLookupVerificationSchema = new mongoose.Schema({
   estabelecimentoId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
   identifierHash: { type: String, required: true, index: true },
@@ -1265,6 +1296,7 @@ for (const model of [
   PaymentEvent,
   AuditoriaEvento,
   OrderLookupVerification,
+  OrderPaymentAttempt,
 ]) {
   model.schema.set("autoIndex", false);
 }
@@ -1319,4 +1351,5 @@ module.exports = {
   PaymentEvent,
   AuditoriaEvento,
   OrderLookupVerification,
+  OrderPaymentAttempt,
 };
