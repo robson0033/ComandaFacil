@@ -170,7 +170,6 @@ route.get(
   loginRequired,
   somenteProprietario,
   carregarAssinatura,
-  permissao('configuracoes'),
   pagamento.pagina
 );
 
@@ -179,7 +178,6 @@ route.post(
   loginRequired,
   somenteProprietario,
   carregarAssinatura,
-  permissao('configuracoes'),
   limiteAssinatura,
   pagamento.assinarCartao
 );
@@ -189,7 +187,6 @@ route.post(
   loginRequired,
   somenteProprietario,
   carregarAssinatura,
-  permissao('configuracoes'),
   limiteAssinatura,
   pagamento.gerarPix
 );
@@ -199,17 +196,22 @@ route.get(
   loginRequired,
   somenteProprietario,
   carregarAssinatura,
-  permissao('configuracoes'),
   pagamento.retorno
 );
+
+// Compatibilidade com links antigos sem permitir mutação por GET.
+route.get('/pagamento/assinar', loginRequired, somenteProprietario, (req, res) =>
+  res.redirect(303, '/assinatura'));
+route.get('/pagamento/sucesso', loginRequired, somenteProprietario, (req, res) =>
+  res.redirect(303, '/assinatura/retorno'));
 
 // Validação global ocorre com a sessão já carregada e antes de autenticação,
 // assinatura, permissão e controllers administrativos.
 route.use('/admin', csrfSameOriginProtection);
 
-route.post('/admin/mercado-pago/conectar', loginRequired, somenteProprietario, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, pagamento.conectarMercadoPago);
-route.get('/admin/mercado-pago/callback', loginRequired, somenteProprietario, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, pagamento.callbackMercadoPago);
-route.post('/admin/mercado-pago/desconectar', loginRequired, somenteProprietario, carregarAssinatura, assinaturaRequired, permissao('configuracoes'), limiteOauth, pagamento.desconectarMercadoPago);
+route.post('/admin/mercado-pago/conectar', loginRequired, somenteProprietario, carregarAssinatura, permissao('configuracoes'), limiteOauth, pagamento.conectarMercadoPago);
+route.get('/admin/mercado-pago/callback', loginRequired, somenteProprietario, carregarAssinatura, permissao('configuracoes'), limiteOauth, pagamento.callbackMercadoPago);
+route.post('/admin/mercado-pago/desconectar', loginRequired, somenteProprietario, carregarAssinatura, permissao('configuracoes'), limiteOauth, pagamento.desconectarMercadoPago);
 
 route.post(
   '/webhook/mercado-pago',
