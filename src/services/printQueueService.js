@@ -80,11 +80,19 @@ async function validarPedidoDisponivel(pedido, { session = null } = {}) {
   return existente;
 }
 
+function calcularImpressoraId(impressora = {}) {
+  return impressora.tipoConexao === "rede"
+    ? `rede:${text(impressora.ip, 15)}:${Number(impressora.porta || 9100)}`
+    : `usb:${text(impressora.deviceName, 200).toLowerCase()}`;
+}
+
 function calcularImpressoraChave(impressora = {}) {
-  const identity = impressora.tipoConexao === "rede"
-    ? `rede|${text(impressora.ip, 15)}|${Number(impressora.porta || 9100)}`
-    : `usb|${text(impressora.deviceName, 200).toLowerCase()}`;
-  return crypto.createHash("sha256").update(identity).digest("hex");
+  // Mantém a chave hash apenas para idempotência/índice no MongoDB.
+  // O protocolo do agente NÃO aceita essa hash: ele exige o identificador
+  // canônico usb:<deviceName> ou rede:<ip>:<porta>.
+  return crypto.createHash("sha256")
+    .update(calcularImpressoraId(impressora))
+    .digest("hex");
 }
 
 function sanitizarImpressora(impressora = {}) {
@@ -367,7 +375,7 @@ async function atualizarStatusDoAgente(estabelecimentoId, status = {}) {
     job.lockedBy !== INSTANCE_ID
     || !job.leaseToken
     || job.leaseToken !== validated.leaseId
-    || String(job.impressoraChave) !== validated.impressoraId
+    || calcularImpressoraId(job.impressora) !== validated.impressoraId
   ) {
     console.warn(
       `ACK de impressão ignorado: jobId=${validated.jobId} lease=${validated.leaseId.slice(0, 8)} code=LEASE_OR_PRINTER_MISMATCH`,
@@ -535,7 +543,7 @@ async function reconciliarResumoDoAgente(estabelecimentoId, summary = {}) {
       });
       continue;
     }
-    if (String(job.impressoraChave) !== String(local.impressoraId || "")) {
+    if (calcularImpressoraId(job.impressora) !== String(local.impressoraId || "")) {
       decisions.push({
         jobId: job.jobId,
         leaseId: String(local.leaseId),
@@ -633,7 +641,7 @@ async function processarJob(job, socket) {
     const initial = await transport.deliver(socket, buildJobEnvelope({
       jobId: entregando.jobId,
       leaseId: entregando.leaseToken,
-      impressoraId: entregando.impressoraChave,
+      impressoraId: calcularImpressoraId(entregando.impressora),
       attempt: entregando.tentativas,
       deadline: new Date(Date.now() + LEASE_MS).toISOString(),
       modo: entregando.tipo,
@@ -646,7 +654,7 @@ async function processarJob(job, socket) {
       leaseId: entregando.leaseToken,
       protocolVersion: PROTOCOL_VERSION,
       agentVersion: initial.agentVersion,
-      impressoraId: entregando.impressoraChave,
+      impressoraId: calcularImpressoraId(entregando.impressora),
       timestamp: initial.timestamp || new Date().toISOString(),
       status: initial.status || "recebido",
       ...initial,
@@ -792,6 +800,7 @@ module.exports = {
   INSTANCE_ID,
   MAX_ATTEMPTS,
   calcularImpressoraChave,
+  calcularImpressoraId,
   criarJobManual,
   criarJobsAutomaticos,
   criarPedidoComJobsAutomaticos,
