@@ -235,6 +235,7 @@ route.get('/pagamento/sucesso', loginRequired, somenteProprietario, (req, res) =
 // assinatura, permissão e controllers administrativos.
 route.use('/admin', csrfSameOriginProtection);
 
+route.post('/admin/mercado-pago/termos/aceitar', loginRequired, somenteProprietario, carregarAssinatura, limiteOauth, pagamento.aceitarTermosTaxaPix);
 route.post('/admin/mercado-pago/conectar', loginRequired, somenteProprietario, carregarAssinatura, limiteOauth, pagamento.conectarMercadoPago);
 route.get('/admin/mercado-pago/callback', loginRequired, somenteProprietario, carregarAssinatura, limiteOauth, pagamento.callbackMercadoPago);
 route.post('/admin/mercado-pago/desconectar', loginRequired, somenteProprietario, carregarAssinatura, limiteOauth, pagamento.desconectarMercadoPago);

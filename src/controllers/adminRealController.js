@@ -2618,6 +2618,33 @@ exports.admin = async (req, res) => {
     const custo =
       agregadoRelatorios.custo;
 
+    const pagamentosPixComTaxa = podeRelatorios
+      ? pedidos.filter(pedido => {
+          if (pedido.pagamentoStatus !== "pago" || pedido.status === "cancelado") return false;
+          if (String(pedido.formaPagamento || "") !== "pix_online") return false;
+          if (!pedido.pagoEm) return false;
+          const pagoEm = new Date(pedido.pagoEm);
+          return (!periodo.inicio || pagoEm >= periodo.inicio)
+            && (!periodo.fim || pagoEm <= periodo.fim);
+        })
+      : [];
+    const taxasPix = pagamentosPixComTaxa.reduce((acc, pedido) => {
+      acc.valorBrutoCents += Number(pedido.grossAmountCents || 0);
+      acc.taxaCents += Number(pedido.platformFeeCents || 0);
+      acc.estornadaCents += Number(pedido.platformFeeReversedCents || 0);
+      acc.liquidaCents += Number(pedido.platformFeeNetCents || 0);
+      acc.destinadoLojaCents += Number(pedido.merchantAmountBeforeMpFeesCents || 0);
+      if (pedido.platformFeeStatus === "reconciliation_required") acc.reconciliacao += 1;
+      return acc;
+    }, {
+      valorBrutoCents: 0,
+      taxaCents: 0,
+      estornadaCents: 0,
+      liquidaCents: 0,
+      destinadoLojaCents: 0,
+      reconciliacao: 0,
+    });
+
     const relatorios = {
       filtroAtual: periodo.filtro,
       canalAtual,
@@ -2639,6 +2666,12 @@ exports.admin = async (req, res) => {
           .menosVendidos,
       paidOrdersWithoutPaymentDate:
         agregadoRelatorios.paidOrdersWithoutPaymentDate || 0,
+      taxasPix: {
+        ...taxasPix,
+        quantidade: pagamentosPixComTaxa.filter(pedido =>
+          Number(pedido.platformFeeCents || 0) > 0).length,
+        percentual: Number(process.env.PLATFORM_PIX_FEE_PERCENT || 1.5),
+      },
       historico:
         pedidosFiltrados.slice(
           0,

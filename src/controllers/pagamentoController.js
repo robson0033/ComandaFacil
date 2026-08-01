@@ -15,6 +15,7 @@ const {
   PaymentEvent,
   Pedido,
   OrderPaymentAttempt,
+  PlatformFeeTermsAcceptance,
 } = require("../models/painelModels");
 const {
   consultarAcessoVenda,
@@ -27,6 +28,11 @@ const {
 const { baixarEstoqueDoPedido, restaurarEstoqueDoPedido } = require("../services/estoqueService");
 const printQueueService = require("../services/printQueueService");
 const { registroModel } = require("../models/registroModel");
+const {
+  buildPlatformFeeSnapshot,
+  centsToDecimal,
+  getCurrentPlatformFeeConfig,
+} = require("../services/platformFeeService");
 const {
   paidPeriod,
   subscriptionStatusForFinancialStatus,
@@ -73,6 +79,37 @@ const subscriptionReference = assinatura =>
   `assinatura:${assinatura._id}:estabelecimento:${assinatura.estabelecimentoId}`;
 const attemptReference = attempt =>
   `assinatura-tentativa:${attempt.attemptId}:estabelecimento:${attempt.estabelecimentoId}`;
+
+async function currentPlatformFeeAcceptance(storeId) {
+  const config = getCurrentPlatformFeeConfig();
+  return PlatformFeeTermsAcceptance.findOne({
+    estabelecimentoId: storeId,
+    termsVersion: config.termsVersion,
+    platformFeePercent: config.percentage,
+    termsHash: config.termsHash,
+    source: "mercado_pago_oauth",
+    status: "active",
+    revokedAt: null,
+  }).sort({ acceptedAt: -1 });
+}
+
+async function requirePlatformFeeAcceptance(storeId) {
+  const acceptance = await currentPlatformFeeAcceptance(storeId);
+  if (acceptance) return acceptance;
+  const error = new Error("Aceite os termos dos pagamentos online antes de continuar.");
+  error.code = "PLATFORM_FEE_TERMS_REQUIRED";
+  error.httpStatus = 409;
+  throw error;
+}
+
+function hasOfficialPlatformFeeEvidence(payment, attempt) {
+  const expected = centsToDecimal(Number(attempt?.platformFeeCents || 0));
+  if (!expected) return false;
+  if (Number(payment?.application_fee) === expected) return true;
+  return Array.isArray(payment?.fee_details) && payment.fee_details.some(detail =>
+    ["application_fee", "marketplace_fee"].includes(String(detail?.type || detail?.fee_payer || ""))
+      && Number(detail?.amount) === expected);
+}
 
 function mercadoPagoConfigStatus(scope = "all") {
   if (scope === "subscription") return validatePlatformPaymentConfig();
@@ -155,6 +192,7 @@ function safeMercadoPagoFailure(error) {
     "SUBSCRIPTION_PAYER_EMAIL_INVALID",
     "ASSINATURA_ATIVA",
     "TENTATIVA_METODO_DIFERENTE",
+    "PLATFORM_FEE_TERMS_REQUIRED",
   ].includes(error?.code) || String(error?.code || "").endsWith("_MISSING");
   return {
     ok: false,
@@ -1156,6 +1194,7 @@ exports.retorno = async (req, res) => {
 exports.conectarMercadoPago = async (req, res) => {
   try {
     assertMercadoPagoConfig("oauth");
+    await requirePlatformFeeAcceptance(estabelecimentoId(req));
     const state = crypto.randomBytes(32).toString("base64url");
     const codeVerifier = crypto.randomBytes(48).toString("base64url");
     const codeChallenge = crypto.createHash("sha256").update(codeVerifier).digest("base64url");
@@ -1187,7 +1226,7 @@ exports.conectarMercadoPago = async (req, res) => {
     flashSafeIntegrationError(req, error);
     if (wantsJson(req)) {
       const payload = safeMercadoPagoFailure(error);
-      return res.status(error?.code === "MERCADO_PAGO_CONFIG_INCOMPLETA" ? 503 : 502).json(payload);
+      return res.status(Number(error?.httpStatus || (error?.code === "MERCADO_PAGO_CONFIG_INCOMPLETA" ? 503 : 502))).json(payload);
     }
     return saveSessionOrRun(req, () => res.redirect("/admin#configuracoes"));
   }
@@ -1222,6 +1261,7 @@ async function consumeOauthState(req) {
 exports.callbackMercadoPago = async (req, res) => {
   try {
     assertMercadoPagoConfig("oauth");
+    await requirePlatformFeeAcceptance(estabelecimentoId(req));
     if (!req.query.code || !req.query.state) throw new Error("Callback OAuth incompleto.");
     const codeVerifier = await consumeOauthState(req);
 
@@ -1277,6 +1317,81 @@ exports.callbackMercadoPago = async (req, res) => {
   }
 };
 
+exports.aceitarTermosTaxaPix = async (req, res) => {
+  try {
+    const storeId = estabelecimentoId(req);
+    const config = getCurrentPlatformFeeConfig();
+    if (req.body?.accepted !== true && String(req.body?.accepted) !== "true") {
+      return res.status(400).json({
+        ok: false,
+        code: "PLATFORM_FEE_TERMS_NOT_ACCEPTED",
+        message: "Confirme que leu e aceitou os termos.",
+      });
+    }
+    const ipKey = String(process.env.TOKEN_ENCRYPTION_KEY || process.env.SESSION_SECRET || "");
+    if (!ipKey) throw new Error("Chave de auditoria não configurada.");
+    const ipHash = crypto.createHmac("sha256", ipKey)
+      .update(`${String(req.ip || "")}|${storeId}`)
+      .digest("hex");
+    await PlatformFeeTermsAcceptance.updateMany({
+      estabelecimentoId: storeId,
+      source: "mercado_pago_oauth",
+      status: "active",
+      $or: [
+        { termsVersion: { $ne: config.termsVersion } },
+        { termsHash: { $ne: config.termsHash } },
+        { platformFeePercent: { $ne: config.percentage } },
+      ],
+    }, { $set: { status: "revoked", revokedAt: new Date() } });
+    const acceptanceQuery = {
+      estabelecimentoId: storeId,
+      termsVersion: config.termsVersion,
+      termsHash: config.termsHash,
+      source: "mercado_pago_oauth",
+      status: "active",
+    };
+    let acceptance;
+    try {
+      acceptance = await PlatformFeeTermsAcceptance.findOneAndUpdate(
+        acceptanceQuery,
+        { $setOnInsert: {
+          usuarioId: req.session.user.id,
+          platformFeePercent: config.percentage,
+          acceptedAt: new Date(),
+          ipHash,
+          userAgentSanitized: String(req.get?.("user-agent") || "")
+            .replace(/[\r\n]/g, " ").slice(0, 300),
+          revokedAt: null,
+        } },
+        { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
+      );
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      acceptance = await PlatformFeeTermsAcceptance.findOne(acceptanceQuery);
+      if (!acceptance) throw error;
+    }
+    await Configuracao.updateOne({ estabelecimentoId: storeId }, { $set: {
+      "mercadoPago.termsAcceptedAt": acceptance.acceptedAt,
+      "mercadoPago.termsVersion": acceptance.termsVersion,
+      "mercadoPago.platformFeePercent": acceptance.platformFeePercent,
+    } });
+    return res.status(201).json({
+      ok: true,
+      code: "PLATFORM_FEE_TERMS_ACCEPTED",
+      termsVersion: acceptance.termsVersion,
+      platformFeePercent: acceptance.platformFeePercent,
+      acceptedAt: acceptance.acceptedAt,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      code: "PLATFORM_FEE_TERMS_SAVE_FAILED",
+      message: "Não foi possível registrar o aceite.",
+      correlationId: String(req.correlationId || ""),
+    });
+  }
+};
+
 exports.desconectarMercadoPago = async (req, res) => {
   await Configuracao.findOneAndUpdate(
     { estabelecimentoId: estabelecimentoId(req) },
@@ -1317,7 +1432,7 @@ const orderAttemptExternalReference = publicReference =>
 const isOpaqueOrderReference = value =>
   /^order_payment_attempt:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
 
-async function activeOrderPaymentAttempt({ pedido, collectorId }) {
+async function activeOrderPaymentAttempt({ pedido, collectorId, feeSnapshot }) {
   const current = await OrderPaymentAttempt.findOne({
     estabelecimentoId: pedido.estabelecimentoId,
     pedidoId: pedido._id,
@@ -1326,7 +1441,13 @@ async function activeOrderPaymentAttempt({ pedido, collectorId }) {
     expiresAt: { $gt: new Date() },
     legacyReference: false,
   }).sort({ createdAt: -1 });
-  if (current) return current;
+  if (current) {
+    if (!current.paymentId && !current.platformFeeCents) {
+      Object.assign(current, feeSnapshot);
+      await current.save();
+    }
+    return current;
+  }
   const publicReference = crypto.randomUUID();
   return OrderPaymentAttempt.create({
     publicReference,
@@ -1340,6 +1461,7 @@ async function activeOrderPaymentAttempt({ pedido, collectorId }) {
     paymentMethod: "pix",
     idempotencyKey: crypto.randomUUID(),
     expiresAt: new Date(Date.now() + 30 * 60_000),
+    ...feeSnapshot,
   });
 }
 
@@ -1379,9 +1501,12 @@ exports.gerarPixPedido = async (req, res) => {
     if (!acessoVenda.permitido) return respostaLojaIndisponivel(res);
 
     const { cfg: cfgPrivada, accessToken } = await configuracaoComToken(cfgPublica.estabelecimentoId);
+    await requirePlatformFeeAcceptance(cfgPublica.estabelecimentoId);
+    const feeSnapshot = buildPlatformFeeSnapshot(pedido.total);
     const attempt = await activeOrderPaymentAttempt({
       pedido,
       collectorId: cfgPrivada.mercadoPago.userId,
+      feeSnapshot,
     });
     const emailCliente = String(pedido.emailCliente || "").trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCliente)) {
@@ -1396,6 +1521,7 @@ exports.gerarPixPedido = async (req, res) => {
       headers: { "X-Idempotency-Key": attempt.idempotencyKey },
       body: JSON.stringify({
         transaction_amount: Number(pedido.total),
+        application_fee: centsToDecimal(attempt.platformFeeCents),
         description: `Pedido ${String(pedido._id).slice(-6).toUpperCase()} - ${cfgPublica.nomeEstabelecimento}`,
         payment_method_id: "pix",
         external_reference: attempt.externalReference,
@@ -1425,6 +1551,15 @@ exports.gerarPixPedido = async (req, res) => {
     pedido.pixCopiaCola = data.point_of_interaction?.transaction_data?.qr_code || "";
     pedido.pixQrCodeBase64 = data.point_of_interaction?.transaction_data?.qr_code_base64 || "";
     pedido.pixExpiraEm = data.date_of_expiration ? new Date(data.date_of_expiration) : null;
+    pedido.platformFeePercent = attempt.platformFeePercent;
+    pedido.platformFeeCents = attempt.platformFeeCents;
+    pedido.platformFeeStatus = "requested";
+    pedido.platformFeeTermsVersion = attempt.platformFeeTermsVersion;
+    pedido.platformFeeCalculatedAt = attempt.platformFeeCalculatedAt;
+    pedido.grossAmountCents = attempt.grossAmountCents;
+    pedido.merchantAmountBeforeMpFeesCents = attempt.merchantAmountBeforeMpFeesCents;
+    pedido.platformFeeReversedCents = 0;
+    pedido.platformFeeNetCents = 0;
     await pedido.save();
 
     return res.status(201).json({
@@ -1436,8 +1571,17 @@ exports.gerarPixPedido = async (req, res) => {
     });
   } catch (error) {
     console.error("Pix do pedido:", sanitizeMercadoPagoError(error));
-    return res.status(400).json({
+    const status = Number(error?.httpStatus || 400);
+    if (error?.code === "PLATFORM_FEE_TERMS_REQUIRED") {
+      return res.status(status).json({
+        success: false,
+        code: error.code,
+        message: "Pix online temporariamente indisponível. A loja precisa aceitar os termos dos pagamentos online.",
+      });
+    }
+    return res.status(status >= 400 && status < 500 ? status : 502).json({
       success: false,
+      code: String(error?.code || "PIX_PAYMENT_CREATE_FAILED"),
       message: "Não foi possível gerar o pagamento Pix.",
     });
   }
@@ -1524,13 +1668,19 @@ function webhookPayloadError(code, message) {
   return error;
 }
 
+function webhookScalar(value) {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  if (candidate === null || candidate === undefined) return "";
+  return String(candidate).trim();
+}
+
 function extractMercadoPagoWebhookEvent(req) {
   const typeCandidates = [
     req.body?.type,
     req.body?.topic,
     req.query?.type,
     req.query?.topic,
-  ].map(value => String(value || "").trim()).filter(Boolean);
+  ].map(webhookScalar).filter(Boolean);
   const normalizedTypes = typeCandidates.map(value => (
     value === "preapproval" ? "subscription_preapproval" : value
   ));
@@ -1538,17 +1688,19 @@ function extractMercadoPagoWebhookEvent(req) {
     throw webhookPayloadError("WEBHOOK_EVENT_TYPE_DIVERGENT", "Tipo de recurso divergente.");
   }
   const resourceType = normalizedTypes[0] || "";
-  const idCandidates = [
-    req.body?.data?.id,
-    req.query?.["data.id"],
-    req.body?.id,
-    req.query?.id,
-  ].map(value => String(value || "").trim()).filter(Boolean);
-  if (new Set(idCandidates).size > 1) {
+
+  // A assinatura oficial do Mercado Pago usa exclusivamente o parâmetro
+  // query `data.id`. O `body.id` da notificação pode identificar o evento
+  // e, portanto, não deve ser comparado com o ID do pagamento.
+  const signedQueryId = webhookScalar(req.query?.["data.id"]);
+  const bodyDataId = webhookScalar(req.body?.data?.id);
+  if (signedQueryId && bodyDataId && signedQueryId !== bodyDataId) {
     throw webhookPayloadError("WEBHOOK_RESOURCE_ID_DIVERGENT", "Identificador de recurso divergente.");
   }
-  const resourceId = idCandidates[0] || "";
-  const eventAction = String(req.body?.action || req.query?.action || resourceType).trim();
+  const legacyQueryId = webhookScalar(req.query?.id);
+  const legacyBodyId = webhookScalar(req.body?.id);
+  const resourceId = signedQueryId || bodyDataId || legacyQueryId || legacyBodyId;
+  const eventAction = webhookScalar(req.body?.action || req.query?.action || resourceType);
   if (!resourceId) {
     throw webhookPayloadError("WEBHOOK_RESOURCE_ID_MISSING", "Identificador do recurso ausente.");
   }
@@ -1679,6 +1831,11 @@ async function processApprovedOrderPayment({
   const approvedAt = payment.date_approved
     ? new Date(payment.date_approved)
     : new Date();
+  const feeApplied = Number(attempt?.platformFeeCents || 0) > 0
+    && hasOfficialPlatformFeeEvidence(payment, attempt);
+  const feeStatus = Number(attempt?.platformFeeCents || 0) <= 0
+    ? "not_applied"
+    : feeApplied ? "applied" : "reconciliation_required";
   if (pedido.status === "cancelado") {
     await Pedido.updateOne({
       _id: pedido._id,
@@ -1703,6 +1860,8 @@ async function processApprovedOrderPayment({
     mercadoPagoPaymentId: String(payment.id),
     mercadoPagoStatus: "approved",
     formaPagamento: "pix_online",
+    platformFeeStatus: feeStatus,
+    platformFeeNetCents: feeApplied ? attempt.platformFeeCents : 0,
   } }, { returnDocument: "after" });
 
   let jobs = [];
@@ -1727,6 +1886,8 @@ async function processApprovedOrderPayment({
     orderIdSuffix: String(pedido._id).slice(-6),
     paymentIdSuffix: String(payment.id).slice(-8),
     paymentStatus: "approved",
+    feeStatus,
+    platformFeeCents: Number(attempt?.platformFeeCents || 0),
     stateTransitionApplied: Boolean(transitioned),
     printJobCreated: jobs.length > 0,
     printJobDeduplicated: Boolean(transitioned) && jobs.length === 0,
@@ -1789,6 +1950,27 @@ async function applyOrderPayment(
   } else if (["cancelled", "rejected", "refunded", "charged_back"].includes(payment.status)) {
     assertStockCompleted(await restaurarEstoqueDoPedido(pedido._id));
     pedido.pagamentoStatus = "cancelado";
+    if (["refunded", "charged_back"].includes(payment.status)
+      && Number(attempt?.platformFeeCents || 0) > 0) {
+      const refundedCents = Math.round(Number(payment.transaction_amount_refunded || 0) * 100);
+      const fullReversal = payment.status === "charged_back"
+        || refundedCents >= Number(attempt.grossAmountCents || 0);
+      pedido.platformFeeStatus = fullReversal ? "reversed" : "reconciliation_required";
+      pedido.platformFeeReversedCents = fullReversal
+        ? Number(attempt.platformFeeCents)
+        : 0;
+      pedido.platformFeeNetCents = fullReversal ? 0 : Number(attempt.platformFeeCents);
+      attempt.platformFeeStatus = pedido.platformFeeStatus;
+      attempt.platformFeeReversedCents = pedido.platformFeeReversedCents;
+      attempt.platformFeeNetCents = pedido.platformFeeNetCents;
+    } else {
+      pedido.platformFeeStatus = "not_applied";
+      pedido.platformFeeNetCents = 0;
+      if (attempt) {
+        attempt.platformFeeStatus = "not_applied";
+        attempt.platformFeeNetCents = 0;
+      }
+    }
   }
   if (payment.status !== "approved") await pedido.save();
   if (attempt) {
@@ -1797,6 +1979,12 @@ async function applyOrderPayment(
     if (payment.status === "approved") {
       attempt.processedAt = attempt.processedAt || new Date();
       attempt.reconciliationStatus = "processed";
+      const feeApplied = Number(attempt.platformFeeCents || 0) > 0
+        && hasOfficialPlatformFeeEvidence(payment, attempt);
+      attempt.platformFeeStatus = Number(attempt.platformFeeCents || 0) <= 0
+        ? "not_applied"
+        : feeApplied ? "applied" : "reconciliation_required";
+      attempt.platformFeeNetCents = feeApplied ? attempt.platformFeeCents : 0;
     }
     await attempt.save();
   }

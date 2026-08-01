@@ -3821,6 +3821,14 @@
                     <%= item.nome %>
                   </div>
 
+                  <% if (Array.isArray(item.adicionais) && item.adicionais.length) { %>
+                    <div class="order-item-addons" style="margin-top:5px;display:grid;gap:3px;overflow-wrap:anywhere">
+                      <% item.adicionais.filter(adicional => adicional && adicional.nome).forEach(adicional => { %>
+                        <span>+ <%= Number(adicional.quantidade || 1) > 1 ? `${Number(adicional.quantidade)}x ` : '' %><%= adicional.nome %><%= Number.isFinite(Number(adicional.preco)) ? ` — ${formatarMoeda(Number(adicional.preco) * Number(adicional.quantidade || 1))}` : '' %></span>
+                      <% }) %>
+                    </div>
+                  <% } %>
+
                   <% if (item.observacao) { %>
                     <span class="order-item-note">
                       Observação: <%= item.observacao %>
@@ -4160,6 +4168,26 @@
       </div>
     </article>
   </div>
+
+  <section class="panel" id="relatorio-taxas-pix" style="margin-top:18px">
+    <div class="panel-header">
+      <div class="panel-title">
+        <h2>Taxa dos pagamentos Pix online</h2>
+        <p>Valores confirmados pelo split. As tarifas próprias do Mercado Pago não são estimadas.</p>
+      </div>
+    </div>
+    <div class="metrics-grid">
+      <article class="metric-card"><span>Bruto Pix online</span><strong><%= formatarMoeda((relatorios.taxasPix?.valorBrutoCents || 0) / 100) %></strong></article>
+      <article class="metric-card"><span>Taxa Comanda Fácil</span><strong><%= formatarMoeda((relatorios.taxasPix?.taxaCents || 0) / 100) %></strong></article>
+      <article class="metric-card"><span>Taxa estornada</span><strong><%= formatarMoeda((relatorios.taxasPix?.estornadaCents || 0) / 100) %></strong></article>
+      <article class="metric-card"><span>Taxa líquida</span><strong><%= formatarMoeda((relatorios.taxasPix?.liquidaCents || 0) / 100) %></strong></article>
+      <article class="metric-card"><span>Destinado à loja antes das tarifas MP</span><strong><%= formatarMoeda((relatorios.taxasPix?.destinadoLojaCents || 0) / 100) %></strong></article>
+      <article class="metric-card"><span>Pagamentos com taxa</span><strong><%= relatorios.taxasPix?.quantidade || 0 %></strong></article>
+    </div>
+    <% if (relatorios.taxasPix?.reconciliacao) { %>
+      <p><%= relatorios.taxasPix.reconciliacao %> pagamento(s) exigem reconciliação da taxa.</p>
+    <% } %>
+  </section>
 
   <section class="panel chart-card">
     <div class="chart-title">
@@ -5338,6 +5366,21 @@
             </div>
             <% if (config.mercadoPago && config.mercadoPago.conectado) { %>
               <div class="link-box" style="margin-bottom:14px">✅ Conta conectada — Pix automático disponível no catálogo.</div>
+              <div class="link-box" style="margin-bottom:14px">
+                <strong>Taxa de serviço Comanda Fácil:</strong> 1,5%<br>
+                <strong>Tarifas Mercado Pago:</strong> conforme as condições da conta da loja<br>
+                <strong>Termos aceitos em:</strong>
+                <%= config.mercadoPago.termsAcceptedAt ? formatarDataHoraEstabelecimento(config.mercadoPago.termsAcceptedAt) : 'Aceite anterior não registrado' %><br>
+                <strong>Versão:</strong> <%= config.mercadoPago.termsVersion || 'legada' %>
+              </div>
+              <% if (!config.mercadoPago.termsAcceptedAt) { %>
+                <div class="link-box" style="margin-bottom:14px;border-color:#f59e0b;background:#fff7ed">
+                  ⚠ Para continuar gerando novos pagamentos Pix online, revise e aceite os termos da taxa de serviço.
+                </div>
+              <% } %>
+              <button type="button" class="button" data-mercado-pago-accept-terms style="margin-bottom:14px">
+                <%= config.mercadoPago.termsAcceptedAt ? 'Consultar ou renovar termos' : 'Revisar e aceitar os termos' %>
+              </button>
               <form action="/admin/mercado-pago/desconectar" method="POST" data-confirm-mercado-pago-disconnect>
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                 <button type="submit" class="button" style="background:#777">Desconectar Mercado Pago</button>
@@ -5350,6 +5393,28 @@
               </form>
             <% } %>
           </section>
+          <dialog id="mercadoPagoTermsDialog" style="max-width:680px;width:calc(100% - 32px);border:0;border-radius:18px;padding:0">
+            <div style="padding:24px">
+              <h2>Termos dos pagamentos online</h2>
+              <p>Ao conectar sua conta Mercado Pago, você autoriza o Comanda Fácil a processar os pagamentos online dos pedidos da sua loja.</p>
+              <p>Em cada pagamento Pix online aprovado:</p>
+              <ul>
+                <li>o Comanda Fácil cobrará uma taxa de serviço de 1,5% sobre o valor total do pedido;</li>
+                <li>o Mercado Pago poderá descontar suas próprias tarifas;</li>
+                <li>o cliente pagará apenas o valor normal do pedido;</li>
+                <li>o valor restante será creditado na sua conta Mercado Pago.</li>
+              </ul>
+              <p>Exemplo: em R$ 30,00, a taxa será R$ 0,45, além das eventuais tarifas do Mercado Pago.</p>
+              <label style="display:flex;gap:10px;align-items:flex-start">
+                <input type="checkbox" id="platformFeeTermsCheckbox">
+                <span>Li, compreendi e aceito os termos e a taxa de serviço de 1,5% do Comanda Fácil.</span>
+              </label>
+              <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;flex-wrap:wrap">
+                <button type="button" class="button secondary" id="cancelPlatformFeeTerms">Cancelar</button>
+                <button type="button" class="button" id="confirmPlatformFeeTerms" disabled>Continuar e conectar</button>
+              </div>
+            </div>
+          </dialog>
           <% } %>
 
           <% if (pode('configurar_impressoras')) { %>
@@ -5884,6 +5949,7 @@
           </button>
         </div>
       </form>
+
     </div>
   </div>
   <% } %>
@@ -7029,10 +7095,70 @@
       input.value = csrfToken;
     }, true);
 
+    const mercadoPagoTermsDialog = document.querySelector('#mercadoPagoTermsDialog');
+    const platformFeeTermsCheckbox = document.querySelector('#platformFeeTermsCheckbox');
+    const confirmPlatformFeeTerms = document.querySelector('#confirmPlatformFeeTerms');
+    let pendingMercadoPagoConnectForm = null;
+    let platformFeeTermsMode = 'connect';
+    platformFeeTermsCheckbox?.addEventListener('change', () => {
+      confirmPlatformFeeTerms.disabled = !platformFeeTermsCheckbox.checked;
+    });
+    document.querySelector('#cancelPlatformFeeTerms')?.addEventListener('click', () => {
+      pendingMercadoPagoConnectForm = null;
+      platformFeeTermsMode = 'connect';
+      platformFeeTermsCheckbox.checked = false;
+      confirmPlatformFeeTerms.disabled = true;
+      mercadoPagoTermsDialog.close();
+    });
+    confirmPlatformFeeTerms?.addEventListener('click', async () => {
+      if (!platformFeeTermsCheckbox.checked) return;
+      if (platformFeeTermsMode === 'connect' && !pendingMercadoPagoConnectForm) return;
+      confirmPlatformFeeTerms.disabled = true;
+      try {
+        const response = await adminFetch('/admin/mercado-pago/termos/aceitar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ accepted: true })
+        });
+        const payload = await response.clone().json().catch(() => ({}));
+        if (!response.ok || !payload.ok) throw new Error(payload.message || 'Não foi possível registrar o aceite.');
+        mercadoPagoTermsDialog.close();
+        if (platformFeeTermsMode === 'accept-only') {
+          platformFeeTermsMode = 'connect';
+          window.location.reload();
+          return;
+        }
+        const form = pendingMercadoPagoConnectForm;
+        pendingMercadoPagoConnectForm = null;
+        form.dataset.termsConfirmed = 'true';
+        form.requestSubmit();
+      } catch (error) {
+        confirmPlatformFeeTerms.disabled = false;
+        mostrarErroAdministrativo({ message: error.message });
+      }
+    });
+
+    document.querySelector('[data-mercado-pago-accept-terms]')?.addEventListener('click', () => {
+      pendingMercadoPagoConnectForm = null;
+      platformFeeTermsMode = 'accept-only';
+      platformFeeTermsCheckbox.checked = false;
+      confirmPlatformFeeTerms.disabled = true;
+      confirmPlatformFeeTerms.textContent = 'Aceitar termos';
+      mercadoPagoTermsDialog.showModal();
+    });
+
     document.addEventListener('submit', async event => {
       const form = event.target.closest?.('[data-mercado-pago-connect]');
       if (!form) return;
       event.preventDefault();
+      if (form.dataset.termsConfirmed !== 'true') {
+        pendingMercadoPagoConnectForm = form;
+        platformFeeTermsMode = 'connect';
+        confirmPlatformFeeTerms.textContent = 'Continuar e conectar';
+        mercadoPagoTermsDialog.showModal();
+        return;
+      }
+      delete form.dataset.termsConfirmed;
       if (form.dataset.submitting === 'true') return;
 
       const button = form.querySelector('button[type="submit"]');
@@ -7999,6 +8125,16 @@ function criarHtmlItensPedido(
                 item.nome
               )}
             </div>
+
+            ${Array.isArray(item.adicionais) && item.adicionais.length ? `
+              <div class="order-item-addons" style="margin-top:5px;display:grid;gap:3px;overflow-wrap:anywhere">
+                ${item.adicionais.filter(adicional => adicional && adicional.nome).map(adicional => {
+                  const quantidade = Math.max(1, Number(adicional.quantidade || 1));
+                  const preco = Number(adicional.preco);
+                  return `<span>+ ${quantidade > 1 ? `${quantidade}x ` : ''}${escaparHtml(adicional.nome)}${Number.isFinite(preco) ? ` — ${formatarMoedaPedido(preco * quantidade)}` : ''}</span>`;
+                }).join('')}
+              </div>
+            ` : ''}
 
             ${
               item.observacao

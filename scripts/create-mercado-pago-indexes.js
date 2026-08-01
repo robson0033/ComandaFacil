@@ -14,6 +14,7 @@ const {
   OrderPaymentAttempt,
   PrintAgent,
   PrintJob,
+  PlatformFeeTermsAcceptance,
 } = require("../src/models/painelModels");
 const { registroModel } = require("../src/models/registroModel");
 
@@ -249,6 +250,28 @@ const definitions = [
     expectedType: "string",
   },
   {
+    model: PlatformFeeTermsAcceptance,
+    key: { estabelecimentoId: 1, termsVersion: 1, source: 1, status: 1 },
+    options: { name: "platform_fee_terms_tenant_version_status" },
+    expectedType: "objectId",
+  },
+  {
+    model: PlatformFeeTermsAcceptance,
+    key: { estabelecimentoId: 1, termsVersion: 1, termsHash: 1, status: 1 },
+    options: {
+      unique: true,
+      partialFilterExpression: { status: "active" },
+      name: "platform_fee_terms_active_unique",
+    },
+    expectedType: "objectId",
+  },
+  {
+    model: Pedido,
+    key: { estabelecimentoId: 1, pagamentoStatus: 1, formaPagamento: 1, pagoEm: -1 },
+    options: { name: "pedido_taxa_pix_relatorio" },
+    expectedType: "objectId",
+  },
+  {
     model: OAuthState,
     key: { expiresAt: 1 },
     options: {
@@ -287,6 +310,9 @@ const purposes = {
   printjob_automatico_unico: "impedir mais de um job automático por loja, pedido e impressora",
   oauth_state_hash_unico: "garantir state OAuth de uso único",
   oauth_state_expiracao_ttl: "remover state OAuth depois da data de expiração",
+  platform_fee_terms_tenant_version_status: "consultar histórico de aceite da taxa por loja e versão",
+  platform_fee_terms_active_unique: "garantir um aceite ativo por loja, versão e texto",
+  pedido_taxa_pix_relatorio: "consultar taxas Pix pagas por loja e data de pagamento",
 };
 
 function canonicalize(value) {

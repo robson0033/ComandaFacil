@@ -165,6 +165,27 @@ test("webhook: extrai IDs de body, query e aliases topic/id", () => {
   ]);
 });
 
+test("webhook: body.id do evento não é comparado com data.id do pagamento", () => {
+  const event = pagamento._testing.extractMercadoPagoWebhookEvent({
+    body: {
+      id: "notification-event-987654",
+      type: "payment",
+      action: "payment.updated",
+      data: { id: "123456789" },
+    },
+    query: { "data.id": "123456789", type: "payment" },
+  });
+  assert.equal(event.resourceId, "123456789");
+  assert.equal(event.eventAction, "payment.updated");
+});
+
+test("webhook: data.id realmente divergente continua bloqueado", () => {
+  assert.throws(() => pagamento._testing.extractMercadoPagoWebhookEvent({
+    body: { type: "payment", data: { id: "111" } },
+    query: { "data.id": "222", type: "payment" },
+  }), { code: "WEBHOOK_RESOURCE_ID_DIVERGENT" });
+});
+
 test("webhook: ID ausente retorna erro controlado, não INTERNAL_ERROR", async () => {
   const previousSecret = process.env.MERCADO_PAGO_WEBHOOK_SECRET;
   process.env.MERCADO_PAGO_WEBHOOK_SECRET = "test-secret";

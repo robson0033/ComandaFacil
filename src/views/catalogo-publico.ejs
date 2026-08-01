@@ -2763,18 +2763,6 @@
         }
 
         fecharModalTroco();
-        formMessage.className = "form-message success";
-        formMessage.textContent =
-          `Pedido #${result.numeroPedido} enviado. Use “Meus pedidos” para acompanhar.`;
-        window.mostrarSucessoPedido?.(
-          result.codigoPublico || result.numeroPedido,
-          result.emailAviso || ""
-        );
-        window.registrarPedidoAcompanhamento?.({
-          codigoPublico: result.numeroPedido,
-          token: result.acompanhamentoToken,
-          criadoEm: new Date().toISOString()
-        });
 
         if (payload.formaPagamento === "pix") {
           const pixResponse = await fetch(
@@ -2787,9 +2775,33 @@
               }
             }
           );
-          const pixResult = await pixResponse.json();
-          if (!pixResponse.ok) {
-            throw new Error(pixResult.message || "Não foi possível gerar o Pix.");
+          const pixResult = await pixResponse.json().catch(() => ({
+            success: false,
+            code: "PIX_INVALID_RESPONSE",
+            message: "O servidor retornou uma resposta inválida ao gerar o Pix."
+          }));
+          if (!pixResponse.ok || !pixResult.success) {
+            // O pedido já existe. Limpa o carrinho para impedir um segundo pedido
+            // e apresenta um estado explícito, em vez de deixar o formulário preso.
+            cart = [];
+            saveCart();
+            renderCart();
+            orderForm.reset();
+            atualizarEndereco();
+            formMessage.className = "form-message error";
+            formMessage.textContent =
+              `Pedido #${result.numeroPedido} criado, mas o Pix não foi gerado. ` +
+              (pixResult.message || "Entre em contato com a loja.");
+            window.registrarPedidoAcompanhamento?.({
+              codigoPublico: result.codigoPublico || result.numeroPedido,
+              token: result.acompanhamentoToken,
+              criadoEm: new Date().toISOString()
+            });
+            window.mostrarSucessoPedido?.(
+              result.codigoPublico || result.numeroPedido,
+              formMessage.textContent
+            );
+            return;
           }
 
           const qr = document.querySelector("#pixQrImage");
@@ -2812,6 +2824,23 @@
             codigoPublico: result.codigoPublico || result.numeroPedido
           };
           schedulePixPolling(2_000);
+        }
+
+        formMessage.className = "form-message success";
+        formMessage.textContent =
+          `Pedido #${result.numeroPedido} enviado. Use “Meus pedidos” para acompanhar.`;
+        window.registrarPedidoAcompanhamento?.({
+          codigoPublico: result.codigoPublico || result.numeroPedido,
+          token: result.acompanhamentoToken,
+          criadoEm: new Date().toISOString()
+        });
+        // No Pix, o QR Code é a tela principal neste momento. A confirmação
+        // final é mostrada somente depois que o pagamento for aprovado.
+        if (payload.formaPagamento !== "pix") {
+          window.mostrarSucessoPedido?.(
+            result.codigoPublico || result.numeroPedido,
+            result.emailAviso || ""
+          );
         }
 
         cart = [];

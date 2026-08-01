@@ -535,6 +535,9 @@ const Configuracao = mongoose.model(
           type: mongoose.Schema.Types.ObjectId,
           default: null,
         },
+        termsAcceptedAt: { type: Date, default: null },
+        termsVersion: { type: String, default: "" },
+        platformFeePercent: { type: Number, default: null },
       },
 
     },
@@ -785,6 +788,19 @@ const Pedido = mongoose.model(
       pixCopiaCola: { type: String, default: "" },
       pixQrCodeBase64: { type: String, default: "" },
       pixExpiraEm: { type: Date, default: null },
+      platformFeePercent: { type: Number, default: null },
+      platformFeeCents: { type: Number, default: 0, min: 0 },
+      platformFeeStatus: {
+        type: String,
+        enum: ["requested", "applied", "not_applied", "reversed", "partially_reversed", "reconciliation_required"],
+        default: "not_applied",
+      },
+      platformFeeTermsVersion: { type: String, default: "" },
+      platformFeeCalculatedAt: { type: Date, default: null },
+      grossAmountCents: { type: Number, default: 0, min: 0 },
+      merchantAmountBeforeMpFeesCents: { type: Number, default: 0, min: 0 },
+      platformFeeReversedCents: { type: Number, default: 0, min: 0 },
+      platformFeeNetCents: { type: Number, default: 0, min: 0 },
       estoqueProcessamento: {
         type: String,
         enum: [
@@ -1281,6 +1297,19 @@ const orderPaymentAttemptSchema = new mongoose.Schema({
   reconciliationStatus: { type: String, default: "pending" },
   webhookEvents: { type: [String], default: [] },
   legacyReference: { type: Boolean, default: false },
+  platformFeePercent: { type: Number, default: null },
+  platformFeeCents: { type: Number, default: 0, min: 0 },
+  platformFeeStatus: {
+    type: String,
+    enum: ["requested", "applied", "not_applied", "reversed", "partially_reversed", "reconciliation_required"],
+    default: "not_applied",
+  },
+  platformFeeTermsVersion: { type: String, default: "" },
+  platformFeeCalculatedAt: { type: Date, default: null },
+  grossAmountCents: { type: Number, default: 0, min: 0 },
+  merchantAmountBeforeMpFeesCents: { type: Number, default: 0, min: 0 },
+  platformFeeReversedCents: { type: Number, default: 0, min: 0 },
+  platformFeeNetCents: { type: Number, default: 0, min: 0 },
 }, opts);
 orderPaymentAttemptSchema.index({ publicReference: 1 }, { unique: true, name: "order_attempt_public_reference_unique" });
 orderPaymentAttemptSchema.index({ externalReference: 1 }, { unique: true, name: "order_attempt_external_reference_unique" });
@@ -1293,6 +1322,40 @@ orderPaymentAttemptSchema.index({ idempotencyKey: 1 }, { unique: true, name: "or
 orderPaymentAttemptSchema.index({ estabelecimentoId: 1, pedidoId: 1, createdAt: -1 }, { name: "order_attempt_tenant_order" });
 orderPaymentAttemptSchema.index({ estabelecimentoId: 1, status: 1 }, { name: "order_attempt_tenant_status" });
 const OrderPaymentAttempt = mongoose.model("OrderPaymentAttempt", orderPaymentAttemptSchema);
+
+const platformFeeTermsAcceptanceSchema = new mongoose.Schema({
+  estabelecimentoId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+  usuarioId: { type: mongoose.Schema.Types.ObjectId, required: true },
+  termsVersion: { type: String, required: true },
+  platformFeePercent: { type: Number, required: true },
+  acceptedAt: { type: Date, required: true },
+  ipHash: { type: String, required: true },
+  userAgentSanitized: { type: String, default: "", maxlength: 300 },
+  termsHash: { type: String, required: true },
+  source: { type: String, enum: ["mercado_pago_oauth"], required: true },
+  status: { type: String, enum: ["active", "revoked"], default: "active" },
+  revokedAt: { type: Date, default: null },
+}, opts);
+platformFeeTermsAcceptanceSchema.index({
+  estabelecimentoId: 1,
+  termsVersion: 1,
+  source: 1,
+  status: 1,
+}, { name: "platform_fee_terms_tenant_version_status" });
+platformFeeTermsAcceptanceSchema.index({
+  estabelecimentoId: 1,
+  termsVersion: 1,
+  termsHash: 1,
+  status: 1,
+}, {
+  unique: true,
+  partialFilterExpression: { status: "active" },
+  name: "platform_fee_terms_active_unique",
+});
+const PlatformFeeTermsAcceptance = mongoose.model(
+  "PlatformFeeTermsAcceptance",
+  platformFeeTermsAcceptanceSchema,
+);
 
 const orderLookupVerificationSchema = new mongoose.Schema({
   estabelecimentoId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
@@ -1322,6 +1385,7 @@ for (const model of [
   AuditoriaEvento,
   OrderLookupVerification,
   OrderPaymentAttempt,
+  PlatformFeeTermsAcceptance,
 ]) {
   model.schema.set("autoIndex", false);
 }
@@ -1377,4 +1441,5 @@ module.exports = {
   AuditoriaEvento,
   OrderLookupVerification,
   OrderPaymentAttempt,
+  PlatformFeeTermsAcceptance,
 };
