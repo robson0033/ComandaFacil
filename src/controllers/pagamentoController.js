@@ -296,6 +296,11 @@ async function obterOuCriarTentativa(assinatura, metodo) {
     expiresAt: { $gt: now },
   });
   if (existing) {
+    if (existing.status === SUBSCRIPTION_ATTEMPT_STATUS.RECONCILIATION_REQUIRED) {
+      const error = new Error("A tentativa exige reconciliação antes de uma nova cobrança.");
+      error.code = "SUBSCRIPTION_ATTEMPT_REQUIRES_RECONCILIATION";
+      throw error;
+    }
     if (existing.metodo !== metodo) {
       const error = new Error(
         `Já existe uma tentativa ativa por ${existing.metodo}. Aguarde a expiração ou cancele-a antes de trocar o método.`,
@@ -379,17 +384,47 @@ function tentativaPublica(attempt) {
   };
 }
 
-async function cancelarPreapprovalRemoto(attempt, cancelRequestId, requester = requestPlatform) {
-  const preapprovalId = String(attempt.mercadoPagoPreapprovalId || "").trim();
-  if (!preapprovalId) return { status: "not_created" };
-  const endpointPath = `/preapproval/${encodeURIComponent(preapprovalId)}`;
-  const remote = await requester(endpointPath, {
-    operation: "verify_subscription_preapproval_before_cancel",
-    stage: "preapproval_cancel_lookup",
+function classifyRemotePreapproval(preapproval) {
+  const remoteStatus = String(preapproval?.status || "").trim().toLowerCase();
+  const payerPresent = Boolean(String(preapproval?.payer_id || "").trim());
+  const alreadyCancelled = ["canceled", "cancelled"].includes(remoteStatus);
+  const isAuthorizedSubscription = payerPresent
+    && ["authorized", "paused"].includes(remoteStatus);
+  const canAbandonLocally = remoteStatus === "pending" && !payerPresent;
+  const canRequestRemoteCancellation = isAuthorizedSubscription;
+  return {
+    remoteStatus,
+    payerPresent,
+    isAuthorizedSubscription,
+    canRequestRemoteCancellation,
+    canAbandonLocally,
+    alreadyCancelled,
+    requiresReconciliation: !alreadyCancelled
+      && !canAbandonLocally
+      && !canRequestRemoteCancellation,
+  };
+}
+
+function logRemotePreapprovalSnapshot(preapproval, correlationId) {
+  console.info("mercado_pago_preapproval_snapshot", {
+    correlationId: String(correlationId || "") || null,
+    id: String(preapproval?.id || "").slice(0, 100) || null,
+    status: String(preapproval?.status || "").slice(0, 40) || null,
+    reason: String(preapproval?.reason || "").slice(0, 160) || null,
+    externalReference: String(preapproval?.external_reference || "").slice(0, 180) || null,
+    collectorId: String(preapproval?.collector_id || "").slice(0, 80) || null,
+    payerIdPresent: Boolean(String(preapproval?.payer_id || "").trim()),
+    initPointPresent: Boolean(String(preapproval?.init_point || "").trim()),
+    dateCreated: String(preapproval?.date_created || "").slice(0, 50) || null,
+    lastModified: String(preapproval?.last_modified || "").slice(0, 50) || null,
+    nextPaymentDate: String(preapproval?.next_payment_date || "").slice(0, 50) || null,
+    autoRecurringPresent: Boolean(preapproval?.auto_recurring),
   });
-  const expectedReference = attemptReference(attempt);
+}
+
+function assertRemotePreapprovalIdentity(remote, attempt, preapprovalId, endpointPath) {
   const identityMatches = String(remote?.id || "") === preapprovalId
-    && String(remote?.external_reference || "") === expectedReference
+    && String(remote?.external_reference || "") === attemptReference(attempt)
     && String(remote?.collector_id || "") === platformCollectorId();
   if (!identityMatches) {
     const error = new Error("O preapproval remoto não pertence à tentativa da plataforma.");
@@ -398,23 +433,70 @@ async function cancelarPreapprovalRemoto(attempt, cancelRequestId, requester = r
     error.endpointPath = endpointPath;
     throw error;
   }
-  if (["canceled", "cancelled"].includes(remote.status)) {
-    return { status: "canceled" };
-  }
-  if (!["pending", "authorized"].includes(remote.status)) {
-    const error = new Error("A tentativa remota não está em estado cancelável.");
-    error.code = "SUBSCRIPTION_ATTEMPT_NOT_CANCELLABLE";
-    error.stage = "preapproval_cancel_status";
+}
+
+async function cancelarPreapprovalRemoto(
+  attempt,
+  cancelRequestId,
+  requester = requestPlatform,
+  context = {},
+) {
+  const preapprovalId = String(attempt.mercadoPagoPreapprovalId || "").trim();
+  if (!preapprovalId) return { action: "abandon", status: "not_applicable" };
+  const endpointPath = `/preapproval/${encodeURIComponent(preapprovalId)}`;
+  let remote = await requester(endpointPath, {
+    operation: "verify_subscription_preapproval_before_cancel",
+    stage: "preapproval_cancel_lookup",
+  });
+  logRemotePreapprovalSnapshot(remote, context.correlationId);
+  assertRemotePreapprovalIdentity(remote, attempt, preapprovalId, endpointPath);
+  let classification = classifyRemotePreapproval(remote);
+  if (classification.alreadyCancelled) return { action: "cancel", status: remote.status };
+  if (classification.canAbandonLocally) return { action: "abandon", status: "not_applicable" };
+  if (classification.requiresReconciliation) {
+    const error = new Error("O estado remoto da tentativa exige reconciliação.");
+    error.code = "SUBSCRIPTION_ATTEMPT_REQUIRES_RECONCILIATION";
+    error.stage = "preapproval_cancel_classification";
     error.endpointPath = endpointPath;
     throw error;
   }
-  const cancelled = await requester(endpointPath, {
-    operation: "cancel_subscription_preapproval",
-    stage: "preapproval_cancel_update",
-    method: "PUT",
-    idempotencyKey: cancelRequestId,
-    body: { status: "canceled" },
-  });
+  let cancelled;
+  try {
+    cancelled = await requester(endpointPath, {
+      operation: "cancel_subscription_preapproval",
+      stage: "preapproval_cancel_update",
+      method: "PUT",
+      idempotencyKey: cancelRequestId,
+      body: { status: "canceled" },
+    });
+  } catch (cause) {
+    if (Number(cause?.httpStatus || cause?.status) !== 400) throw cause;
+    remote = await requester(endpointPath, {
+      operation: "reconcile_subscription_preapproval_after_cancel_rejection",
+      stage: "preapproval_cancel_reconciliation_lookup",
+    });
+    logRemotePreapprovalSnapshot(remote, context.correlationId);
+    assertRemotePreapprovalIdentity(remote, attempt, preapprovalId, endpointPath);
+    classification = classifyRemotePreapproval(remote);
+    if (classification.alreadyCancelled) return { action: "cancel", status: remote.status };
+    if (classification.canAbandonLocally) return { action: "abandon", status: "not_applicable" };
+    const error = new Error(
+      cause?.providerResponse?.providerMessage
+      || "O Mercado Pago rejeitou o cancelamento remoto.",
+      { cause },
+    );
+    error.code = classification.requiresReconciliation
+      ? "SUBSCRIPTION_ATTEMPT_REQUIRES_RECONCILIATION"
+      : "SUBSCRIPTION_REMOTE_CANCEL_REJECTED";
+    error.operation = cause?.operation;
+    error.stage = "preapproval_cancel_rejected";
+    error.endpointPath = endpointPath;
+    error.status = cause?.status;
+    error.httpStatus = cause?.httpStatus;
+    error.providerResponse = cause?.providerResponse;
+    error.responseReceived = cause?.responseReceived;
+    throw error;
+  }
   if (String(cancelled?.id || "") !== preapprovalId
     || !["canceled", "cancelled"].includes(String(cancelled?.status || ""))) {
     const error = new Error("O Mercado Pago não confirmou o cancelamento da tentativa.");
@@ -423,7 +505,7 @@ async function cancelarPreapprovalRemoto(attempt, cancelRequestId, requester = r
     error.endpointPath = endpointPath;
     throw error;
   }
-  return { status: String(cancelled.status) };
+  return { action: "cancel", status: String(cancelled.status) };
 }
 
 function pixDaTentativa(attempt) {
@@ -583,6 +665,20 @@ exports.cancelarTentativaAtiva = async (req, res) => {
     }, { returnDocument: "after" });
 
     if (!attempt) {
+      const cancellationInProgress = await AssinaturaTentativa.findOne({
+        estabelecimentoId: estabId,
+        metodo: "cartao",
+        ativa: true,
+        status: { $in: CANCELLABLE_ATTEMPT_STATUSES },
+        cancelRequestedAt: { $ne: null },
+      });
+      if (cancellationInProgress) {
+        return res.status(200).json({
+          ok: true,
+          code: "SUBSCRIPTION_ATTEMPT_CANCELLATION_IN_PROGRESS",
+          message: "O cancelamento já está sendo processado.",
+        });
+      }
       const alreadyCancelled = await AssinaturaTentativa.findOne({
         estabelecimentoId: estabId,
         metodo: "cartao",
@@ -617,15 +713,35 @@ exports.cancelarTentativaAtiva = async (req, res) => {
 
     let remote;
     try {
-      remote = await cancelarPreapprovalRemoto(attempt, cancelRequestId);
+      remote = await cancelarPreapprovalRemoto(attempt, cancelRequestId, requestPlatform, {
+        correlationId: req.correlationId,
+      });
     } catch (cause) {
+      if (cause?.code === "SUBSCRIPTION_ATTEMPT_REQUIRES_RECONCILIATION") {
+        await AssinaturaTentativa.updateOne({
+          _id: attempt._id,
+          estabelecimentoId: estabId,
+          cancelRequestId,
+          ativa: true,
+        }, {
+          $set: {
+            status: SUBSCRIPTION_ATTEMPT_STATUS.RECONCILIATION_REQUIRED,
+            cancelRequestId: "",
+            erro: "Estado remoto exige reconciliação manual.",
+          },
+        }).catch(() => {});
+        throw cause;
+      }
       await AssinaturaTentativa.updateOne({
         _id: attempt._id,
         estabelecimentoId: estabId,
         cancelRequestId,
         ativa: true,
       }, { $set: { cancelRequestedAt: null, cancelRequestId: "" } }).catch(() => {});
-      if (cause?.code === "SUBSCRIPTION_ATTEMPT_NOT_CANCELLABLE") throw cause;
+      if ([
+        "SUBSCRIPTION_ATTEMPT_NOT_CANCELLABLE",
+        "SUBSCRIPTION_REMOTE_CANCEL_REJECTED",
+      ].includes(cause?.code)) throw cause;
       const error = new Error("Não foi possível confirmar o cancelamento no Mercado Pago.", { cause });
       error.code = "SUBSCRIPTION_REMOTE_CANCEL_FAILED";
       error.operation = cause?.operation || "cancel_subscription_preapproval";
@@ -680,18 +796,30 @@ exports.cancelarTentativaAtiva = async (req, res) => {
     }
     return res.status(200).json({
       ok: true,
-      code: "SUBSCRIPTION_ATTEMPT_CANCELLED",
-      message: "Tentativa cancelada.",
+      code: remote.action === "abandon"
+        ? "SUBSCRIPTION_ATTEMPT_ABANDONED"
+        : "SUBSCRIPTION_ATTEMPT_CANCELLED",
+      message: remote.action === "abandon"
+        ? "A tentativa de cartão foi cancelada."
+        : "Tentativa cancelada.",
     });
   } catch (error) {
     error.correlationId ||= String(req.correlationId || "");
     flashSafeIntegrationError(req, error);
-    const status = error.code === "SUBSCRIPTION_ATTEMPT_NOT_CANCELLABLE" ? 409 : 502;
+    const status = [
+      "SUBSCRIPTION_ATTEMPT_NOT_CANCELLABLE",
+      "SUBSCRIPTION_ATTEMPT_REQUIRES_RECONCILIATION",
+    ].includes(error.code) ? 409 : 502;
+    const responseCode = [
+      "SUBSCRIPTION_ATTEMPT_NOT_CANCELLABLE",
+      "SUBSCRIPTION_ATTEMPT_REQUIRES_RECONCILIATION",
+      "SUBSCRIPTION_REMOTE_CANCEL_REJECTED",
+    ].includes(error.code)
+      ? error.code
+      : "SUBSCRIPTION_REMOTE_CANCEL_FAILED";
     return res.status(status).json({
       ok: false,
-      code: error.code === "SUBSCRIPTION_ATTEMPT_NOT_CANCELLABLE"
-        ? error.code
-        : "SUBSCRIPTION_REMOTE_CANCEL_FAILED",
+      code: responseCode,
       message: error.message,
       correlationId: error.correlationId,
     });
@@ -1406,6 +1534,20 @@ async function processSubscriptionPayment(event, payment) {
       attempt.completedAt = new Date();
       attempt.erro = "Pagamento aprovado para tentativa não vigente; conciliação manual necessária.";
       await attempt.save();
+      if (!Array.isArray(assinatura.historicoFinanceiro)) assinatura.historicoFinanceiro = [];
+      assinatura.historicoFinanceiro.push({
+        paymentId: String(payment.id),
+        preapprovalId: paymentPreapprovalId,
+        status: "reconciliation_required:approved",
+        aprovadoEm: payment.date_approved ? new Date(payment.date_approved) : null,
+        registradoEm: new Date(),
+      });
+      await assinatura.save();
+      console.warn("subscription_abandoned_payment_reconciliation", {
+        paymentId: String(payment.id),
+        attemptId: String(attempt.attemptId),
+        estabelecimentoId: String(assinatura.estabelecimentoId),
+      });
     }
     event.estabelecimentoId = assinatura.estabelecimentoId;
     event.assinaturaId = assinatura._id;
@@ -1684,6 +1826,7 @@ exports.webhook = async (req, res) => {
 exports.assinaturaDoUsuario = assinaturaDoUsuario;
 exports._testing = {
   cancelarPreapprovalRemoto,
+  classifyRemotePreapproval,
   buildPixPaymentPayload,
   buildPreapprovalPayload,
   claimEvent,

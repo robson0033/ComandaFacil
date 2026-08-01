@@ -9,6 +9,7 @@ const models = require("../src/models/painelModels");
 const pagamento = require("../src/controllers/pagamentoController");
 const {
   BLOCKING_ATTEMPT_STATUSES,
+  CANCELLABLE_ATTEMPT_STATUSES,
   SUBSCRIPTION_ATTEMPT_STATUS,
 } = require("../src/constants/subscriptionAttempt");
 
@@ -67,9 +68,12 @@ test("modelo preserva cancelamento, autor e solicitação de corrida", () => {
 
 test("página mostra cancelamento sem ID interno e frontend impede submit duplo", () => {
   const view = fs.readFileSync(path.join(__dirname, "../src/views/assinatura.ejs"), "utf8");
-  assert.match(view, /Cancelar tentativa de cartão/);
+  assert.match(view, /Descartar tentativa de cartão/);
+  assert.match(view, /Cancelar assinatura no Mercado Pago/);
   assert.match(view, /type="button" data-cancel-attempt/);
   assert.match(view, /button\.dataset\.submitting === 'true'/);
+  assert.match(view, /if \(cancelInFlight \|\| button\.dataset\.submitting === 'true'\) return/);
+  assert.match(view, /cancelInFlight = true/);
   assert.match(view, /button\.textContent = 'Cancelando\.\.\.'/);
   assert.match(view, /credentials: 'same-origin'/);
   assert.match(view, /X-CSRF-Token/);
@@ -102,10 +106,10 @@ test("cancelamento local usa tenant da sessão, é atômico e não ativa assinat
   const res = response();
   await pagamento.cancelarTentativaAtiva(request(), res);
   assert.equal(res.statusCode, 200);
-  assert.equal(res.payload.code, "SUBSCRIPTION_ATTEMPT_CANCELLED");
+  assert.equal(res.payload.code, "SUBSCRIPTION_ATTEMPT_ABANDONED");
   assert.equal(String(calls[0].filter.estabelecimentoId), STORE_A);
   assert.notEqual(String(calls[0].filter.estabelecimentoId), STORE_B);
-  assert.deepEqual(calls[0].filter.status.$in, BLOCKING_ATTEMPT_STATUSES);
+  assert.deepEqual(calls[0].filter.status.$in, CANCELLABLE_ATTEMPT_STATUSES);
   assert.equal(calls[1].update.$set.status, "cancelled");
   assert.equal(calls[1].update.$set.ativa, false);
   assert.equal(String(calls[1].update.$set.cancelledBy), STORE_A);
@@ -144,7 +148,8 @@ test("tentativa approved não pode ser cancelada", async t => {
   models.AssinaturaTentativa.findOneAndUpdate = async () => null;
   models.AssinaturaTentativa.findOne = () => {
     findCalls += 1;
-    if (findCalls === 1) return { sort: async () => null };
+    if (findCalls === 1) return Promise.resolve(null);
+    if (findCalls === 2) return { sort: async () => null };
     return Promise.resolve(attempt({ status: "approved", ativa: false }));
   };
   t.after(() => {
@@ -164,9 +169,12 @@ test("cancelamento repetido é idempotente", async t => {
   const originalFindOne = models.AssinaturaTentativa.findOne;
   models.AssinaturaTentativa.updateMany = async () => ({ modifiedCount: 0 });
   models.AssinaturaTentativa.findOneAndUpdate = async () => null;
-  models.AssinaturaTentativa.findOne = () => ({
-    sort: async () => attempt({ status: "cancelled", ativa: false }),
-  });
+  let findCalls = 0;
+  models.AssinaturaTentativa.findOne = () => {
+    findCalls += 1;
+    if (findCalls === 1) return Promise.resolve(null);
+    return { sort: async () => attempt({ status: "cancelled", ativa: false }) };
+  };
   t.after(() => {
     models.AssinaturaTentativa.updateMany = originalUpdateMany;
     models.AssinaturaTentativa.findOneAndUpdate = originalFindOneAndUpdate;
@@ -186,7 +194,8 @@ test("preapproval remoto é validado e cancelado somente com credencial da plata
     if (options.method === "PUT") return { id: "pre-1", status: "canceled" };
     return {
       id: "pre-1",
-      status: "pending",
+      status: "authorized",
+      payer_id: "payer-1",
       collector_id: "platform-1",
       external_reference: `assinatura-tentativa:${stored.attemptId}:estabelecimento:${STORE_A}`,
     };
@@ -200,6 +209,95 @@ test("preapproval remoto é validado e cancelado somente com credencial da plata
     assert.equal(calls[1].options.method, "PUT");
     assert.deepEqual(calls[1].options.body, { status: "canceled" });
     assert.equal(calls[1].options.idempotencyKey, "cancel-key");
+  } finally {
+    if (previous === undefined) delete process.env.MERCADO_PAGO_PLATFORM_USER_ID;
+    else process.env.MERCADO_PAGO_PLATFORM_USER_ID = previous;
+  }
+});
+
+test("preapproval pending sem pagador é abandonado localmente sem PUT", async () => {
+  const stored = attempt({ mercadoPagoPreapprovalId: "pre-1" });
+  const calls = [];
+  const previous = process.env.MERCADO_PAGO_PLATFORM_USER_ID;
+  process.env.MERCADO_PAGO_PLATFORM_USER_ID = "platform-1";
+  try {
+    const result = await pagamento._testing.cancelarPreapprovalRemoto(stored, "cancel-key", async (endpoint, options) => {
+      calls.push({ endpoint, options });
+      return {
+        id: "pre-1",
+        status: "pending",
+        collector_id: "platform-1",
+        external_reference: `assinatura-tentativa:${stored.attemptId}:estabelecimento:${STORE_A}`,
+      };
+    });
+    assert.deepEqual(result, { action: "abandon", status: "not_applicable" });
+    assert.equal(calls.length, 1);
+    assert.equal(calls.some(call => call.options.method === "PUT"), false);
+  } finally {
+    if (previous === undefined) delete process.env.MERCADO_PAGO_PLATFORM_USER_ID;
+    else process.env.MERCADO_PAGO_PLATFORM_USER_ID = previous;
+  }
+});
+
+test("preapproval remoto já canceled é idempotente e não envia PUT", async () => {
+  const stored = attempt({ mercadoPagoPreapprovalId: "pre-1" });
+  let calls = 0;
+  const previous = process.env.MERCADO_PAGO_PLATFORM_USER_ID;
+  process.env.MERCADO_PAGO_PLATFORM_USER_ID = "platform-1";
+  try {
+    const result = await pagamento._testing.cancelarPreapprovalRemoto(stored, "cancel-key", async () => {
+      calls += 1;
+      return {
+        id: "pre-1",
+        status: "canceled",
+        collector_id: "platform-1",
+        external_reference: `assinatura-tentativa:${stored.attemptId}:estabelecimento:${STORE_A}`,
+      };
+    });
+    assert.equal(result.status, "canceled");
+    assert.equal(calls, 1);
+  } finally {
+    if (previous === undefined) delete process.env.MERCADO_PAGO_PLATFORM_USER_ID;
+    else process.env.MERCADO_PAGO_PLATFORM_USER_ID = previous;
+  }
+});
+
+test("400 ao cancelar reconcilia por GET, preserva diagnóstico e nunca tenta cancelled", async () => {
+  const stored = attempt({ mercadoPagoPreapprovalId: "pre-1" });
+  const calls = [];
+  const previous = process.env.MERCADO_PAGO_PLATFORM_USER_ID;
+  process.env.MERCADO_PAGO_PLATFORM_USER_ID = "platform-1";
+  const remote = {
+    id: "pre-1",
+    status: "authorized",
+    payer_id: "payer-1",
+    collector_id: "platform-1",
+    external_reference: `assinatura-tentativa:${stored.attemptId}:estabelecimento:${STORE_A}`,
+  };
+  try {
+    await assert.rejects(pagamento._testing.cancelarPreapprovalRemoto(stored, "cancel-key", async (endpoint, options) => {
+      calls.push({ endpoint, options });
+      if (options.method === "PUT") {
+        const error = new Error("Invalid preapproval status param: canceled");
+        error.httpStatus = 400;
+        error.providerResponse = {
+          providerCode: "bad_request",
+          providerMessage: "Invalid preapproval status param: canceled",
+        };
+        throw error;
+      }
+      return remote;
+    }), error => {
+      assert.equal(error.code, "SUBSCRIPTION_REMOTE_CANCEL_REJECTED");
+      assert.equal(error.httpStatus, 400);
+      assert.equal(error.providerResponse.providerMessage, "Invalid preapproval status param: canceled");
+      return true;
+    });
+    assert.equal(calls.length, 3);
+    const puts = calls.filter(call => call.options.method === "PUT");
+    assert.equal(puts.length, 1);
+    assert.deepEqual(puts[0].options.body, { status: "canceled" });
+    assert.equal(JSON.stringify(calls).includes('"cancelled"'), false);
   } finally {
     if (previous === undefined) delete process.env.MERCADO_PAGO_PLATFORM_USER_ID;
     else process.env.MERCADO_PAGO_PLATFORM_USER_ID = previous;
@@ -236,6 +334,8 @@ test("webhook aprovado durante cancelamento não ativa e exige conciliação", a
     _id: SUBSCRIPTION,
     estabelecimentoId: STORE_A,
     status: "pendente",
+    historicoFinanceiro: [],
+    async save() {},
   };
   models.AssinaturaTentativa.findOne = async () => storedAttempt;
   models.Assinatura.findOne = async () => subscription;
@@ -257,6 +357,8 @@ test("webhook aprovado durante cancelamento não ativa e exige conciliação", a
   assert.equal(subscription.status, "pendente");
   assert.equal(storedAttempt.status, "reconciliation_required");
   assert.equal(storedAttempt.ativa, false);
+  assert.equal(subscription.historicoFinanceiro.length, 1);
+  assert.equal(subscription.historicoFinanceiro[0].status, "reconciliation_required:approved");
 });
 
 test("tentativa vencida é expirada no servidor antes de bloquear", async t => {

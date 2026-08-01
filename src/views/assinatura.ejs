@@ -25,7 +25,7 @@
   </dl>
   <% if (tentativaAtiva.cancelavel) { %>
     <input type="hidden" data-cancel-csrf value="<%= csrfToken %>">
-    <button class="btn cancel" type="button" data-cancel-attempt>Cancelar tentativa de cartão</button>
+    <button class="btn cancel" type="button" data-cancel-attempt><%= tentativaAtiva.status === 'pending' || tentativaAtiva.status === 'processing' ? 'Descartar tentativa de cartão' : 'Cancelar assinatura no Mercado Pago' %></button>
   <% } %>
 </section>
 <% } %>
@@ -36,11 +36,13 @@
 <% if(pix){ %><section class="card pixbox"><h2>Escaneie para pagar</h2><% if(pix.qrCodeBase64){ %><img src="<%= safePublicUrl(`data:image/png;base64,${pix.qrCodeBase64}`, { allowDataImage: true }) %>" alt="QR Code Pix"><% } %><textarea class="copy" readonly id="pixCode"><%= pix.copiaCola %></textarea><button class="btn pix" id="copyPixCode" type="button">Copiar código Pix</button></section><% } %>
 </main><script nonce="<%= cspNonce %>">
 document.querySelector('#copyPixCode')?.addEventListener('click',async event=>{await navigator.clipboard.writeText(document.querySelector('#pixCode').value);event.currentTarget.textContent='Código copiado';});
+let cancelInFlight = false;
 document.querySelector('[data-cancel-attempt]')?.addEventListener('click', async event => {
   const button = event.currentTarget;
-  if (button.dataset.submitting === 'true') return;
-  if (!window.confirm('Cancelar esta tentativa de cartão?\nDepois disso, você poderá gerar uma nova cobrança.')) return;
+  if (cancelInFlight || button.dataset.submitting === 'true') return;
+  if (!window.confirm('Esta tentativa de checkout será descartada no sistema. Não use mais o link antigo.')) return;
   const originalText = button.textContent;
+  cancelInFlight = true;
   button.dataset.submitting = 'true';
   button.disabled = true;
   button.setAttribute('aria-busy', 'true');
@@ -77,6 +79,7 @@ document.querySelector('[data-cancel-attempt]')?.addEventListener('click', async
     box.textContent = payload.message || 'Tentativa cancelada.';
     document.querySelector('main.wrap')?.prepend(box);
   } catch (error) {
+    cancelInFlight = false;
     delete button.dataset.submitting;
     button.disabled = false;
     button.removeAttribute('aria-busy');
