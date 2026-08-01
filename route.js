@@ -191,6 +191,15 @@ route.post(
   pagamento.gerarPix
 );
 
+route.post(
+  '/assinatura/tentativa-ativa/cancelar',
+  loginRequired,
+  somenteProprietario,
+  carregarAssinatura,
+  limiteAssinatura,
+  pagamento.cancelarTentativaAtiva
+);
+
 route.get(
   '/assinatura/retorno',
   loginRequired,

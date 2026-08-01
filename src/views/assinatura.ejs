@@ -6,21 +6,88 @@
 <link rel="icon" href="/assets/imgs/comanda.png" type="image/x-png">
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:#f7f4f1;color:#24100c}.wrap{max-width:1080px;margin:auto;padding:36px 18px}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:26px}.brand{font-size:28px;font-weight:900}.back{color:#a51f1f;text-decoration:none;font-weight:800;border:0;background:none;cursor:pointer;font:inherit}.hero{padding:32px;border-radius:24px;background:linear-gradient(135deg,#24100c,#651111 60%,#e96b13);color:#fff;box-shadow:0 24px 60px #65111130}.hero h1{margin:0 0 10px;font-size:clamp(28px,5vw,48px)}.hero p{max-width:680px;line-height:1.6;color:#f7dfd3}.status{display:inline-flex;margin-top:12px;padding:9px 14px;border-radius:999px;background:#ffffff18;font-weight:800}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:22px}.card{background:#fff;border:1px solid #eadfd7;border-radius:20px;padding:24px;box-shadow:0 14px 35px #3f1e0d12}.card h2{margin:0 0 8px}.price{font-size:34px;font-weight:900;margin:16px 0}.price small{font-size:14px;color:#666}.features{display:grid;gap:10px;margin:18px 0;color:#555}.btn{width:100%;border:0;border-radius:12px;padding:14px 18px;background:linear-gradient(135deg,#c62828,#e96b13);color:#fff;font-weight:900;cursor:pointer;font-size:16px}.btn.pix{background:#218c55}.pixbox{margin-top:20px;text-align:center}.pixbox img{max-width:260px;border:10px solid white;box-shadow:0 10px 30px #0002}.copy{width:100%;min-height:90px;margin-top:12px;padding:12px;border:1px solid #ddd;border-radius:10px;resize:none}.msg{padding:12px;border-radius:10px;margin-bottom:14px;background:#fde2e2;color:#8b1e1e}@media(max-width:760px){.grid{grid-template-columns:1fr}.top{align-items:flex-start}.hero{padding:24px}}
-</style></head>
-<body><main class="wrap"><div class="top"><div class="brand">🍔 ComandaFácil</div><nav style="display:flex;gap:16px;align-items:center"><strong>Assinatura</strong><form action="/login/logout" method="POST"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="back" type="submit">Sair</button></form></nav></div>
+</style><style>.btn.cancel{margin-top:14px;background:#7d2525}.attempt{margin-top:18px;border-color:#e0b4a1}.attempt dl{display:grid;grid-template-columns:auto 1fr;gap:8px 16px}.attempt dt{font-weight:800}.attempt dd{margin:0}</style></head>
+<body><main class="wrap" data-payment-config-ok="<%= !integracaoMercadoPago || integracaoMercadoPago.ok ? 'true' : 'false' %>"><div class="top"><div class="brand">🍔 ComandaFácil</div><nav style="display:flex;gap:16px;align-items:center"><strong>Assinatura</strong><form action="/login/logout" method="POST"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="back" type="submit">Sair</button></form></nav></div>
 <% if(errors?.length){ errors.forEach(e=>{ %><div class="msg"><%= e %></div><% }) } %>
 <% if (typeof integracaoMercadoPago !== 'undefined' && integracaoMercadoPago && !integracaoMercadoPago.ok) { %>
 <div class="msg" style="background:#fff3cd;color:#754c00">A integração de pagamento ainda não está disponível. Confira as variáveis do Mercado Pago no servidor. Nenhuma credencial é exibida nesta tela.</div>
 <% } %>
 <section class="hero"><h1>Plano Profissional</h1><p>Use todos os módulos gratuitamente por 7 dias. Depois, escolha cobrança automática no cartão ou renovação mensal pelo Pix.</p><div class="status">Status: <%= assinatura.status %><% if (diasRestantes > 0) { %> — <%= diasRestantes %> dia(s) grátis restante(s)<% } %></div></section>
 <% if (diasRestantes > 0) { %><div class="msg" style="margin-top:16px;background:#e8f7ee;color:#176b3a">Você pode iniciar o pagamento sem perder o período gratuito. O acesso só será bloqueado quando o teste realmente terminar e não houver pagamento aprovado.</div><% } %>
+<% if (typeof tentativaAtiva !== 'undefined' && tentativaAtiva) { %>
+<section class="card attempt" data-active-attempt>
+  <h2>Tentativa de pagamento em andamento</h2>
+  <dl>
+    <dt>Método</dt><dd><%= tentativaAtiva.metodo === 'cartao' ? 'Cartão' : 'Pix' %></dd>
+    <dt>Status</dt><dd><%= tentativaAtiva.status %></dd>
+    <dt>Criada em</dt><dd><%= tentativaAtiva.createdAt ? new Date(tentativaAtiva.createdAt).toLocaleString('pt-BR') : 'Não informado' %></dd>
+    <% if (tentativaAtiva.expiresAt) { %><dt>Expira em</dt><dd><%= new Date(tentativaAtiva.expiresAt).toLocaleString('pt-BR') %></dd><% } %>
+  </dl>
+  <% if (tentativaAtiva.cancelavel) { %>
+    <input type="hidden" data-cancel-csrf value="<%= csrfToken %>">
+    <button class="btn cancel" type="button" data-cancel-attempt>Cancelar tentativa de cartão</button>
+  <% } %>
+</section>
+<% } %>
 <div class="grid">
-<article class="card"><h2>Cartão de crédito</h2><p>Cobrança recorrente automática todos os meses.</p><div class="price"><%= valorPlano.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) %> <small>/mês</small></div><div class="features"><span>✓ Renovação automática</span><span>✓ Acesso contínuo</span><span>✓ Gestão pela conta Mercado Pago</span></div><form action="/assinatura/cartao" method="POST" data-subscription-payment="cartao"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="btn" type="button" data-payment-button <%= typeof integracaoMercadoPago !== 'undefined' && integracaoMercadoPago && !integracaoMercadoPago.ok ? 'disabled aria-disabled="true"' : '' %>>Assinar com cartão</button></form></article>
-<article class="card"><h2>Pix mensal</h2><p>Gere um Pix e renove manualmente por 30 dias.</p><div class="price"><%= valorPlano.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) %> <small>/30 dias</small></div><div class="features"><span>✓ QR Code e Copia e Cola</span><span>✓ Confirmação automática</span><span>✓ Sem renovação automática</span></div><form action="/assinatura/pix" method="POST" data-subscription-payment="pix"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="btn pix" type="button" data-payment-button <%= typeof integracaoMercadoPago !== 'undefined' && integracaoMercadoPago && !integracaoMercadoPago.ok ? 'disabled aria-disabled="true"' : '' %>>Gerar Pix</button></form></article>
+<article class="card"><h2>Cartão de crédito</h2><p>Cobrança recorrente automática todos os meses.</p><div class="price"><%= valorPlano.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) %> <small>/mês</small></div><div class="features"><span>✓ Renovação automática</span><span>✓ Acesso contínuo</span><span>✓ Gestão pela conta Mercado Pago</span></div><form action="/assinatura/cartao" method="POST" data-subscription-payment="cartao"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="btn" type="button" data-payment-button <%= (integracaoMercadoPago && !integracaoMercadoPago.ok) || tentativaAtiva ? 'disabled aria-disabled="true"' : '' %>>Assinar com cartão</button></form></article>
+<article class="card"><h2>Pix mensal</h2><p>Gere um Pix e renove manualmente por 30 dias.</p><div class="price"><%= valorPlano.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) %> <small>/30 dias</small></div><div class="features"><span>✓ QR Code e Copia e Cola</span><span>✓ Confirmação automática</span><span>✓ Sem renovação automática</span></div><form action="/assinatura/pix" method="POST" data-subscription-payment="pix"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="btn pix" type="button" data-payment-button <%= (integracaoMercadoPago && !integracaoMercadoPago.ok) || tentativaAtiva ? 'disabled aria-disabled="true"' : '' %>>Gerar Pix</button></form></article>
 </div>
 <% if(pix){ %><section class="card pixbox"><h2>Escaneie para pagar</h2><% if(pix.qrCodeBase64){ %><img src="<%= safePublicUrl(`data:image/png;base64,${pix.qrCodeBase64}`, { allowDataImage: true }) %>" alt="QR Code Pix"><% } %><textarea class="copy" readonly id="pixCode"><%= pix.copiaCola %></textarea><button class="btn pix" id="copyPixCode" type="button">Copiar código Pix</button></section><% } %>
 </main><script nonce="<%= cspNonce %>">
 document.querySelector('#copyPixCode')?.addEventListener('click',async event=>{await navigator.clipboard.writeText(document.querySelector('#pixCode').value);event.currentTarget.textContent='Código copiado';});
+document.querySelector('[data-cancel-attempt]')?.addEventListener('click', async event => {
+  const button = event.currentTarget;
+  if (button.dataset.submitting === 'true') return;
+  if (!window.confirm('Cancelar esta tentativa de cartão?\nDepois disso, você poderá gerar uma nova cobrança.')) return;
+  const originalText = button.textContent;
+  button.dataset.submitting = 'true';
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  button.textContent = 'Cancelando...';
+  try {
+    const csrfToken = String(document.querySelector('[data-cancel-csrf]')?.value || '').trim();
+    if (!csrfToken) throw new Error('A página expirou. Atualize e tente novamente.');
+    const response = await fetch('/assinatura/tentativa-ativa/cancelar', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        Accept: 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRF-Token': csrfToken,
+      },
+    });
+    const payload = await response.clone().json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(payload.message || 'Não foi possível cancelar a tentativa.');
+      error.correlationId = payload.correlationId;
+      throw error;
+    }
+    document.querySelector('[data-active-attempt]')?.remove();
+    if (document.querySelector('main.wrap')?.dataset.paymentConfigOk === 'true') {
+      document.querySelectorAll('[data-payment-button]').forEach(paymentButton => {
+        paymentButton.disabled = false;
+        paymentButton.removeAttribute('aria-disabled');
+      });
+    }
+    const box = document.createElement('div');
+    box.className = 'msg';
+    box.style.background = '#e8f7ee';
+    box.style.color = '#176b3a';
+    box.textContent = payload.message || 'Tentativa cancelada.';
+    document.querySelector('main.wrap')?.prepend(box);
+  } catch (error) {
+    delete button.dataset.submitting;
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+    button.textContent = originalText;
+    const box = document.createElement('div');
+    box.className = 'msg';
+    const code = error.correlationId ? ` Código: ${error.correlationId}` : '';
+    box.textContent = `${error.message || 'Não foi possível cancelar.'}${code}`;
+    document.querySelector('main.wrap')?.prepend(box);
+  }
+});
 document.querySelectorAll('form[data-subscription-payment]').forEach(form => form.addEventListener('submit', event => event.preventDefault()));
 document.querySelectorAll('[data-payment-button]').forEach(paymentButton => paymentButton.addEventListener('click', async event => {
   const form = event.currentTarget.closest('form[data-subscription-payment]');

@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { SUBSCRIPTION_ATTEMPT_STATUS } = require("../constants/subscriptionAttempt");
 
 const base = {
   estabelecimentoId: {
@@ -961,18 +962,10 @@ const assinaturaTentativaSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: [
-        "criando",
-        "pending",
-        "authorized",
-        "approved",
-        "failed",
-        "cancelled",
-        "expired",
-        "superseded",
-        "reconciliation_required",
+        ...Object.values(SUBSCRIPTION_ATTEMPT_STATUS),
       ],
       required: true,
-      default: "criando",
+      default: SUBSCRIPTION_ATTEMPT_STATUS.PROCESSING,
       index: true,
     },
     ativa: { type: Boolean, required: true, default: true },
@@ -986,6 +979,15 @@ const assinaturaTentativaSchema = new mongoose.Schema(
     pixCopiaCola: { type: String, default: "" },
     expiresAt: { type: Date, required: true, index: true },
     completedAt: { type: Date, default: null },
+    cancelRequestedAt: { type: Date, default: null },
+    cancelRequestId: { type: String, default: "", select: false },
+    cancelledAt: { type: Date, default: null },
+    cancelledBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Registro",
+      default: null,
+    },
+    remoteCancellationStatus: { type: String, default: "" },
     supersededAt: { type: Date, default: null },
     erro: { type: String, default: "", maxlength: 1000 },
   },

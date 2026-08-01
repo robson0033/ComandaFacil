@@ -3,6 +3,11 @@
 const crypto = require("crypto");
 const validator = require("validator");
 const {
+  BLOCKING_ATTEMPT_STATUSES,
+  CANCELLABLE_ATTEMPT_STATUSES,
+  SUBSCRIPTION_ATTEMPT_STATUS,
+} = require("../constants/subscriptionAttempt");
+const {
   Assinatura,
   AssinaturaTentativa,
   Configuracao,
@@ -276,9 +281,18 @@ async function obterOuCriarTentativa(assinatura, metodo) {
       },
     },
   );
+  await AssinaturaTentativa.updateMany(
+    {
+      estabelecimentoId: assinatura.estabelecimentoId,
+      ativa: true,
+      status: { $nin: BLOCKING_ATTEMPT_STATUSES },
+    },
+    { $set: { ativa: false, completedAt: now } },
+  );
   const existing = await AssinaturaTentativa.findOne({
     estabelecimentoId: assinatura.estabelecimentoId,
     ativa: true,
+    status: { $in: BLOCKING_ATTEMPT_STATUSES },
     expiresAt: { $gt: now },
   });
   if (existing) {
@@ -299,7 +313,7 @@ async function obterOuCriarTentativa(assinatura, metodo) {
       assinaturaId: assinatura._id,
       estabelecimentoId: assinatura.estabelecimentoId,
       metodo,
-      status: "criando",
+      status: SUBSCRIPTION_ATTEMPT_STATUS.PROCESSING,
       ativa: true,
       idempotencyKey: crypto.randomUUID(),
       valorCentavos: Math.round(valorPlano() * 100),
@@ -325,6 +339,91 @@ async function obterOuCriarTentativa(assinatura, metodo) {
     }
     return { attempt, created: false };
   }
+}
+
+async function expirarTentativasVencidas(estabId, now = new Date()) {
+  await AssinaturaTentativa.updateMany({
+    estabelecimentoId: estabId,
+    ativa: true,
+    expiresAt: { $lte: now },
+  }, {
+    $set: {
+      ativa: false,
+      status: SUBSCRIPTION_ATTEMPT_STATUS.EXPIRED,
+      completedAt: now,
+    },
+  });
+}
+
+async function tentativaAtivaDoEstabelecimento(estabId) {
+  await expirarTentativasVencidas(estabId);
+  return AssinaturaTentativa.findOne({
+    estabelecimentoId: estabId,
+    ativa: true,
+    status: { $in: BLOCKING_ATTEMPT_STATUSES },
+    expiresAt: { $gt: new Date() },
+  }).sort({ createdAt: -1 });
+}
+
+function tentativaPublica(attempt) {
+  if (!attempt) return null;
+  return {
+    metodo: String(attempt.metodo),
+    status: attempt.status === SUBSCRIPTION_ATTEMPT_STATUS.LEGACY_PROCESSING
+      ? SUBSCRIPTION_ATTEMPT_STATUS.PROCESSING
+      : String(attempt.status),
+    createdAt: attempt.createdAt,
+    expiresAt: attempt.expiresAt,
+    cancelavel: attempt.metodo === "cartao"
+      && CANCELLABLE_ATTEMPT_STATUSES.includes(attempt.status),
+  };
+}
+
+async function cancelarPreapprovalRemoto(attempt, cancelRequestId, requester = requestPlatform) {
+  const preapprovalId = String(attempt.mercadoPagoPreapprovalId || "").trim();
+  if (!preapprovalId) return { status: "not_created" };
+  const endpointPath = `/preapproval/${encodeURIComponent(preapprovalId)}`;
+  const remote = await requester(endpointPath, {
+    operation: "verify_subscription_preapproval_before_cancel",
+    stage: "preapproval_cancel_lookup",
+  });
+  const expectedReference = attemptReference(attempt);
+  const identityMatches = String(remote?.id || "") === preapprovalId
+    && String(remote?.external_reference || "") === expectedReference
+    && String(remote?.collector_id || "") === platformCollectorId();
+  if (!identityMatches) {
+    const error = new Error("O preapproval remoto não pertence à tentativa da plataforma.");
+    error.code = "SUBSCRIPTION_ATTEMPT_NOT_CANCELLABLE";
+    error.stage = "preapproval_cancel_identity";
+    error.endpointPath = endpointPath;
+    throw error;
+  }
+  if (["canceled", "cancelled"].includes(remote.status)) {
+    return { status: "canceled" };
+  }
+  if (!["pending", "authorized"].includes(remote.status)) {
+    const error = new Error("A tentativa remota não está em estado cancelável.");
+    error.code = "SUBSCRIPTION_ATTEMPT_NOT_CANCELLABLE";
+    error.stage = "preapproval_cancel_status";
+    error.endpointPath = endpointPath;
+    throw error;
+  }
+  const cancelled = await requester(endpointPath, {
+    operation: "cancel_subscription_preapproval",
+    stage: "preapproval_cancel_update",
+    method: "PUT",
+    idempotencyKey: cancelRequestId,
+    body: { status: "canceled" },
+  });
+  if (String(cancelled?.id || "") !== preapprovalId
+    || !["canceled", "cancelled"].includes(String(cancelled?.status || ""))) {
+    const error = new Error("O Mercado Pago não confirmou o cancelamento da tentativa.");
+    error.code = "SUBSCRIPTION_REMOTE_CANCEL_FAILED";
+    error.stage = "preapproval_cancel_confirmation";
+    error.endpointPath = endpointPath;
+    throw error;
+  }
+  return { status: String(cancelled.status) };
 }
 
 function pixDaTentativa(attempt) {
@@ -422,6 +521,7 @@ function flashSafeIntegrationError(req, error) {
 exports.pagina = async (req, res) => {
   try {
     const assinatura = await assinaturaDoUsuario(req);
+    const tentativaAtiva = await tentativaAtivaDoEstabelecimento(estabelecimentoId(req));
     const dono = await registroModel.findById(estabelecimentoId(req)).lean();
     const integracao = mercadoPagoConfigStatus("subscription");
     const tentativaPix = await AssinaturaTentativa.findOne({
@@ -437,6 +537,7 @@ exports.pagina = async (req, res) => {
       publicKey: process.env.MERCADO_PAGO_PUBLIC_KEY || "",
       dono,
       pix: tentativaPix ? pixDaTentativa(tentativaPix) : null,
+      tentativaAtiva: tentativaPublica(tentativaAtiva),
       diasRestantes: res.locals.diasRestantes || 0,
       csrfToken: res.locals.csrfToken,
       integracaoMercadoPago: integracao,
@@ -448,10 +549,151 @@ exports.pagina = async (req, res) => {
       valorPlano: valorPlano(),
       dono: null,
       pix: null,
+      tentativaAtiva: null,
       diasRestantes: res.locals.diasRestantes || 0,
       csrfToken: res.locals.csrfToken,
       integracaoMercadoPago: validatePlatformPaymentConfig(),
       errors: [`Não foi possível carregar a assinatura. Código: ${error.correlationId || "indisponível"}`],
+    });
+  }
+};
+
+exports.cancelarTentativaAtiva = async (req, res) => {
+  const estabId = estabelecimentoId(req);
+  const cancelRequestId = crypto.randomUUID();
+  try {
+    if (planoPagoVigente(req.assinatura)) {
+      return res.status(409).json({
+        ok: false,
+        code: "SUBSCRIPTION_ATTEMPT_NOT_CANCELLABLE",
+        message: "A assinatura já está ativa.",
+        correlationId: String(req.correlationId || ""),
+      });
+    }
+    await expirarTentativasVencidas(estabId);
+    const attempt = await AssinaturaTentativa.findOneAndUpdate({
+      estabelecimentoId: estabId,
+      metodo: "cartao",
+      ativa: true,
+      status: { $in: CANCELLABLE_ATTEMPT_STATUSES },
+      expiresAt: { $gt: new Date() },
+      cancelRequestedAt: null,
+    }, {
+      $set: { cancelRequestedAt: new Date(), cancelRequestId },
+    }, { returnDocument: "after" });
+
+    if (!attempt) {
+      const alreadyCancelled = await AssinaturaTentativa.findOne({
+        estabelecimentoId: estabId,
+        metodo: "cartao",
+        status: SUBSCRIPTION_ATTEMPT_STATUS.CANCELLED,
+      }).sort({ cancelledAt: -1 });
+      if (alreadyCancelled) {
+        return res.status(200).json({
+          ok: true,
+          code: "SUBSCRIPTION_ATTEMPT_ALREADY_CANCELLED",
+          message: "Tentativa já cancelada.",
+        });
+      }
+      const nonCancellable = await AssinaturaTentativa.findOne({
+        estabelecimentoId: estabId,
+        metodo: "cartao",
+        status: { $in: [
+          SUBSCRIPTION_ATTEMPT_STATUS.APPROVED,
+          SUBSCRIPTION_ATTEMPT_STATUS.RECONCILIATION_REQUIRED,
+        ] },
+      });
+      return res.status(nonCancellable ? 409 : 404).json({
+        ok: false,
+        code: nonCancellable
+          ? "SUBSCRIPTION_ATTEMPT_NOT_CANCELLABLE"
+          : "SUBSCRIPTION_ATTEMPT_NOT_FOUND",
+        message: nonCancellable
+          ? "A tentativa não pode mais ser cancelada."
+          : "Tentativa ativa de cartão não encontrada.",
+        correlationId: String(req.correlationId || ""),
+      });
+    }
+
+    let remote;
+    try {
+      remote = await cancelarPreapprovalRemoto(attempt, cancelRequestId);
+    } catch (cause) {
+      await AssinaturaTentativa.updateOne({
+        _id: attempt._id,
+        estabelecimentoId: estabId,
+        cancelRequestId,
+        ativa: true,
+      }, { $set: { cancelRequestedAt: null, cancelRequestId: "" } }).catch(() => {});
+      if (cause?.code === "SUBSCRIPTION_ATTEMPT_NOT_CANCELLABLE") throw cause;
+      const error = new Error("Não foi possível confirmar o cancelamento no Mercado Pago.", { cause });
+      error.code = "SUBSCRIPTION_REMOTE_CANCEL_FAILED";
+      error.operation = cause?.operation || "cancel_subscription_preapproval";
+      error.stage = cause?.stage || "preapproval_cancel";
+      error.endpointPath = cause?.endpointPath || "/preapproval/:id";
+      error.status = cause?.status;
+      error.httpStatus = cause?.httpStatus;
+      error.providerResponse = cause?.providerResponse;
+      error.responseReceived = cause?.responseReceived;
+      error.timeout = cause?.timeout;
+      throw error;
+    }
+
+    const now = new Date();
+    const cancelled = await AssinaturaTentativa.findOneAndUpdate({
+      _id: attempt._id,
+      estabelecimentoId: estabId,
+      metodo: "cartao",
+      ativa: true,
+      status: { $in: CANCELLABLE_ATTEMPT_STATUSES },
+      cancelRequestId,
+    }, {
+      $set: {
+        status: SUBSCRIPTION_ATTEMPT_STATUS.CANCELLED,
+        ativa: false,
+        cancelledAt: now,
+        cancelledBy: estabId,
+        completedAt: now,
+        cancelRequestId: "",
+        remoteCancellationStatus: remote.status,
+        erro: "",
+      },
+    }, { returnDocument: "after" });
+    if (!cancelled) {
+      const current = await AssinaturaTentativa.findOne({
+        _id: attempt._id,
+        estabelecimentoId: estabId,
+      });
+      if (current?.status === SUBSCRIPTION_ATTEMPT_STATUS.CANCELLED) {
+        return res.status(200).json({
+          ok: true,
+          code: "SUBSCRIPTION_ATTEMPT_ALREADY_CANCELLED",
+          message: "Tentativa já cancelada.",
+        });
+      }
+      return res.status(409).json({
+        ok: false,
+        code: "SUBSCRIPTION_ATTEMPT_NOT_CANCELLABLE",
+        message: "A tentativa mudou de estado e não pode ser cancelada.",
+        correlationId: String(req.correlationId || ""),
+      });
+    }
+    return res.status(200).json({
+      ok: true,
+      code: "SUBSCRIPTION_ATTEMPT_CANCELLED",
+      message: "Tentativa cancelada.",
+    });
+  } catch (error) {
+    error.correlationId ||= String(req.correlationId || "");
+    flashSafeIntegrationError(req, error);
+    const status = error.code === "SUBSCRIPTION_ATTEMPT_NOT_CANCELLABLE" ? 409 : 502;
+    return res.status(status).json({
+      ok: false,
+      code: error.code === "SUBSCRIPTION_ATTEMPT_NOT_CANCELLABLE"
+        ? error.code
+        : "SUBSCRIPTION_REMOTE_CANCEL_FAILED",
+      message: error.message,
+      correlationId: error.correlationId,
     });
   }
 };
@@ -505,7 +747,10 @@ exports.assinarCartao = async (req, res) => {
       throw error;
     }
     await AssinaturaTentativa.updateOne(
-      { _id: attempt._id, status: "criando", ativa: true },
+      { _id: attempt._id, status: { $in: [
+        SUBSCRIPTION_ATTEMPT_STATUS.PROCESSING,
+        SUBSCRIPTION_ATTEMPT_STATUS.LEGACY_PROCESSING,
+      ] }, ativa: true },
       {
         $set: {
           status: ["authorized", "pending"].includes(data.status)
@@ -533,7 +778,10 @@ exports.assinarCartao = async (req, res) => {
         {
           estabelecimentoId: estabelecimentoId(req),
           metodo: "cartao",
-          status: "criando",
+          status: { $in: [
+            SUBSCRIPTION_ATTEMPT_STATUS.PROCESSING,
+            SUBSCRIPTION_ATTEMPT_STATUS.LEGACY_PROCESSING,
+          ] },
           ativa: true,
         },
         {
@@ -586,6 +834,7 @@ exports.gerarPix = async (req, res) => {
         diasRestantes: res.locals.diasRestantes || 0,
         csrfToken: res.locals.csrfToken,
         pix: pixDaTentativa(attempt),
+        tentativaAtiva: tentativaPublica(attempt),
         integracaoMercadoPago: mercadoPagoConfigStatus("subscription"),
       });
     }
@@ -605,7 +854,10 @@ exports.gerarPix = async (req, res) => {
     const pixQrCodeBase64 = parsedPix.qrCodeBase64;
     const pixCopiaCola = parsedPix.qrCode;
     await AssinaturaTentativa.updateOne(
-      { _id: attempt._id, status: "criando", ativa: true },
+      { _id: attempt._id, status: { $in: [
+        SUBSCRIPTION_ATTEMPT_STATUS.PROCESSING,
+        SUBSCRIPTION_ATTEMPT_STATUS.LEGACY_PROCESSING,
+      ] }, ativa: true },
       {
         $set: {
           status: ["pending", "authorized", "approved"].includes(data.status)
@@ -648,6 +900,12 @@ exports.gerarPix = async (req, res) => {
       diasRestantes: res.locals.diasRestantes || 0,
       csrfToken: res.locals.csrfToken,
       pix,
+      tentativaAtiva: tentativaPublica({
+        metodo: "pix",
+        status: data.status || SUBSCRIPTION_ATTEMPT_STATUS.PENDING,
+        createdAt: attempt.createdAt,
+        expiresAt: parsedPix.expiresAt || attempt.expiresAt,
+      }),
       integracaoMercadoPago: mercadoPagoConfigStatus("subscription"),
     });
   } catch (error) {
@@ -656,7 +914,10 @@ exports.gerarPix = async (req, res) => {
         {
           estabelecimentoId: estabelecimentoId(req),
           metodo: "pix",
-          status: "criando",
+          status: { $in: [
+            SUBSCRIPTION_ATTEMPT_STATUS.PROCESSING,
+            SUBSCRIPTION_ATTEMPT_STATUS.LEGACY_PROCESSING,
+          ] },
           ativa: true,
         },
         {
@@ -1135,7 +1396,8 @@ async function processSubscriptionPayment(event, payment) {
       ? (attempt?.mercadoPagoPreapprovalId || assinatura.mercadoPagoPreapprovalId)
       : undefined,
   });
-  const obsoleteAttempt = attempt && (!attempt.ativa
+  const obsoleteAttempt = attempt && (attempt.cancelRequestedAt
+    || !attempt.ativa
     || ["expired", "superseded", "cancelled", "failed"].includes(attempt.status));
   if (obsoleteAttempt) {
     if (payment.status === "approved") {
@@ -1243,6 +1505,21 @@ async function processPreapproval(event, preapproval) {
     ...(attempt ? {} : { mercadoPagoPreapprovalId: String(preapproval.id) }),
   });
   if (!assinatura) throw new Error("Preapproval não pertence à assinatura vigente.");
+  if (attempt?.cancelRequestedAt) {
+    event.estabelecimentoId = assinatura.estabelecimentoId;
+    event.assinaturaId = assinatura._id;
+    if (["canceled", "cancelled"].includes(preapproval.status)) {
+      attempt.status = SUBSCRIPTION_ATTEMPT_STATUS.CANCELLED;
+      attempt.ativa = false;
+      attempt.cancelledAt ||= new Date();
+      attempt.cancelledBy ||= attempt.estabelecimentoId;
+      attempt.completedAt ||= new Date();
+      attempt.cancelRequestId = "";
+      attempt.remoteCancellationStatus = String(preapproval.status);
+      await attempt.save();
+    }
+    return;
+  }
   if (attempt && (!attempt.ativa
     || ["expired", "superseded", "cancelled", "failed"].includes(attempt.status))) {
     event.estabelecimentoId = assinatura.estabelecimentoId;
@@ -1257,7 +1534,7 @@ async function processPreapproval(event, preapproval) {
     ? new Date(preapproval.next_payment_date)
     : null;
 
-  if (preapproval.status === "cancelled") {
+  if (["canceled", "cancelled"].includes(preapproval.status)) {
     const trialValid = assinatura.fimTeste && new Date(assinatura.fimTeste) > new Date();
     assinatura.status = trialValid ? "teste" : "cancelada";
   } else if (["paused"].includes(preapproval.status) && assinatura.status !== "ativa") {
@@ -1266,8 +1543,10 @@ async function processPreapproval(event, preapproval) {
   // "authorized" confirma apenas autorização; nunca comprova pagamento.
   await assinatura.save();
   if (attempt) {
-    attempt.status = String(preapproval.status || attempt.status);
-    if (preapproval.status === "cancelled") {
+    attempt.status = ["canceled", "cancelled"].includes(preapproval.status)
+      ? SUBSCRIPTION_ATTEMPT_STATUS.CANCELLED
+      : String(preapproval.status || attempt.status);
+    if (["canceled", "cancelled"].includes(preapproval.status)) {
       attempt.ativa = false;
       attempt.completedAt = new Date();
     }
@@ -1404,11 +1683,13 @@ exports.webhook = async (req, res) => {
 
 exports.assinaturaDoUsuario = assinaturaDoUsuario;
 exports._testing = {
+  cancelarPreapprovalRemoto,
   buildPixPaymentPayload,
   buildPreapprovalPayload,
   claimEvent,
   consumeOauthState,
   eventData,
+  expirarTentativasVencidas,
   financialEffectiveDate,
   financialEventShouldApply,
   obterOuCriarTentativa,
@@ -1418,6 +1699,7 @@ exports._testing = {
   processPreapproval,
   processSubscriptionPayment,
   subscriptionReference,
+  tentativaPublica,
   attemptReference,
   webhookEventKey,
   mercadoPagoConfigStatus,
