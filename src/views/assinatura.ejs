@@ -15,24 +15,80 @@
 <section class="hero"><h1>Plano Profissional</h1><p>Use todos os módulos gratuitamente por 7 dias. Depois, escolha cobrança automática no cartão ou renovação mensal pelo Pix.</p><div class="status">Status: <%= assinatura.status %><% if (diasRestantes > 0) { %> — <%= diasRestantes %> dia(s) grátis restante(s)<% } %></div></section>
 <% if (diasRestantes > 0) { %><div class="msg" style="margin-top:16px;background:#e8f7ee;color:#176b3a">Você pode iniciar o pagamento sem perder o período gratuito. O acesso só será bloqueado quando o teste realmente terminar e não houver pagamento aprovado.</div><% } %>
 <div class="grid">
-<article class="card"><h2>Cartão de crédito</h2><p>Cobrança recorrente automática todos os meses.</p><div class="price"><%= valorPlano.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) %> <small>/mês</small></div><div class="features"><span>✓ Renovação automática</span><span>✓ Acesso contínuo</span><span>✓ Gestão pela conta Mercado Pago</span></div><form action="/assinatura/cartao" method="POST"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="btn" type="submit" <%= typeof integracaoMercadoPago !== 'undefined' && integracaoMercadoPago && !integracaoMercadoPago.ok ? 'disabled aria-disabled="true"' : '' %>>Assinar com cartão</button></form></article>
-<article class="card"><h2>Pix mensal</h2><p>Gere um Pix e renove manualmente por 30 dias.</p><div class="price"><%= valorPlano.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) %> <small>/30 dias</small></div><div class="features"><span>✓ QR Code e Copia e Cola</span><span>✓ Confirmação automática</span><span>✓ Sem renovação automática</span></div><form action="/assinatura/pix" method="POST"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="btn pix" type="submit" <%= typeof integracaoMercadoPago !== 'undefined' && integracaoMercadoPago && !integracaoMercadoPago.ok ? 'disabled aria-disabled="true"' : '' %>>Gerar Pix</button></form></article>
+<article class="card"><h2>Cartão de crédito</h2><p>Cobrança recorrente automática todos os meses.</p><div class="price"><%= valorPlano.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) %> <small>/mês</small></div><div class="features"><span>✓ Renovação automática</span><span>✓ Acesso contínuo</span><span>✓ Gestão pela conta Mercado Pago</span></div><form action="/assinatura/cartao" method="POST" data-subscription-payment="cartao"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="btn" type="submit" <%= typeof integracaoMercadoPago !== 'undefined' && integracaoMercadoPago && !integracaoMercadoPago.ok ? 'disabled aria-disabled="true"' : '' %>>Assinar com cartão</button></form></article>
+<article class="card"><h2>Pix mensal</h2><p>Gere um Pix e renove manualmente por 30 dias.</p><div class="price"><%= valorPlano.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) %> <small>/30 dias</small></div><div class="features"><span>✓ QR Code e Copia e Cola</span><span>✓ Confirmação automática</span><span>✓ Sem renovação automática</span></div><form action="/assinatura/pix" method="POST" data-subscription-payment="pix"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="btn pix" type="submit" <%= typeof integracaoMercadoPago !== 'undefined' && integracaoMercadoPago && !integracaoMercadoPago.ok ? 'disabled aria-disabled="true"' : '' %>>Gerar Pix</button></form></article>
 </div>
 <% if(pix){ %><section class="card pixbox"><h2>Escaneie para pagar</h2><% if(pix.qrCodeBase64){ %><img src="<%= safePublicUrl(`data:image/png;base64,${pix.qrCodeBase64}`, { allowDataImage: true }) %>" alt="QR Code Pix"><% } %><textarea class="copy" readonly id="pixCode"><%= pix.copiaCola %></textarea><button class="btn pix" id="copyPixCode" type="button">Copiar código Pix</button></section><% } %>
 </main><script nonce="<%= cspNonce %>">
 document.querySelector('#copyPixCode')?.addEventListener('click',async event=>{await navigator.clipboard.writeText(document.querySelector('#pixCode').value);event.currentTarget.textContent='Código copiado';});
-document.addEventListener('submit', event => {
+document.addEventListener('submit', async event => {
   const form = event.target;
-  if (!(form instanceof HTMLFormElement) || form.dataset.submitting === 'true') {
-    if (form?.dataset?.submitting === 'true') event.preventDefault();
+  if (!(form instanceof HTMLFormElement)) return;
+  const paymentMethod = form.dataset.subscriptionPayment;
+  if (!paymentMethod) {
+    if (form.dataset.submitting === 'true') event.preventDefault();
     return;
   }
-  form.dataset.submitting = 'true';
+
+  event.preventDefault();
+  if (form.dataset.submitting === 'true') return;
+
   const button = form.querySelector('button[type="submit"]');
+  const originalText = button?.textContent || '';
+  form.dataset.submitting = 'true';
   if (button) {
     button.disabled = true;
     button.setAttribute('aria-busy', 'true');
-    button.textContent = 'Aguarde...';
+    button.textContent = paymentMethod === 'pix' ? 'Gerando Pix...' : 'Abrindo pagamento...';
+  }
+
+  try {
+    const csrfToken = String(form.querySelector('input[name="_csrf"]')?.value || '').trim();
+    if (!csrfToken) throw new Error('A página expirou. Atualize e tente novamente.');
+    const response = await fetch(form.action, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        Accept: 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRF-Token': csrfToken,
+      },
+    });
+    const payload = await response.clone().json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(payload.message || 'Não foi possível iniciar o pagamento.');
+      error.code = payload.code;
+      error.correlationId = payload.correlationId;
+      throw error;
+    }
+
+    if (paymentMethod === 'cartao') {
+      const redirectUrl = new URL(String(payload.redirectUrl || ''));
+      const host = redirectUrl.hostname.toLowerCase();
+      const allowed = redirectUrl.protocol === 'https:' && (
+        host === 'mercadopago.com' || host.endsWith('.mercadopago.com') ||
+        host === 'mercadopago.com.br' || host.endsWith('.mercadopago.com.br') ||
+        host === 'mercadopago.com.ar' || host.endsWith('.mercadopago.com.ar')
+      );
+      if (!allowed) throw new Error('O servidor retornou um endereço de pagamento inválido.');
+      window.location.assign(redirectUrl.toString());
+      return;
+    }
+
+    window.location.assign('/assinatura');
+  } catch (error) {
+    delete form.dataset.submitting;
+    if (button) {
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+      button.textContent = originalText;
+    }
+    const box = document.createElement('div');
+    box.className = 'msg';
+    const code = error.correlationId ? ` Código: ${error.correlationId}` : '';
+    box.textContent = `${error.message || 'Não foi possível concluir.'}${code}`;
+    document.querySelector('main.wrap')?.prepend(box);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 });
 </script></body></html>

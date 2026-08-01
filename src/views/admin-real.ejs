@@ -5328,7 +5328,7 @@
               </form>
             <% } else { %>
               <div class="link-box" style="margin-bottom:14px">Conta ainda não conectada.</div>
-              <form action="/admin/mercado-pago/conectar" method="POST">
+              <form action="/admin/mercado-pago/conectar" method="POST" data-mercado-pago-connect>
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                 <button type="submit" class="button">Conectar minha conta Mercado Pago</button>
               </form>
@@ -6991,6 +6991,56 @@
       }
       input.value = csrfToken;
     }, true);
+
+    document.addEventListener('submit', async event => {
+      const form = event.target.closest?.('[data-mercado-pago-connect]');
+      if (!form) return;
+      event.preventDefault();
+      if (form.dataset.submitting === 'true') return;
+
+      const button = form.querySelector('button[type="submit"]');
+      const originalText = button?.textContent || '';
+      form.dataset.submitting = 'true';
+      if (button) {
+        button.disabled = true;
+        button.setAttribute('aria-busy', 'true');
+        button.textContent = 'Abrindo Mercado Pago...';
+      }
+
+      try {
+        const response = await adminFetch(form.action, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+        });
+        const payload = await response.clone().json().catch(() => ({}));
+        if (!response.ok || !payload.authorizationUrl) {
+          const error = new Error(payload.message || 'Não foi possível iniciar a conexão com o Mercado Pago.');
+          error.code = payload.code || 'MERCADO_PAGO_OAUTH_FAILED';
+          error.correlationId = payload.correlationId;
+          throw error;
+        }
+        const target = new URL(payload.authorizationUrl);
+        if (target.protocol !== 'https:' || !['auth.mercadopago.com', 'www.mercadopago.com.br', 'www.mercadopago.com'].includes(target.hostname)) {
+          throw new Error('O servidor retornou um endereço de autorização inválido.');
+        }
+        window.location.assign(target.toString());
+      } catch (error) {
+        delete form.dataset.submitting;
+        if (button) {
+          button.disabled = false;
+          button.removeAttribute('aria-busy');
+          button.textContent = originalText;
+        }
+        mostrarErroAdministrativo({
+          code: error.code || 'MERCADO_PAGO_OAUTH_FAILED',
+          message: error.message,
+          correlationId: error.correlationId,
+        });
+      }
+    });
 
     const pageInfo = {
       dashboard: [

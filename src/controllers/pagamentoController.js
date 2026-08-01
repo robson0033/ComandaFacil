@@ -58,49 +58,94 @@ const subscriptionReference = assinatura =>
 const attemptReference = attempt =>
   `assinatura-tentativa:${attempt.attemptId}:estabelecimento:${attempt.estabelecimentoId}`;
 
-function mercadoPagoConfigStatus() {
-  const required = [
-    "MERCADO_PAGO_ACCESS_TOKEN",
-    "MERCADO_PAGO_PUBLIC_KEY",
-    "MERCADO_PAGO_PLATFORM_USER_ID",
-    "MERCADO_PAGO_WEBHOOK_SECRET",
-    "MP_CLIENT_ID",
-    "MP_CLIENT_SECRET",
-    "MP_REDIRECT_URI",
-    "TOKEN_ENCRYPTION_KEY",
-  ];
+function mercadoPagoConfigStatus(scope = "all") {
+  const groups = {
+    oauth: [
+      "MP_CLIENT_ID",
+      "MP_CLIENT_SECRET",
+      "MP_REDIRECT_URI",
+      "TOKEN_ENCRYPTION_KEY",
+      "APP_URL",
+    ],
+    subscription: [
+      "MERCADO_PAGO_ACCESS_TOKEN",
+      "MERCADO_PAGO_PLATFORM_USER_ID",
+      "MERCADO_PAGO_WEBHOOK_SECRET",
+      "APP_URL",
+    ],
+  };
+
+  const required = scope === "oauth"
+    ? groups.oauth
+    : scope === "subscription"
+      ? groups.subscription
+      : [...new Set([...groups.oauth, ...groups.subscription])];
   const missing = required.filter(name => !String(process.env[name] || "").trim());
-  let redirectValid = false;
-  try {
-    const redirect = new URL(String(process.env.MP_REDIRECT_URI || ""));
-    const app = new URL(String(process.env.APP_URL || ""));
-    redirectValid = redirect.protocol === "https:"
-      && redirect.origin === app.origin
-      && redirect.pathname === "/admin/mercado-pago/callback"
-      && !redirect.search
-      && !redirect.hash;
-  } catch {}
-  if (!redirectValid && !missing.includes("MP_REDIRECT_URI")) missing.push("MP_REDIRECT_URI");
-  return { ok: missing.length === 0, missing };
+
+  if (required.includes("APP_URL") && !missing.includes("APP_URL")) {
+    try {
+      const app = new URL(String(process.env.APP_URL || "").trim());
+      if (app.protocol !== "https:" || app.username || app.password || app.pathname !== "/") {
+        missing.push("APP_URL");
+      }
+    } catch {
+      missing.push("APP_URL");
+    }
+  }
+
+  if (scope !== "subscription" && !missing.includes("MP_REDIRECT_URI")) {
+    try {
+      const redirect = new URL(String(process.env.MP_REDIRECT_URI || "").trim());
+      const app = new URL(String(process.env.APP_URL || "").trim());
+      const redirectValid = redirect.protocol === "https:"
+        && redirect.origin === app.origin
+        && redirect.pathname === "/admin/mercado-pago/callback"
+        && !redirect.search
+        && !redirect.hash;
+      if (!redirectValid) missing.push("MP_REDIRECT_URI");
+    } catch {
+      missing.push("MP_REDIRECT_URI");
+    }
+  }
+
+  return { ok: missing.length === 0, missing: [...new Set(missing)] };
 }
 
 function assertMercadoPagoConfig(scope = "all") {
-  const status = mercadoPagoConfigStatus();
-  const oauthRequired = ["MP_CLIENT_ID", "MP_CLIENT_SECRET", "MP_REDIRECT_URI", "TOKEN_ENCRYPTION_KEY"];
-  const subscriptionRequired = [
-    "MERCADO_PAGO_ACCESS_TOKEN",
-    "MERCADO_PAGO_PUBLIC_KEY",
-    "MERCADO_PAGO_PLATFORM_USER_ID",
-    "MERCADO_PAGO_WEBHOOK_SECRET",
-  ];
-  const required = scope === "oauth" ? oauthRequired : scope === "subscription" ? subscriptionRequired : [...oauthRequired, ...subscriptionRequired];
-  const missing = status.missing.filter(name => required.includes(name));
-  if (missing.length) {
+  const status = mercadoPagoConfigStatus(scope);
+  if (status.missing.length) {
     const error = new Error("Integração Mercado Pago incompleta.");
     error.code = "MERCADO_PAGO_CONFIG_INCOMPLETA";
-    error.missing = missing;
+    error.missing = status.missing;
     throw error;
   }
+}
+
+function wantsJson(req) {
+  return String(req.get?.("accept") || "").toLowerCase().includes("application/json")
+    || String(req.get?.("x-requested-with") || "").toLowerCase() === "xmlhttprequest";
+}
+
+function safeMercadoPagoFailure(error) {
+  const sanitized = sanitizeMercadoPagoError(error);
+  return {
+    ok: false,
+    code: String(error?.code || "MERCADO_PAGO_INTEGRATION_FAILED").slice(0, 80),
+    message: error?.code === "MERCADO_PAGO_CONFIG_INCOMPLETA"
+      ? "A integração Mercado Pago não está completamente configurada no servidor."
+      : sanitized.message,
+    correlationId: String(error?.correlationId || ""),
+  };
+}
+
+async function validarContaPrincipalMercadoPago() {
+  const account = await mp("/users/me");
+  if (!account?.id || String(account.id) !== platformCollectorId()) {
+    const error = new Error("A credencial da plataforma pertence a outra conta Mercado Pago.");
+    error.code = "MERCADO_PAGO_PLATFORM_ACCOUNT_MISMATCH";
+    throw error;
+  }
+  return String(account.id);
 }
 
 function validarRedirectMercadoPago(value) {
@@ -284,21 +329,36 @@ function manterTesteOuStatusAtual(assinatura) {
 }
 
 function flashSafeIntegrationError(req, error) {
-  console.error("Mercado Pago:", sanitizeMercadoPagoError(error));
-  safeFlash(req, "errors", "Não foi possível concluir a operação com o Mercado Pago.");
+  const sanitized = sanitizeMercadoPagoError(error);
+  console.error("Mercado Pago:", {
+    ...sanitized,
+    internalCode: String(error?.code || "").slice(0, 80) || null,
+    missing: Array.isArray(error?.missing) ? error.missing.slice(0, 12) : undefined,
+    correlationId: String(req?.correlationId || "") || undefined,
+  });
+  safeFlash(req, "errors", error?.code === "MERCADO_PAGO_CONFIG_INCOMPLETA"
+    ? "A integração Mercado Pago não está completamente configurada no servidor."
+    : "Não foi possível concluir a operação com o Mercado Pago.");
 }
 
 exports.pagina = async (req, res) => {
   try {
     const assinatura = await assinaturaDoUsuario(req);
     const dono = await registroModel.findById(estabelecimentoId(req)).lean();
-    const integracao = mercadoPagoConfigStatus();
+    const integracao = mercadoPagoConfigStatus("subscription");
+    const tentativaPix = await AssinaturaTentativa.findOne({
+      estabelecimentoId: estabelecimentoId(req),
+      metodo: "pix",
+      ativa: true,
+      pixCopiaCola: { $ne: "" },
+      expiresAt: { $gt: new Date() },
+    }).sort({ createdAt: -1 }).lean();
     return res.render("assinatura", {
       assinatura: assinatura.toObject(),
       valorPlano: valorPlano(),
       publicKey: process.env.MERCADO_PAGO_PUBLIC_KEY || "",
       dono,
-      pix: null,
+      pix: tentativaPix ? pixDaTentativa(tentativaPix) : null,
       diasRestantes: res.locals.diasRestantes || 0,
       csrfToken: res.locals.csrfToken,
       integracaoMercadoPago: integracao,
@@ -313,11 +373,17 @@ exports.assinarCartao = async (req, res) => {
   try {
     assertMercadoPagoConfig("subscription");
     const id = estabelecimentoId(req);
+    await validarContaPrincipalMercadoPago();
     const assinatura = await assinaturaDoUsuario(req);
     const dono = await registroModel.findById(id).lean();
     const { attempt, created } = await obterOuCriarTentativa(assinatura, "cartao");
     if (!created) {
-      if (attempt.redirectUrl) return res.redirect(303, validarRedirectMercadoPago(attempt.redirectUrl));
+      if (attempt.redirectUrl) {
+        const redirectUrl = validarRedirectMercadoPago(attempt.redirectUrl);
+        return wantsJson(req)
+          ? res.status(200).json({ ok: true, code: "SUBSCRIPTION_REDIRECT_READY", redirectUrl })
+          : res.redirect(303, redirectUrl);
+      }
       safeFlash(req, "success", "Sua solicitação de assinatura já está sendo processada.");
       return saveSessionOrRun(req, () => res.redirect("/assinatura"));
     }
@@ -340,10 +406,6 @@ exports.assinarCartao = async (req, res) => {
     });
     if (!data.id || !data.init_point) throw new Error("Resposta de assinatura inválida.");
     const redirectSeguro = validarRedirectMercadoPago(data.init_point);
-    if (String(data.collector_id || "") !== platformCollectorId()) {
-      throw new Error("Assinatura criada em conta Mercado Pago divergente.");
-    }
-
     await AssinaturaTentativa.updateOne(
       { _id: attempt._id, status: "criando", ativa: true },
       {
@@ -364,7 +426,9 @@ exports.assinarCartao = async (req, res) => {
     assinatura.ultimoStatusMercadoPago = String(data.status || "pending");
     assinatura.proximaCobranca = null;
     await assinatura.save();
-    return res.redirect(303, redirectSeguro);
+    return wantsJson(req)
+      ? res.status(200).json({ ok: true, code: "SUBSCRIPTION_REDIRECT_READY", redirectUrl: redirectSeguro })
+      : res.redirect(303, redirectSeguro);
   } catch (error) {
     if (!["ASSINATURA_ATIVA", "TENTATIVA_METODO_DIFERENTE"].includes(error?.code)) {
       await AssinaturaTentativa.updateOne(
@@ -384,6 +448,10 @@ exports.assinarCartao = async (req, res) => {
       ).catch(() => {});
     }
     flashSafeIntegrationError(req, error);
+    if (wantsJson(req)) {
+      const payload = safeMercadoPagoFailure(error);
+      return res.status(error?.code === "MERCADO_PAGO_CONFIG_INCOMPLETA" ? 503 : 502).json(payload);
+    }
     return saveSessionOrRun(req, () => res.redirect("/assinatura"));
   }
 };
@@ -391,6 +459,7 @@ exports.assinarCartao = async (req, res) => {
 exports.gerarPix = async (req, res) => {
   try {
     assertMercadoPagoConfig("subscription");
+    await validarContaPrincipalMercadoPago();
     const id = estabelecimentoId(req);
     const assinatura = await assinaturaDoUsuario(req);
     const dono = await registroModel.findById(id).lean();
@@ -400,6 +469,9 @@ exports.gerarPix = async (req, res) => {
         safeFlash(req, "success", "Seu Pix já está sendo gerado.");
         return saveSessionOrRun(req, () => res.redirect("/assinatura"));
       }
+      if (wantsJson(req)) {
+        return res.status(200).json({ ok: true, code: "PIX_READY", pix: pixDaTentativa(attempt) });
+      }
       return res.render("assinatura", {
         assinatura: assinatura.toObject(),
         valorPlano: valorPlano(),
@@ -408,7 +480,7 @@ exports.gerarPix = async (req, res) => {
         diasRestantes: res.locals.diasRestantes || 0,
         csrfToken: res.locals.csrfToken,
         pix: pixDaTentativa(attempt),
-        integracaoMercadoPago: mercadoPagoConfigStatus(),
+        integracaoMercadoPago: mercadoPagoConfigStatus("subscription"),
       });
     }
     const data = await mp("/v1/payments", {
@@ -453,6 +525,10 @@ exports.gerarPix = async (req, res) => {
     assinatura.ultimoStatusMercadoPago = String(data.status || "pending");
     await assinatura.save();
 
+    const pix = { qrCodeBase64: pixQrCodeBase64, copiaCola: pixCopiaCola };
+    if (wantsJson(req)) {
+      return res.status(200).json({ ok: true, code: "PIX_READY", pix });
+    }
     return res.render("assinatura", {
       assinatura: assinatura.toObject(),
       valorPlano: valorPlano(),
@@ -460,11 +536,8 @@ exports.gerarPix = async (req, res) => {
       dono,
       diasRestantes: res.locals.diasRestantes || 0,
       csrfToken: res.locals.csrfToken,
-      pix: {
-        qrCodeBase64: pixQrCodeBase64,
-        copiaCola: pixCopiaCola,
-      },
-      integracaoMercadoPago: mercadoPagoConfigStatus(),
+      pix,
+      integracaoMercadoPago: mercadoPagoConfigStatus("subscription"),
     });
   } catch (error) {
     if (!["ASSINATURA_ATIVA", "TENTATIVA_METODO_DIFERENTE"].includes(error?.code)) {
@@ -485,6 +558,10 @@ exports.gerarPix = async (req, res) => {
       ).catch(() => {});
     }
     flashSafeIntegrationError(req, error);
+    if (wantsJson(req)) {
+      const payload = safeMercadoPagoFailure(error);
+      return res.status(error?.code === "MERCADO_PAGO_CONFIG_INCOMPLETA" ? 503 : 502).json(payload);
+    }
     return saveSessionOrRun(req, () => res.redirect("/assinatura"));
   }
 };
@@ -524,9 +601,16 @@ exports.conectarMercadoPago = async (req, res) => {
     url.searchParams.set("redirect_uri", process.env.MP_REDIRECT_URI);
     url.searchParams.set("code_challenge", codeChallenge);
     url.searchParams.set("code_challenge_method", "S256");
-    return res.redirect(303, url.toString());
+    const authorizationUrl = url.toString();
+    return wantsJson(req)
+      ? res.status(200).json({ ok: true, code: "MERCADO_PAGO_OAUTH_READY", authorizationUrl })
+      : res.redirect(303, authorizationUrl);
   } catch (error) {
     flashSafeIntegrationError(req, error);
+    if (wantsJson(req)) {
+      const payload = safeMercadoPagoFailure(error);
+      return res.status(error?.code === "MERCADO_PAGO_CONFIG_INCOMPLETA" ? 503 : 502).json(payload);
+    }
     return saveSessionOrRun(req, () => res.redirect("/admin#configuracoes"));
   }
 };
