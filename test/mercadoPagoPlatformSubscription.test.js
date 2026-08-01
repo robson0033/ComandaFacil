@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const service = require("../src/services/mercadoPagoPlatformService");
+const pagamento = require("../src/controllers/pagamentoController");
 
 const VALID_ENV = {
   APP_URL: "https://comandafacil.example",
@@ -117,6 +118,101 @@ test("log seguro contém diagnóstico e não contém credenciais", async () => w
   const serialized = JSON.stringify(service.platformErrorLog(error, { correlationId: "corr-1" }));
   assert.doesNotMatch(serialized, /TEST-token-never-log|TEST-secret-never-log|Authorization/i);
   assert.match(serialized, /pix_payment_create/);
+}));
+
+test("builder Pix envia somente campos aceitos e ignora valor e moeda do navegador", () => {
+  const payload = pagamento._testing.buildPixPaymentPayload({
+    amount: 39.9,
+    payerEmail: "cliente@example.com",
+    externalReference: "assinatura-tentativa:uuid:estabelecimento:id",
+    notificationUrl: "https://comandafacil.example/webhook/mercado-pago",
+    transaction_amount: 0.01,
+    currency_id: "USD",
+    currency: "USD",
+    valor: 0.01,
+  });
+  assert.deepEqual(payload, {
+    transaction_amount: 39.9,
+    payment_method_id: "pix",
+    description: "Plano mensal ComandaFácil",
+    external_reference: "assinatura-tentativa:uuid:estabelecimento:id",
+    notification_url: "https://comandafacil.example/webhook/mercado-pago",
+    payer: { email: "cliente@example.com" },
+  });
+  assert.equal(typeof payload.transaction_amount, "number");
+  assert.equal(payload.currency_id, undefined);
+  assert.equal(new URL(payload.notification_url).protocol, "https:");
+});
+
+test("builder preapproval preserva contrato recorrente e currency_id dentro de auto_recurring", () => {
+  const payload = pagamento._testing.buildPreapprovalPayload({
+    amount: 39.9,
+    payerEmail: "cliente@example.com",
+    externalReference: "assinatura:uuid",
+    backUrl: "https://comandafacil.example/assinatura/retorno",
+  });
+  assert.equal(payload.auto_recurring.transaction_amount, 39.9);
+  assert.equal(payload.auto_recurring.currency_id, "BRL");
+  assert.equal(payload.payer_email, "cliente@example.com");
+});
+
+test("resposta Pix com QR, ticket e expiração é aceita", () => {
+  const parsed = pagamento._testing.parseSubscriptionPixResponse({
+    id: 123,
+    status: "pending",
+    point_of_interaction: { transaction_data: {
+      qr_code: "000201",
+      qr_code_base64: "base64",
+      ticket_url: "https://www.mercadopago.com.br/ticket",
+      expiration_date: "2026-08-02T12:00:00Z",
+    } },
+  });
+  assert.equal(parsed.paymentId, "123");
+  assert.equal(parsed.status, "pending");
+  assert.equal(parsed.qrCode, "000201");
+  assert.equal(parsed.ticketUrl, "https://www.mercadopago.com.br/ticket");
+  assert.equal(parsed.expiresAt, "2026-08-02T12:00:00Z");
+});
+
+test("resposta Pix sem QR retorna SUBSCRIPTION_PIX_QR_MISSING", () => {
+  assert.throws(() => pagamento._testing.parseSubscriptionPixResponse({
+    id: 123,
+    status: "pending",
+    point_of_interaction: { transaction_data: {} },
+  }), { code: "SUBSCRIPTION_PIX_QR_MISSING" });
+});
+
+test("requisição Pix envia idempotência e erro 400 preserva diagnóstico do provedor", async () => withEnv(VALID_ENV, async () => {
+  const originalFetch = global.fetch;
+  let receivedHeaders;
+  global.fetch = async (_url, options) => {
+    receivedHeaders = options.headers;
+    return {
+      ok: false,
+      status: 400,
+      json: async () => ({
+        code: "bad_request",
+        message: "The name of the following parameters is wrong : currency_id",
+        cause: [{ code: 8, description: "invalid parameter" }],
+      }),
+    };
+  };
+  try {
+    await assert.rejects(service.requestPlatform("/v1/payments", {
+      method: "POST",
+      operation: "create_subscription_pix",
+      stage: "pix_payment_create",
+      idempotencyKey: "idempotency-key-test",
+      body: { transaction_amount: 39.9, payment_method_id: "pix" },
+    }), error => {
+      assert.equal(error.httpStatus, 400);
+      assert.equal(error.code, "bad_request");
+      assert.equal(error.providerResponse.providerMessage, "The name of the following parameters is wrong : currency_id");
+      assert.equal(error.providerResponse.providerCauses[0].code, "8");
+      return true;
+    });
+    assert.equal(receivedHeaders["X-Idempotency-Key"], "idempotency-key-test");
+  } finally { global.fetch = originalFetch; }
 }));
 
 test("view usa botões sem submit nativo, bloqueio e contratos JSON", () => {

@@ -140,7 +140,8 @@ function safeMercadoPagoFailure(error) {
   const safeSpecific = [
     "PLATFORM_ACCOUNT_MISMATCH",
     "PLATFORM_MP_TIMEOUT",
-    "SUBSCRIPTION_PIX_DATA_MISSING",
+    "SUBSCRIPTION_PIX_QR_MISSING",
+    "SUBSCRIPTION_PIX_RESPONSE_INVALID",
     "SUBSCRIPTION_CHECKOUT_URL_MISSING",
     "SUBSCRIPTION_CHECKOUT_URL_INVALID",
     "SUBSCRIPTION_PAYER_EMAIL_INVALID",
@@ -150,9 +151,11 @@ function safeMercadoPagoFailure(error) {
   return {
     ok: false,
     code: String(error?.code || "PLATFORM_MP_INTEGRATION_FAILED").slice(0, 80),
-    message: safeSpecific || error?.code === "APP_URL_INVALID"
-      ? String(error?.message || "Configuração de pagamento inválida.")
-      : "Não foi possível concluir a operação com o Mercado Pago.",
+    message: error?.providerResponse?.providerMessage
+      ? String(error.providerResponse.providerMessage)
+      : safeSpecific || error?.code === "APP_URL_INVALID"
+        ? String(error?.message || "Configuração de pagamento inválida.")
+        : "Não foi possível concluir a operação com o Mercado Pago.",
     correlationId: String(error?.correlationId || ""),
   };
 }
@@ -184,6 +187,63 @@ function validarEmailPagador(dono) {
     throw error;
   }
   return email;
+}
+
+function buildPixPaymentPayload({ amount, payerEmail, externalReference, notificationUrl }) {
+  return {
+    transaction_amount: Number(amount),
+    payment_method_id: "pix",
+    description: "Plano mensal ComandaFácil",
+    external_reference: String(externalReference),
+    notification_url: String(notificationUrl),
+    payer: { email: String(payerEmail) },
+  };
+}
+
+function buildPreapprovalPayload({ amount, payerEmail, externalReference, backUrl }) {
+  return {
+    reason: "Plano Profissional ComandaFácil",
+    external_reference: String(externalReference),
+    payer_email: String(payerEmail),
+    auto_recurring: {
+      frequency: 1,
+      frequency_type: "months",
+      transaction_amount: Number(amount),
+      currency_id: "BRL",
+    },
+    back_url: String(backUrl),
+    status: "pending",
+  };
+}
+
+function parseSubscriptionPixResponse(data) {
+  if (!data?.id || !String(data.status || "").trim()) {
+    const error = new Error("O Mercado Pago retornou uma resposta de Pix inválida.");
+    error.code = "SUBSCRIPTION_PIX_RESPONSE_INVALID";
+    error.stage = "pix_response_validation";
+    error.endpointPath = "/v1/payments";
+    throw error;
+  }
+  const transactionData = data.point_of_interaction?.transaction_data;
+  if (!transactionData?.qr_code || !transactionData?.qr_code_base64) {
+    const error = new Error("O Mercado Pago não retornou o QR Code do Pix.");
+    error.code = "SUBSCRIPTION_PIX_QR_MISSING";
+    error.stage = "pix_response_validation";
+    error.endpointPath = "/v1/payments";
+    throw error;
+  }
+  return {
+    paymentId: String(data.id),
+    status: String(data.status),
+    qrCode: String(transactionData.qr_code),
+    qrCodeBase64: String(transactionData.qr_code_base64),
+    ticketUrl: String(transactionData.ticket_url || ""),
+    expiresAt: String(
+      transactionData.expiration_date
+      || data.date_of_expiration
+      || "",
+    ),
+  };
 }
 
 function planoPagoVigente(assinatura, now = new Date()) {
@@ -420,19 +480,12 @@ exports.assinarCartao = async (req, res) => {
       stage: "preapproval_create",
       method: "POST",
       idempotencyKey: attempt.idempotencyKey,
-      body: {
-        reason: "Plano Profissional ComandaFácil",
-        external_reference: attemptReference(attempt),
-        payer_email: payerEmail,
-        auto_recurring: {
-          frequency: 1,
-          frequency_type: "months",
-          transaction_amount: valorPlano(),
-          currency_id: "BRL",
-        },
-        back_url: `${baseUrl(req)}/assinatura/retorno`,
-        status: "pending",
-      },
+      body: buildPreapprovalPayload({
+        amount: valorPlano(),
+        payerEmail,
+        externalReference: attemptReference(attempt),
+        backUrl: `${baseUrl(req)}/assinatura/retorno`,
+      }),
     });
     if (!data.id || !data.init_point) {
       const error = new Error("O Mercado Pago não retornou a URL do checkout.");
@@ -541,29 +594,16 @@ exports.gerarPix = async (req, res) => {
       stage: "pix_payment_create",
       method: "POST",
       idempotencyKey: attempt.idempotencyKey,
-      body: {
-        transaction_amount: valorPlano(),
-        currency_id: "BRL",
-        description: "Plano mensal ComandaFácil",
-        payment_method_id: "pix",
-        external_reference: attemptReference(attempt),
-        notification_url: `${baseUrl(req)}/webhook/mercado-pago`,
-        payer: { email: payerEmail, first_name: dono.nome || "Cliente" },
-      },
+      body: buildPixPaymentPayload({
+        amount: valorPlano(),
+        payerEmail,
+        externalReference: attemptReference(attempt),
+        notificationUrl: `${baseUrl(req)}/webhook/mercado-pago`,
+      }),
     });
-    const transactionData = data.point_of_interaction?.transaction_data;
-    if (!data.id || !transactionData?.qr_code || !transactionData?.qr_code_base64) {
-      const error = new Error("O Mercado Pago não retornou os dados necessários do Pix.");
-      error.code = "SUBSCRIPTION_PIX_DATA_MISSING";
-      error.stage = "pix_response_validation";
-      error.endpointPath = "/v1/payments";
-      throw error;
-    }
-
-    const pixQrCodeBase64 =
-      data.point_of_interaction?.transaction_data?.qr_code_base64 || "";
-    const pixCopiaCola =
-      data.point_of_interaction?.transaction_data?.qr_code || "";
+    const parsedPix = parseSubscriptionPixResponse(data);
+    const pixQrCodeBase64 = parsedPix.qrCodeBase64;
+    const pixCopiaCola = parsedPix.qrCode;
     await AssinaturaTentativa.updateOne(
       { _id: attempt._id, status: "criando", ativa: true },
       {
@@ -574,8 +614,8 @@ exports.gerarPix = async (req, res) => {
           mercadoPagoPaymentId: String(data.id),
           pixQrCodeBase64,
           pixCopiaCola,
-          expiresAt: data.date_of_expiration
-            ? new Date(data.date_of_expiration)
+          expiresAt: parsedPix.expiresAt
+            ? new Date(parsedPix.expiresAt)
             : attempt.expiresAt,
           erro: "",
         },
@@ -593,10 +633,11 @@ exports.gerarPix = async (req, res) => {
       return res.status(200).json({
         ok: true,
         code: "SUBSCRIPTION_PIX_CREATED",
-        paymentId: String(data.id),
+        paymentId: parsedPix.paymentId,
         qrCode: pixCopiaCola,
         qrCodeBase64: pixQrCodeBase64,
-        expiresAt: String(data.date_of_expiration || attempt.expiresAt?.toISOString?.() || ""),
+        ticketUrl: parsedPix.ticketUrl,
+        expiresAt: parsedPix.expiresAt || attempt.expiresAt?.toISOString?.() || "",
       });
     }
     return res.render("assinatura", {
@@ -1363,6 +1404,8 @@ exports.webhook = async (req, res) => {
 
 exports.assinaturaDoUsuario = assinaturaDoUsuario;
 exports._testing = {
+  buildPixPaymentPayload,
+  buildPreapprovalPayload,
   claimEvent,
   consumeOauthState,
   eventData,
@@ -1370,6 +1413,7 @@ exports._testing = {
   financialEventShouldApply,
   obterOuCriarTentativa,
   parseSubscriptionReference,
+  parseSubscriptionPixResponse,
   processOrderPayment,
   processPreapproval,
   processSubscriptionPayment,
