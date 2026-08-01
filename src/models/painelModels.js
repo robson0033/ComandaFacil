@@ -715,7 +715,7 @@ const Pedido = mongoose.model(
 
       formaPagamento: {
         type: String,
-        enum: ["dinheiro", "pix", "cartao", "nao_informado"],
+        enum: ["dinheiro", "pix", "pix_online", "cartao", "nao_informado"],
         default: "nao_informado",
       },
 

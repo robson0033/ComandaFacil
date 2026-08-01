@@ -55,7 +55,8 @@ function validateMercadoPagoWebhook({
   now = Date.now(),
   toleranceSeconds = DEFAULT_TOLERANCE_SECONDS,
 }) {
-  if (!secret) throw webhookSecurityError(
+  const normalizedSecret = String(secret || "").trim();
+  if (!normalizedSecret) throw webhookSecurityError(
     "WEBHOOK_SECRET_MISSING",
     "Segredo do webhook não configurado.",
     "webhook_signature_validate",
@@ -81,7 +82,9 @@ function validateMercadoPagoWebhook({
     );
   }
 
-  const normalizedResourceId = normalizeResourceId(resourceId);
+  const normalizedResourceId = resourceId === null || resourceId === undefined || resourceId === ""
+    ? ""
+    : normalizeResourceId(resourceId);
   const { timestamp, signature } = parseSignature(signatureHeader);
   if (!/^\d{10,13}$/.test(timestamp) || !signature) {
     throw webhookSecurityError(
@@ -103,14 +106,16 @@ function validateMercadoPagoWebhook({
     );
   }
 
-  const manifest = [
-    `id:${normalizedResourceId}`,
-    `request-id:${normalizedRequestId}`,
-    `ts:${timestamp}`,
-  ].join(";");
+  // O Mercado Pago exige que pares ausentes sejam omitidos do manifesto.
+  // Para notificações de pagamento atuais, data.id e x-request-id normalmente existem.
+  const manifestParts = [];
+  if (normalizedResourceId) manifestParts.push(`id:${normalizedResourceId}`);
+  if (normalizedRequestId) manifestParts.push(`request-id:${normalizedRequestId}`);
+  manifestParts.push(`ts:${timestamp}`);
+  const manifest = `${manifestParts.join(";")};`;
   const expected = crypto
-    .createHmac("sha256", secret)
-    .update(`${manifest};`)
+    .createHmac("sha256", normalizedSecret)
+    .update(manifest)
     .digest("hex");
 
   if (!safeEqualHex(signature, expected)) {

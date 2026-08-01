@@ -1762,6 +1762,9 @@ function extractMercadoPagoWebhookEvent(req) {
   }
   return {
     resourceId,
+    // A assinatura HMAC deve usar exclusivamente data.id da query quando presente.
+    // body.data.id e campos legados continuam disponíveis apenas para localizar o recurso.
+    signatureResourceId: signedQueryId || "",
     eventType: resourceType,
     eventAction,
     resourceType,
@@ -2381,7 +2384,7 @@ exports.webhook = async (req, res) => {
     const authenticity = validateMercadoPagoWebhook({
       signatureHeader: req.get("x-signature"),
       requestId: req.get("x-request-id"),
-      resourceId: data.resourceId,
+      resourceId: data.signatureResourceId || data.resourceId,
       secret: process.env.MERCADO_PAGO_WEBHOOK_SECRET,
     });
     signatureValid = true;

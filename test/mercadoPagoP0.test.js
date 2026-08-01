@@ -51,6 +51,20 @@ test("webhook: assinatura válida", () => {
   assert.equal(result.resourceId, fixture.id);
 });
 
+
+
+test("webhook: segredo com espaços externos é normalizado", () => {
+  const fixture = signedWebhook();
+  const result = validateMercadoPagoWebhook({
+    signatureHeader: fixture.header,
+    requestId: fixture.requestId,
+    resourceId: fixture.id,
+    secret: `  ${fixture.secret}  `,
+    now: fixture.now,
+  });
+  assert.equal(result.resourceId, fixture.id);
+});
+
 test("webhook: assinatura inválida", () => {
   const fixture = signedWebhook();
   const parsed = parseSignature(fixture.header);
