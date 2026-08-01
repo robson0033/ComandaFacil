@@ -59,6 +59,18 @@ async function enviarCodigoRecuperacao({ email, nome, codigo }) {
   });
 }
 
+async function enviarCodigoConsultaPedidos({ email, codigo }) {
+  const transportador = criarTransportador();
+  const remetente = String(process.env.SMTP_FROM || process.env.SMTP_USER || "").trim();
+  await transportador.sendMail({
+    from: remetente,
+    to: email,
+    subject: "Código para consultar seus pedidos — Comanda Fácil",
+    text: `Seu código para consultar pedidos é ${codigo}. Ele expira em 10 minutos.`,
+  });
+}
+
 module.exports = {
   enviarCodigoRecuperacao,
+  enviarCodigoConsultaPedidos,
 };

@@ -65,6 +65,12 @@ const limiteAcompanhamentoPedido = createRateLimiter({
     message: "Muitas tentativas. Aguarde e tente novamente.",
   }),
 });
+const limiteConsultaPedidos = createRateLimiter({
+  windowMs: 10 * 60_000,
+  max: 10,
+  key: req => `${req.ip}|${String(req.params.slug || "").toLowerCase()}|${String(req.body?.identificador || "").trim().toLowerCase()}`,
+  onLimit: (req, res) => res.status(429).json({ code: "MUITAS_TENTATIVAS", message: "Aguarde antes de tentar novamente." }),
+});
 const respostaPedidoSemCache = (req, res, next) => {
   res.set("Cache-Control", "no-store");
   res.set("Pragma", "no-cache");
@@ -565,6 +571,10 @@ route.get(
 
 route.get('/catalogo/:slug/produtos-status', admin.statusProdutosCatalogo);
 route.post('/catalogo/:slug/pedidos', respostaPedidoSemCache, admin.criarPedidoCatalogo);
+route.post('/catalogo/:slug/pedidos/consulta/iniciar', respostaPedidoSemCache, limiteConsultaPedidos, admin.iniciarConsultaPedidos);
+route.post('/catalogo/:slug/pedidos/consulta/verificar', respostaPedidoSemCache, limiteConsultaPedidos, admin.verificarConsultaPedidos);
+route.get('/catalogo/:slug/pedidos/consulta', respostaPedidoSemCache, limiteAcompanhamentoPedido, admin.listarConsultaPedidos);
+route.post('/catalogo/:slug/pedidos/consulta/sair', respostaPedidoSemCache, limiteAcompanhamentoPedido, admin.encerrarConsultaPedidos);
 route.post(
   '/catalogo/:slug/pedido/consultar',
   respostaPedidoSemCache,

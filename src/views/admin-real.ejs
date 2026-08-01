@@ -3741,7 +3741,7 @@
                 %>
               </span>
 
-              <span class="status <%= pedido.pagamentoStatus || 'pendente' %>">
+              <span class="status <%= pedido.pagamentoStatus || 'pendente' %>" data-payment-status-badge>
                 <%= String(
                   pedido.pagamentoStatus || 'pendente'
                 ).replaceAll('_', ' ') %>
@@ -3772,12 +3772,12 @@
               <%= formaPagamentoTexto %>
             </div>
 
-            <div>
+            <div data-payment-status-text>
               <strong>Status do pagamento:</strong>
               <%= String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ') %>
             </div>
 
-            <div>
+            <div data-payment-date-text>
               <strong>Data/hora do pagamento:</strong>
               <%= dataPagamentoPedido ? formatarDataHoraEstabelecimento(dataPagamentoPedido) : 'Ainda não confirmado' %>
             </div>
@@ -8100,6 +8100,7 @@ function criarCardPedido(
         </span>
 
         <span
+          data-payment-status-badge
           class="status ${escaparHtml(
             pedido.pagamentoStatus
           )}"
@@ -8117,6 +8118,11 @@ function criarCardPedido(
       ${escaparHtml(
         pedido.cliente
       )}
+    </div>
+
+    <div style="margin-top:7px;" data-payment-status-text>
+      <strong>Status do pagamento:</strong>
+      ${escaparHtml(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ')}
     </div>
 
     <div style="margin-top:7px;">
@@ -8142,7 +8148,7 @@ function criarCardPedido(
       ${escaparHtml(({pix:'Pix online', dinheiro:'Dinheiro na entrega/retirada', cartao:'Cartão na entrega/retirada', nao_informado:'Não informado'})[pedido.formaPagamento] || pedido.formaPagamento || 'Não informado')}
     </div>
 
-    <div style="margin-top:7px;">
+    <div style="margin-top:7px;" data-payment-date-text>
       <strong>Data/hora do pagamento:</strong>
       ${pedido.pagoEm ? escaparHtml(formatarDataPedido(pedido.pagoEm)) : 'Ainda não confirmado'}
     </div>
@@ -9157,6 +9163,16 @@ async function verificarNovosPedidos() {
             `[data-order-id="${CSS.escape(pedido.id)}"]`
           )
         ) {
+          const existing = document.querySelector(`[data-order-id="${CSS.escape(pedido.id)}"]`);
+          const badge = existing.querySelector('[data-payment-status-badge]');
+          if (badge) {
+            badge.className = `status ${pedido.pagamentoStatus || 'pendente'}`;
+            badge.textContent = String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ');
+          }
+          const statusText = existing.querySelector('[data-payment-status-text]');
+          if (statusText) statusText.textContent = `Status do pagamento: ${String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ')}`;
+          const dateText = existing.querySelector('[data-payment-date-text]');
+          if (dateText) dateText.textContent = `Data/hora do pagamento: ${pedido.pagoEm ? formatarDataPedido(pedido.pagoEm) : 'Ainda não confirmado'}`;
           return;
         }
 

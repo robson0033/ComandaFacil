@@ -233,14 +233,16 @@ test("rate limit separa IP e slug e responde JSON 429", () => {
   assert.equal(bloqueada.body.code, "MUITAS_TENTATIVAS");
 });
 
-test("frontend usa localStorage isolado por slug e não possui consulta por telefone", () => {
+test("frontend não usa localStorage como autoridade e exige verificação OTP", () => {
   const view = fs.readFileSync("src/views/catalogo-publico.ejs", "utf8");
   const routes = fs.readFileSync("route.js", "utf8");
-  assert.match(view, /pedidos-acompanhamento:\$\{slug\}/);
-  assert.match(view, /codigoPublico:[\s\S]*token:[\s\S]*criadoEm:/);
-  assert.match(view, /salvarReferencias\(validas\)/);
-  assert.doesNotMatch(view, /meus-pedidos\?telefone|ordersPhone/);
-  assert.doesNotMatch(routes, /meus-pedidos|buscarPedidosCatalogo/);
+  assert.doesNotMatch(view, /pedidos-acompanhamento:\$\{slug\}/);
+  assert.doesNotMatch(view, /localStorage\.getItem\(trackingStorageKey/);
+  assert.match(view, /orderLookupIdentifier/);
+  assert.match(view, /orderLookupCode/);
+  assert.match(routes, /pedidos\/consulta\/iniciar/);
+  assert.match(routes, /pedidos\/consulta\/verificar/);
+  assert.match(routes, /pedidos\/consulta\/sair/);
   assert.doesNotMatch(routes, /pedido\/:token|pedidos\/:pedidoId\/pix/);
   assert.match(routes, /catalogo\/:slug\/pedido\/consultar/);
   assert.match(routes, /catalogo\/:slug\/pedido\/avaliacao/);

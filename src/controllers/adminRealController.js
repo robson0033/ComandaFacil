@@ -17,7 +17,9 @@ const {
   Avaliacao,
   PrintAgent,
   PrintJob,
+  OrderLookupVerification,
 } = require("../models/painelModels");
+const { enviarCodigoConsultaPedidos } = require("../services/emailService");
 
 const printAgentHub = require("../services/printAgentHub");
 const printQueueService = require("../services/printQueueService");
@@ -5272,7 +5274,7 @@ exports.arquivarPedido = async (req, res) => {
           idEstabelecimento,
         excluido: { $ne: true },
 
-        createdAt: {
+        updatedAt: {
           $gt: dataInicial,
         },
       })
@@ -5281,7 +5283,7 @@ exports.arquivarPedido = async (req, res) => {
           'numero setor'
         )
         .sort({
-          createdAt: 1,
+          updatedAt: 1,
         })
         .limit(50)
         .lean();
@@ -7188,6 +7190,118 @@ exports.criarPedidoCatalogo =
 function normalizarTelefonePublico(value = "") {
   return String(value).replace(/\D/g, "").slice(-11);
 }
+
+const ORDER_LOOKUP_GENERIC = {
+  ok: true,
+  code: "ORDER_LOOKUP_VERIFICATION_SENT",
+  message: "Se os dados estiverem corretos, você receberá um código de verificação.",
+};
+const lookupHash = value => crypto.createHash("sha256").update(String(value)).digest("hex");
+function normalizeLookupIdentifier(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw)) return { type: "email", value: raw };
+  const phone = normalizarTelefonePublico(raw);
+  return phone.length >= 10 ? { type: "phone", value: phone } : null;
+}
+const lookupSessionHash = req => lookupHash(req.sessionID || "missing-session");
+const codeDigest = (code, salt) => crypto.scryptSync(String(code), salt, 32).toString("hex");
+
+exports.iniciarConsultaPedidos = async (req, res) => {
+  const started = Date.now();
+  try {
+    const cfg = await Configuracao.findOne({ slug: req.params.slug }).select("estabelecimentoId").lean();
+    const identifier = normalizeLookupIdentifier(req.body?.identificador);
+    if (cfg && identifier) {
+      const match = identifier.type === "email"
+        ? { emailCliente: identifier.value }
+        : { telefoneNormalizado: identifier.value };
+      const order = await Pedido.findOne({
+        estabelecimentoId: cfg.estabelecimentoId,
+        ...match,
+        excluido: { $ne: true },
+        createdAt: { $gte: new Date(Date.now() - 90 * 86400000) },
+      }).select("emailCliente").sort({ createdAt: -1 }).lean();
+      const destination = String(order?.emailCliente || "").trim().toLowerCase();
+      const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+      const salt = crypto.randomBytes(16).toString("hex");
+      await OrderLookupVerification.create({
+        estabelecimentoId: cfg.estabelecimentoId,
+        identifierHash: lookupHash(`${identifier.type}:${identifier.value}`),
+        sessionHash: lookupSessionHash(req),
+        codeHash: codeDigest(code, salt),
+        salt,
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+      });
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(destination)) {
+        await enviarCodigoConsultaPedidos({ email: destination, codigo: code }).catch(() => {});
+      }
+    }
+  } catch (error) {
+    console.warn("order_lookup_start_failed", { correlationId: req.correlationId, stage: "verification_start" });
+  }
+  const remaining = 250 - (Date.now() - started);
+  if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining));
+  return res.json(ORDER_LOOKUP_GENERIC);
+};
+
+exports.verificarConsultaPedidos = async (req, res) => {
+  const cfg = await Configuracao.findOne({ slug: req.params.slug }).select("estabelecimentoId").lean();
+  const identifier = normalizeLookupIdentifier(req.body?.identificador);
+  const code = String(req.body?.codigo || "").trim();
+  if (!cfg || !identifier || !/^\d{6}$/.test(code)) {
+    return res.status(401).json({ ok: false, code: "ORDER_LOOKUP_CODE_INVALID", message: "Código inválido ou expirado." });
+  }
+  const verification = await OrderLookupVerification.findOne({
+    estabelecimentoId: cfg.estabelecimentoId,
+    identifierHash: lookupHash(`${identifier.type}:${identifier.value}`),
+    sessionHash: lookupSessionHash(req),
+    expiresAt: { $gt: new Date() },
+    usedAt: null,
+    attempts: { $lt: 5 },
+  }).select("+codeHash +salt").sort({ createdAt: -1 });
+  const received = verification ? codeDigest(code, verification.salt) : "";
+  const valid = verification && crypto.timingSafeEqual(Buffer.from(received, "hex"), Buffer.from(verification.codeHash, "hex"));
+  if (!valid) {
+    if (verification) await OrderLookupVerification.updateOne({ _id: verification._id }, { $inc: { attempts: 1 } });
+    return res.status(401).json({ ok: false, code: "ORDER_LOOKUP_CODE_INVALID", message: "Código inválido ou expirado." });
+  }
+  verification.usedAt = new Date();
+  await verification.save();
+  req.session.orderLookup = {
+    estabelecimentoId: String(cfg.estabelecimentoId),
+    identifierType: identifier.type,
+    identifierValue: identifier.value,
+    expiresAt: Date.now() + 20 * 60_000,
+  };
+  await new Promise((resolve, reject) => req.session.save(error => error ? reject(error) : resolve()));
+  return res.json({ ok: true, code: "ORDER_LOOKUP_VERIFIED" });
+};
+
+exports.listarConsultaPedidos = async (req, res) => {
+  const cfg = await Configuracao.findOne({ slug: req.params.slug }).select("estabelecimentoId timezone").lean();
+  const lookup = req.session?.orderLookup;
+  if (!cfg || !lookup || lookup.expiresAt <= Date.now()
+    || String(cfg.estabelecimentoId) !== String(lookup.estabelecimentoId)) {
+    return res.status(401).json({ ok: false, code: "ORDER_LOOKUP_SESSION_REQUIRED" });
+  }
+  const match = lookup.identifierType === "email"
+    ? { emailCliente: lookup.identifierValue }
+    : { telefoneNormalizado: lookup.identifierValue };
+  const orders = await Pedido.find({
+    estabelecimentoId: cfg.estabelecimentoId,
+    ...match,
+    excluido: { $ne: true },
+    createdAt: { $gte: new Date(Date.now() - 90 * 86400000) },
+  }).select("_id createdAt status pagamentoStatus canal itens.produtoId itens.nome itens.quantidade total previsaoEntrega formaPagamento pagoEm")
+    .sort({ createdAt: -1 }).limit(50).lean();
+  return res.json({ ok: true, pedidos: orders.map(serializarPedidoPublico) });
+};
+
+exports.encerrarConsultaPedidos = async (req, res) => {
+  delete req.session.orderLookup;
+  await new Promise(resolve => req.session.save(() => resolve()));
+  return res.json({ ok: true, code: "ORDER_LOOKUP_SIGNED_OUT" });
+};
 
 exports.acompanharPedidoCatalogo = async (req, res) => {
   try {

@@ -1411,11 +1411,39 @@ exports.statusPagamentoPedido = async (req, res) => {
   const pedido = await buscarPedidoPorToken({
     estabelecimentoId: cfg.estabelecimentoId,
     token,
+    lean: false,
   });
   if (!pedido) return res.status(404).json({ success: false, message: "Pedido não encontrado." });
+  const cooldownPassed = !pedido.mercadoPagoLastCheckedAt
+    || Date.now() - new Date(pedido.mercadoPagoLastCheckedAt).getTime() >= 5_000;
+  if (pedido.pagamentoStatus === "pendente" && pedido.mercadoPagoPaymentId && cooldownPassed) {
+    const claimed = await Pedido.findOneAndUpdate({
+      _id: pedido._id,
+      estabelecimentoId: cfg.estabelecimentoId,
+      pagamentoStatus: "pendente",
+      $or: [
+        { mercadoPagoCheckLockedUntil: null },
+        { mercadoPagoCheckLockedUntil: { $lt: new Date() } },
+      ],
+    }, { $set: {
+      mercadoPagoCheckLockedUntil: new Date(Date.now() + 10_000),
+      mercadoPagoLastCheckedAt: new Date(),
+    } }, { returnDocument: "after" });
+    if (claimed) {
+      try {
+        const { accessToken } = await configuracaoComToken(cfg.estabelecimentoId);
+        const payment = await mp(`/v1/payments/${encodeURIComponent(claimed.mercadoPagoPaymentId)}`, {}, accessToken);
+        await applyOrderPayment(claimed, payment);
+      } finally {
+        await Pedido.updateOne({ _id: pedido._id }, { $set: { mercadoPagoCheckLockedUntil: null } });
+      }
+    }
+  }
+  const current = await Pedido.findById(pedido._id).select("pagamentoStatus pagoEm mercadoPagoStatus").lean();
   return res.json({
     success: true,
-    pagamentoStatus: pedido.pagamentoStatus,
+    pagamentoStatus: current?.pagamentoStatus || pedido.pagamentoStatus,
+    pagoEm: current?.pagoEm || null,
   });
 };
 
@@ -1572,7 +1600,7 @@ async function claimEvent(eventDocument) {
   );
 }
 
-async function processOrderPayment(event, pedido, payment) {
+async function applyOrderPayment(pedido, payment) {
   const { cfg } = await configuracaoComToken(pedido.estabelecimentoId);
   validatePaymentIdentity(payment, {
     paymentId: pedido.mercadoPagoPaymentId,
@@ -1580,14 +1608,11 @@ async function processOrderPayment(event, pedido, payment) {
     externalReference: `pedido:${pedido._id}`,
     collectorId: cfg.mercadoPago.userId,
   });
-  event.estabelecimentoId = pedido.estabelecimentoId;
-  event.pedidoId = pedido._id;
-
   pedido.mercadoPagoStatus = String(payment.status || "");
-  pedido.historicoFinanceiro.push({
-    paymentId: String(payment.id),
-    status: String(payment.status || ""),
-    registradoEm: new Date(),
+  const alreadyRecorded = pedido.historicoFinanceiro.some(item =>
+    String(item.paymentId) === String(payment.id) && String(item.status) === String(payment.status));
+  if (!alreadyRecorded) pedido.historicoFinanceiro.push({
+    paymentId: String(payment.id), status: String(payment.status || ""), registradoEm: new Date(),
   });
 
   if (payment.status === "approved") {
@@ -1603,14 +1628,23 @@ async function processOrderPayment(event, pedido, payment) {
       await pedido.save();
       return;
     }
-    assertStockCompleted(await baixarEstoqueDoPedido(pedido._id));
-    pedido.pagamentoStatus = "pago";
-    pedido.pagoEm = payment.date_approved ? new Date(payment.date_approved) : new Date();
+    if (pedido.pagamentoStatus !== "pago") {
+      assertStockCompleted(await baixarEstoqueDoPedido(pedido._id));
+      pedido.pagamentoStatus = "pago";
+      pedido.pagoEm = payment.date_approved ? new Date(payment.date_approved) : new Date();
+    }
   } else if (["cancelled", "rejected", "refunded", "charged_back"].includes(payment.status)) {
     assertStockCompleted(await restaurarEstoqueDoPedido(pedido._id));
     pedido.pagamentoStatus = "cancelado";
   }
   await pedido.save();
+  return pedido;
+}
+
+async function processOrderPayment(event, pedido, payment) {
+  event.estabelecimentoId = pedido.estabelecimentoId;
+  event.pedidoId = pedido._id;
+  return applyOrderPayment(pedido, payment);
 }
 
 function parseSubscriptionReference(value) {

@@ -778,6 +778,8 @@ const Pedido = mongoose.model(
 
       mercadoPagoPaymentId: { type: String, default: "", index: true },
       mercadoPagoStatus: { type: String, default: "" },
+      mercadoPagoLastCheckedAt: { type: Date, default: null },
+      mercadoPagoCheckLockedUntil: { type: Date, default: null },
       pixCopiaCola: { type: String, default: "" },
       pixQrCodeBase64: { type: String, default: "" },
       pixExpiraEm: { type: Date, default: null },
@@ -836,6 +838,14 @@ Pedido.schema.index(
 Pedido.schema.index(
   { estabelecimentoId: 1, excluido: 1, createdAt: -1 },
   { name: "pedido_estabelecimento_excluido_data" },
+);
+Pedido.schema.index(
+  { estabelecimentoId: 1, telefoneNormalizado: 1, createdAt: -1 },
+  { name: "pedido_tenant_telefone_data" },
+);
+Pedido.schema.index(
+  { estabelecimentoId: 1, emailCliente: 1, createdAt: -1 },
+  { name: "pedido_tenant_email_data" },
 );
 
 
@@ -1228,6 +1238,22 @@ const paymentEventSchema = new mongoose.Schema({
 paymentEventSchema.index({ eventKey: 1 }, { unique: true, name: "payment_event_key_unico" });
 const PaymentEvent = mongoose.model("PaymentEvent", paymentEventSchema);
 
+const orderLookupVerificationSchema = new mongoose.Schema({
+  estabelecimentoId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+  identifierHash: { type: String, required: true, index: true },
+  sessionHash: { type: String, required: true },
+  codeHash: { type: String, required: true, select: false },
+  salt: { type: String, required: true, select: false },
+  expiresAt: { type: Date, required: true, index: { expires: 0 } },
+  attempts: { type: Number, default: 0 },
+  usedAt: { type: Date, default: null },
+}, opts);
+orderLookupVerificationSchema.index(
+  { estabelecimentoId: 1, identifierHash: 1, sessionHash: 1, createdAt: -1 },
+  { name: "order_lookup_tenant_identifier_session" },
+);
+const OrderLookupVerification = mongoose.model("OrderLookupVerification", orderLookupVerificationSchema);
+
 // Estes índices de segurança são aplicados somente pelo script manual
 // scripts/create-mercado-pago-indexes.js, após a verificação de duplicidades.
 for (const model of [
@@ -1238,6 +1264,7 @@ for (const model of [
   OAuthState,
   PaymentEvent,
   AuditoriaEvento,
+  OrderLookupVerification,
 ]) {
   model.schema.set("autoIndex", false);
 }
@@ -1291,4 +1318,5 @@ module.exports = {
   PrintJob,
   PaymentEvent,
   AuditoriaEvento,
+  OrderLookupVerification,
 };

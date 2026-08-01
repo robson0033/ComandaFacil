@@ -2971,13 +2971,20 @@
 <dialog id="myOrdersDialog">
   <div class="my-orders-shell">
     <header class="my-orders-header">
-      <h2>Meus pedidos</h2>
+      <h2>Consultar meus pedidos</h2>
       <button type="button" id="closeMyOrders" class="my-orders-close" aria-label="Fechar">✕</button>
     </header>
     <div class="my-orders-body">
-      <p style="margin-top:0;color:#74645d">
-        Somente pedidos realizados neste navegador aparecem aqui.
-      </p>
+      <p style="margin-top:0;color:#74645d">Informe o telefone ou e-mail usado no pedido. Enviaremos um código para confirmar sua identidade.</p>
+      <form id="orderLookupStart" class="my-orders-form">
+        <label>Telefone ou e-mail<input id="orderLookupIdentifier" required autocomplete="email"></label>
+        <button type="submit">Enviar código de verificação</button>
+      </form>
+      <form id="orderLookupVerify" class="my-orders-form" hidden>
+        <label>Código de 6 dígitos<input id="orderLookupCode" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"></label>
+        <button type="submit">Verificar código</button>
+      </form>
+      <button type="button" id="orderLookupLogout" hidden>Sair dos meus pedidos</button>
       <div id="myOrdersResult" class="my-orders-result"></div>
     </div>
   </div>
@@ -3004,11 +3011,14 @@
 </a>
 </dialog>
 
-<script nonce="<%= cspNonce %>" src="/js/pedidoTrackingStorage.js"></script>
 <script nonce="<%= cspNonce %>">
 (() => {
   const slug = <%- safeJsonForHtml(configuracao.slug) %>;
-  const trackingStorageKey = `pedidos-acompanhamento:${slug}`;
+  const establishmentTimezone = <%- safeJsonForHtml(configuracao.timezone || 'America/Sao_Paulo') %>;
+  const formatOrderDate = value => new Intl.DateTimeFormat('pt-BR', {
+    timeZone: establishmentTimezone, day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }).format(new Date(value));
   const dialog = document.querySelector('#myOrdersDialog');
   const resultBox = document.querySelector('#myOrdersResult');
   const tokensDosPedidos = new Map();
@@ -3024,35 +3034,8 @@
 
   const paymentText = status => ({ pendente: 'Pendente', pago: 'Pago', cancelado: 'Cancelado' }[status] || status || 'Pendente');
 
-  function referenciasLocais() {
-    try {
-      const value = JSON.parse(localStorage.getItem(trackingStorageKey) || '[]');
-      const normalizadas = window.PedidoTrackingStorage.normalizar(value);
-      salvarReferencias(normalizadas);
-      return normalizadas;
-    } catch {
-      return [];
-    }
-  }
-
-  function salvarReferencias(value) {
-    localStorage.setItem(trackingStorageKey, JSON.stringify(value));
-  }
-
-  window.registrarPedidoAcompanhamento = referencia => {
-    if (!referencia?.codigoPublico || !referencia?.token) return;
-    const value = referenciasLocais()
-      .filter(item =>
-        item.token !== referencia.token &&
-        item.codigoPublico !== String(referencia.codigoPublico)
-      );
-    value.unshift({
-      codigoPublico: String(referencia.codigoPublico),
-      token: String(referencia.token),
-      criadoEm: String(referencia.criadoEm || new Date().toISOString())
-    });
-    salvarReferencias(value.slice(0, 50));
-    document.querySelector('#openMyOrders').textContent = '📦 Acompanhar pedido';
+  window.registrarPedidoAcompanhamento = () => {
+    document.querySelector('#openMyOrders').textContent = '📦 Consultar meus pedidos';
   };
 
   function mostrarMensagemPedidos(className, mensagem) {
@@ -3075,7 +3058,7 @@
     const cards = orders.map(order => {
       tokensDosPedidos.set(
         String(order.codigoPublico),
-        order.acompanhamentoTokenLocal
+        null
       );
       const card = document.createElement('article');
       card.className = 'customer-order-card';
@@ -3083,7 +3066,7 @@
       card.querySelector('.customer-order-number').textContent =
         `Pedido #${String(order.codigoPublico || '')}`;
       card.querySelector('.customer-order-date').textContent =
-        new Date(order.data).toLocaleString('pt-BR');
+        formatOrderDate(order.data);
       card.querySelector('.order-status').textContent =
         statusText(order.status);
       const payment = card.querySelector('.payment-status');
@@ -3132,49 +3115,55 @@
   }
 
   async function carregarPedidos() {
-    const referencias = referenciasLocais();
-    if (!referencias.length) return renderOrders([]);
-    mostrarMensagemPedidos('orders-loading', 'Atualizando pedidos...');
-    const validas = [];
-    const pedidos = [];
-    for (const referencia of referencias) {
-      try {
-        const response = await fetch(
-          `/catalogo/${encodeURIComponent(slug)}/pedido/consultar`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${referencia.token}`
-            }
-          }
-        );
-        if (response.status === 404) continue;
-        const data = await response.json();
-        if (!response.ok) throw new Error(
-          data.message || 'Não foi possível consultar o pedido.'
-        );
-        validas.push(referencia);
-        pedidos.push({
-          ...data.pedido,
-          acompanhamentoTokenLocal: referencia.token
-        });
-      } catch (error) {
-        salvarReferencias(referencias);
-        mostrarMensagemPedidos('orders-error', error.message);
-        return;
-      }
+    try {
+      mostrarMensagemPedidos('orders-loading', 'Atualizando pedidos...');
+      const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/pedidos/consulta`);
+      const data = await response.json();
+      if (!response.ok) throw new Error('Verifique sua identidade para consultar os pedidos.');
+      renderOrders(data.pedidos || []);
+    } catch (error) {
+      mostrarMensagemPedidos('orders-error', error.message);
     }
-    salvarReferencias(validas);
-    renderOrders(pedidos);
   }
 
   document.querySelector('#openMyOrders').onclick = async () => {
     dialog.showModal();
-    await carregarPedidos();
   };
-  document.querySelector('#closeMyOrders').onclick = () => dialog.close();
+  document.querySelector('#closeMyOrders').onclick = () => { resultBox.replaceChildren(); dialog.close(); };
   dialog.addEventListener('click', event => {
     if (event.target === dialog) dialog.close();
+  });
+  const startForm = document.querySelector('#orderLookupStart');
+  const verifyForm = document.querySelector('#orderLookupVerify');
+  const logoutButton = document.querySelector('#orderLookupLogout');
+  startForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const identificador = document.querySelector('#orderLookupIdentifier').value.trim();
+    const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/pedidos/consulta/iniciar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identificador })
+    });
+    const data = await response.json();
+    mostrarMensagemPedidos('orders-loading', data.message);
+    verifyForm.hidden = false;
+  });
+  verifyForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const identificador = document.querySelector('#orderLookupIdentifier').value.trim();
+    const codigo = document.querySelector('#orderLookupCode').value.trim();
+    const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/pedidos/consulta/verificar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identificador, codigo })
+    });
+    const data = await response.json();
+    if (!response.ok) return mostrarMensagemPedidos('orders-error', data.message || 'Código inválido.');
+    startForm.hidden = true; verifyForm.hidden = true; logoutButton.hidden = false;
+    await carregarPedidos();
+  });
+  logoutButton.addEventListener('click', async () => {
+    await fetch(`/catalogo/${encodeURIComponent(slug)}/pedidos/consulta/sair`, { method: 'POST' });
+    resultBox.replaceChildren(); startForm.hidden = false; verifyForm.hidden = true; logoutButton.hidden = true;
+    document.querySelector('#orderLookupCode').value = '';
   });
   resultBox.addEventListener('click', async event => {
     const button = event.target.closest('[data-rate-product]');
