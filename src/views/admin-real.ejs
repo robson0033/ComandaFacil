@@ -3549,7 +3549,7 @@
     <div class="orders-filter-panel">
       <div class="orders-search-box">
         <label for="ordersTextSearch" style="display:block;margin-bottom:6px;font-size:11px;font-weight:900;text-transform:uppercase;">Pesquisar pedido</label>
-        <input id="ordersTextSearch" type="search" placeholder="Número, cliente, telefone, e-mail ou endereço...">
+        <input id="ordersTextSearch" type="search" placeholder="Número, cliente, telefone, rua, bairro ou referência...">
       </div>
 
       <div class="orders-quick-filters">
@@ -3704,8 +3704,11 @@
             : (pedido.canal || 'retirada')
           %>"
           data-order-status="<%= pedido.status || 'novo' %>"
+          data-order-code="<%= String(pedido.codigoPublico || '').trim().toUpperCase() %>"
+          data-order-legacy-code="<%= String(pedido._id || '').slice(-6).toUpperCase() %>"
           data-order-search="<%= [
-            String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase(),
+            pedido.codigoPublico,
+            String(pedido._id || '').slice(-6),
             pedido.cliente,
             pedido.telefoneCliente,
             pedido.ruaEntrega,
@@ -8212,6 +8215,24 @@ function criarCardPedido(
   artigo.dataset.orderStatus =
     pedido.status || 'novo';
 
+  const numeroPublicoPedido = String(
+    pedido.codigoPublico || pedido.numero || ''
+  ).trim().replace(/^#/, '').toUpperCase();
+
+  artigo.dataset.orderCode = numeroPublicoPedido;
+  artigo.dataset.orderLegacyCode = String(pedido.id || '').slice(-6).toUpperCase();
+  artigo.dataset.orderSearch = [
+    numeroPublicoPedido,
+    artigo.dataset.orderLegacyCode,
+    pedido.cliente,
+    pedido.telefone,
+    pedido.rua,
+    pedido.numeroEndereco,
+    pedido.bairro,
+    pedido.referencia,
+    pedido.endereco
+  ].filter(Boolean).join(' ').toLowerCase();
+
   artigo.innerHTML = `
     <div class="order-card-header">
       <div class="order-number">
@@ -9582,7 +9603,7 @@ if (podeReceberNotificacoes) {
 
   
 
-    // Pesquisa instantânea dos pedidos por número, cliente, telefone, e-mail ou endereço.
+    // Pesquisa instantânea por código público, código legado, cliente, telefone e endereço.
     const ordersTextSearch = document.querySelector("#ordersTextSearch");
     const ordersVisibleCount = document.querySelector("#ordersVisibleCount");
     const ordersSearchNoResults = document.querySelector("#ordersSearchNoResults");
@@ -9592,21 +9613,43 @@ if (podeReceberNotificacoes) {
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
         .toLowerCase()
-        .replace(/[^a-z0-9@.]+/g, " ")
+        .replace(/[^a-z0-9]+/g, " ")
         .trim();
+    }
+
+    function normalizeOrderCode(value = "") {
+      return String(value)
+        .trim()
+        .replace(/^#/, "")
+        .replace(/[^a-z0-9]/gi, "")
+        .toUpperCase();
     }
 
     function filterOrdersByText() {
       if (!ordersTextSearch) return;
 
-      const query = normalizeOrderSearch(ordersTextSearch.value);
+      const rawQuery = ordersTextSearch.value || "";
+      const query = normalizeOrderSearch(rawQuery);
+      const codeQuery = normalizeOrderCode(rawQuery);
       const terms = query.split(/\s+/).filter(Boolean);
       const orderCards = [...document.querySelectorAll("#ordersGrid .order-card")];
       let visible = 0;
 
       orderCards.forEach(card => {
-        const searchable = normalizeOrderSearch(card.dataset.orderSearch || "");
-        const matches = terms.every(term => searchable.includes(term));
+        const publicCode = normalizeOrderCode(card.dataset.orderCode || "");
+        const legacyCode = normalizeOrderCode(card.dataset.orderLegacyCode || "");
+        const searchable = normalizeOrderSearch([
+          card.dataset.orderSearch || "",
+          publicCode,
+          legacyCode
+        ].join(" "));
+
+        const codeMatches = Boolean(codeQuery) && (
+          publicCode.includes(codeQuery) ||
+          legacyCode.includes(codeQuery)
+        );
+        const textMatches = terms.length === 0 || terms.every(term => searchable.includes(term));
+        const matches = !query && !codeQuery ? true : (codeMatches || textMatches);
 
         card.classList.toggle("order-filter-hidden", !matches);
         if (matches) visible += 1;
