@@ -3549,7 +3549,7 @@
     <div class="orders-filter-panel">
       <div class="orders-search-box">
         <label for="ordersTextSearch" style="display:block;margin-bottom:6px;font-size:11px;font-weight:900;text-transform:uppercase;">Pesquisar pedido</label>
-        <input id="ordersTextSearch" type="search" placeholder="Número, cliente, telefone, rua, bairro ou referência...">
+        <input id="ordersTextSearch" type="search" placeholder="Número, cliente, telefone, e-mail ou endereço...">
       </div>
 
       <div class="orders-quick-filters">
@@ -3704,11 +3704,8 @@
             : (pedido.canal || 'retirada')
           %>"
           data-order-status="<%= pedido.status || 'novo' %>"
-          data-order-code="<%= String(pedido.codigoPublico || '').trim().toUpperCase() %>"
-          data-order-legacy-code="<%= String(pedido._id || '').slice(-6).toUpperCase() %>"
           data-order-search="<%= [
-            pedido.codigoPublico,
-            String(pedido._id || '').slice(-6),
+            String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase(),
             pedido.cliente,
             pedido.telefoneCliente,
             pedido.ruaEntrega,
@@ -5403,14 +5400,52 @@
           </section>
 
 <style>
-.mp-terms-dialog{width:min(680px,calc(100vw - 24px));border:0;border-radius:26px;padding:0;overflow:hidden;background:#fff;color:#241915;box-shadow:0 30px 90px rgba(30,10,5,.35)}
-.mp-terms-dialog::backdrop{background:rgba(25,10,6,.68);backdrop-filter:blur(7px)}
-.mp-terms-card{padding:28px}.mp-terms-icon{width:64px;height:64px;border-radius:20px;display:grid;place-items:center;margin-bottom:14px;background:linear-gradient(135deg,#fff0d8,#ffc48d);color:#d44a12;font-size:28px;font-weight:950}
+.mp-terms-dialog{
+  width:min(680px,calc(100vw - 32px));
+  max-width:680px;
+  max-height:calc(100dvh - 32px);
+  border:0;
+  border-radius:26px;
+  padding:0;
+  overflow:hidden;
+  background:#fff;
+  color:#241915;
+  box-shadow:0 30px 90px rgba(30,10,5,.35);
+}
+.mp-terms-dialog[open]{
+  position:fixed;
+  inset:0;
+  margin:auto;
+}
+.mp-terms-dialog::backdrop{background:rgba(25,10,6,.68);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px)}
+.mp-terms-card{padding:28px;max-height:calc(100dvh - 32px);overflow-y:auto;overscroll-behavior:contain;box-sizing:border-box;scrollbar-gutter:stable}
+.mp-terms-icon{width:64px;height:64px;border-radius:20px;display:grid;place-items:center;margin-bottom:14px;background:linear-gradient(135deg,#fff0d8,#ffc48d);color:#d44a12;font-size:28px;font-weight:950}
 .mp-terms-heading span{font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#d95716}.mp-terms-heading h2{margin:4px 0 6px;font-size:clamp(1.55rem,4vw,2rem)}.mp-terms-heading p{margin:0;color:#75635b}
-.mp-terms-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:20px 0}.mp-terms-summary div{padding:14px;border-radius:16px;background:#fff6ee;border:1px solid #f3d7c4;text-align:center}.mp-terms-summary strong{display:block;font-size:1.2rem;color:#d64b10}.mp-terms-summary span{display:block;margin-top:4px;font-size:12px;color:#77655d}
+.mp-terms-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:20px 0}.mp-terms-summary div{min-width:0;padding:14px;border-radius:16px;background:#fff6ee;border:1px solid #f3d7c4;text-align:center}.mp-terms-summary strong{display:block;font-size:1.2rem;color:#d64b10}.mp-terms-summary span{display:block;margin-top:4px;font-size:12px;color:#77655d}
 .mp-terms-content{padding:18px;border-radius:18px;background:#fbf8f6;line-height:1.55}.mp-terms-content p{margin-top:0}.mp-terms-content ul{margin-bottom:0;padding-left:20px}.mp-terms-content li+li{margin-top:7px}
 .mp-terms-accept{display:flex;gap:12px;align-items:flex-start;margin-top:18px;padding:15px;border:2px solid #f1d6c4;border-radius:16px;background:#fff}.mp-terms-accept input{width:22px;height:22px;flex:0 0 auto;accent-color:#e85d19}.mp-terms-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}.mp-terms-actions .button{min-height:48px;border-radius:14px}
-@media(max-width:600px){.mp-terms-card{padding:20px 15px}.mp-terms-summary{grid-template-columns:1fr}.mp-terms-summary div{display:flex;align-items:center;justify-content:space-between;text-align:left}.mp-terms-summary span{margin:0}.mp-terms-actions{display:grid;grid-template-columns:1fr}.mp-terms-actions .button{width:100%}}
+@media(max-width:600px){
+  .mp-terms-dialog{width:calc(100vw - 20px);max-height:calc(100dvh - 20px);border-radius:20px}
+  .mp-terms-dialog[open]{inset:0;margin:auto}
+  .mp-terms-card{padding:18px 14px;max-height:calc(100dvh - 20px)}
+  .mp-terms-icon{width:52px;height:52px;border-radius:16px;margin-bottom:10px;font-size:24px}
+  .mp-terms-heading h2{font-size:1.45rem;line-height:1.15}
+  .mp-terms-heading p{font-size:.94rem}
+  .mp-terms-summary{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:14px 0}
+  .mp-terms-summary div{padding:10px 6px;border-radius:13px}
+  .mp-terms-summary strong{font-size:1rem}
+  .mp-terms-summary span{font-size:10px;line-height:1.2}
+  .mp-terms-content{padding:14px;font-size:.92rem;line-height:1.45}
+  .mp-terms-content ul{padding-left:18px}
+  .mp-terms-content li+li{margin-top:5px}
+  .mp-terms-accept{padding:12px;gap:10px;font-size:.92rem}
+  .mp-terms-actions{display:grid;grid-template-columns:1fr;margin-top:14px}
+  .mp-terms-actions .button{width:100%;min-height:46px}
+}
+@media(max-height:650px){
+  .mp-terms-dialog{max-height:calc(100dvh - 12px)}
+  .mp-terms-card{max-height:calc(100dvh - 12px);padding-top:14px;padding-bottom:14px}
+}
 </style>
           <dialog id="mercadoPagoTermsDialog" class="mp-terms-dialog" aria-labelledby="mpTermsTitle">
             <div class="mp-terms-card">
@@ -8215,24 +8250,6 @@ function criarCardPedido(
   artigo.dataset.orderStatus =
     pedido.status || 'novo';
 
-  const numeroPublicoPedido = String(
-    pedido.codigoPublico || pedido.numero || ''
-  ).trim().replace(/^#/, '').toUpperCase();
-
-  artigo.dataset.orderCode = numeroPublicoPedido;
-  artigo.dataset.orderLegacyCode = String(pedido.id || '').slice(-6).toUpperCase();
-  artigo.dataset.orderSearch = [
-    numeroPublicoPedido,
-    artigo.dataset.orderLegacyCode,
-    pedido.cliente,
-    pedido.telefone,
-    pedido.rua,
-    pedido.numeroEndereco,
-    pedido.bairro,
-    pedido.referencia,
-    pedido.endereco
-  ].filter(Boolean).join(' ').toLowerCase();
-
   artigo.innerHTML = `
     <div class="order-card-header">
       <div class="order-number">
@@ -9603,7 +9620,7 @@ if (podeReceberNotificacoes) {
 
   
 
-    // Pesquisa instantânea por código público, código legado, cliente, telefone e endereço.
+    // Pesquisa instantânea dos pedidos por número, cliente, telefone, e-mail ou endereço.
     const ordersTextSearch = document.querySelector("#ordersTextSearch");
     const ordersVisibleCount = document.querySelector("#ordersVisibleCount");
     const ordersSearchNoResults = document.querySelector("#ordersSearchNoResults");
@@ -9613,43 +9630,21 @@ if (podeReceberNotificacoes) {
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
         .toLowerCase()
-        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/[^a-z0-9@.]+/g, " ")
         .trim();
-    }
-
-    function normalizeOrderCode(value = "") {
-      return String(value)
-        .trim()
-        .replace(/^#/, "")
-        .replace(/[^a-z0-9]/gi, "")
-        .toUpperCase();
     }
 
     function filterOrdersByText() {
       if (!ordersTextSearch) return;
 
-      const rawQuery = ordersTextSearch.value || "";
-      const query = normalizeOrderSearch(rawQuery);
-      const codeQuery = normalizeOrderCode(rawQuery);
+      const query = normalizeOrderSearch(ordersTextSearch.value);
       const terms = query.split(/\s+/).filter(Boolean);
       const orderCards = [...document.querySelectorAll("#ordersGrid .order-card")];
       let visible = 0;
 
       orderCards.forEach(card => {
-        const publicCode = normalizeOrderCode(card.dataset.orderCode || "");
-        const legacyCode = normalizeOrderCode(card.dataset.orderLegacyCode || "");
-        const searchable = normalizeOrderSearch([
-          card.dataset.orderSearch || "",
-          publicCode,
-          legacyCode
-        ].join(" "));
-
-        const codeMatches = Boolean(codeQuery) && (
-          publicCode.includes(codeQuery) ||
-          legacyCode.includes(codeQuery)
-        );
-        const textMatches = terms.length === 0 || terms.every(term => searchable.includes(term));
-        const matches = !query && !codeQuery ? true : (codeMatches || textMatches);
+        const searchable = normalizeOrderSearch(card.dataset.orderSearch || "");
+        const matches = terms.every(term => searchable.includes(term));
 
         card.classList.toggle("order-filter-hidden", !matches);
         if (matches) visible += 1;
