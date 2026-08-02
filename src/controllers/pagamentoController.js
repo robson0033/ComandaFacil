@@ -90,6 +90,25 @@ const platformCollectorId = () => {
   if (!value) throw new Error("Conta principal da plataforma não configurada.");
   return value;
 };
+const idSuffix = value => {
+  const normalized = String(value || "").trim();
+  return normalized ? normalized.slice(-8) : null;
+};
+const sameMercadoPagoAccount = (left, right) => {
+  const a = String(left || "").trim();
+  const b = String(right || "").trim();
+  return Boolean(a && b && a === b);
+};
+function assertMarketplaceSellerAccount(sellerUserId) {
+  const platformUserId = String(process.env.MERCADO_PAGO_PLATFORM_USER_ID || "").trim();
+  if (!sameMercadoPagoAccount(sellerUserId, platformUserId)) return;
+  const error = new Error(
+    "A conta Mercado Pago da loja deve ser diferente da conta integradora do Comanda Fácil para usar a taxa de marketplace.",
+  );
+  error.code = "MP_MARKETPLACE_SELLER_SAME_AS_PLATFORM";
+  error.httpStatus = 409;
+  throw error;
+}
 const subscriptionReference = assinatura =>
   `assinatura:${assinatura._id}:estabelecimento:${assinatura.estabelecimentoId}`;
 const attemptReference = attempt =>
@@ -1321,6 +1340,9 @@ exports.callbackMercadoPago = async (req, res) => {
     if (!account?.id || String(account.id) !== String(token.user_id)) {
       throw new Error("Identidade da conta Mercado Pago não pôde ser confirmada.");
     }
+    if (getCurrentPlatformFeeConfig().enabled) {
+      assertMarketplaceSellerAccount(token.user_id);
+    }
 
     await Configuracao.findOneAndUpdate(
       { estabelecimentoId: estabelecimentoId(req) },
@@ -1534,7 +1556,19 @@ exports.gerarPixPedido = async (req, res) => {
 
     const { cfg: cfgPrivada, accessToken } = await configuracaoComToken(cfgPublica.estabelecimentoId);
     const platformFeeConfig = getCurrentPlatformFeeConfig();
+    const sellerUserId = String(cfgPrivada.mercadoPago.userId || "");
+    const platformUserId = String(process.env.MERCADO_PAGO_PLATFORM_USER_ID || "");
+    console.info("mercado_pago_order_token_diagnostic", {
+      operation: "create_order_pix",
+      tokenSource: "oauth_estabelecimento",
+      sellerUserIdSuffix: idSuffix(sellerUserId),
+      platformUserIdSuffix: idSuffix(platformUserId),
+      sellerMatchesPlatform: sameMercadoPagoAccount(sellerUserId, platformUserId),
+      platformFeeEnabled: platformFeeConfig.enabled,
+      accessTokenPresent: Boolean(accessToken),
+    });
     if (platformFeeConfig.enabled) {
+      assertMarketplaceSellerAccount(sellerUserId);
       await requirePlatformFeeAcceptance(cfgPublica.estabelecimentoId);
     }
     const feeSnapshot = buildPlatformFeeSnapshot(pedido.total);
