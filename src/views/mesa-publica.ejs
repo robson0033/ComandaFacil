@@ -1309,7 +1309,26 @@
       }
     }
 
-  </style>
+  
+    /* Cards compactos no cardápio de mesas */
+    @media (min-width: 701px) {
+      .products {
+        grid-template-columns: repeat(auto-fill, minmax(210px, 250px));
+        justify-content: start;
+        gap: 16px;
+      }
+      .product { border-radius: 18px; }
+      .product-image { height: 165px; font-size: 52px; }
+      .product-body { padding: 13px; }
+      .product h3 { font-size: 17px; margin-top: 5px; }
+      .product-description { min-height: 34px; font-size: 11px; line-height: 1.4; }
+      .rating-row { margin-top: 9px; font-size: 11px; }
+      .product-footer { margin-top: 11px; padding-top: 11px; gap: 8px; }
+      .price { font-size: 17px; }
+      .product-actions { min-width: 0; gap: 6px; }
+      .rate-button, .add-button { min-height: 36px; padding: 7px 9px; font-size: 11px; border-radius: 10px; }
+    }
+</style>
 </head>
 
 <body>

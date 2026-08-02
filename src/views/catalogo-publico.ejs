@@ -3035,6 +3035,30 @@
     .customer-order-item { grid-template-columns:auto minmax(0, 1fr); }
     .customer-order-item-price { grid-column:2; }
   }
+
+  #orderSuccessDialog, #ratingDialog {
+    width:min(520px, calc(100vw - 24px)); border:0; border-radius:24px; padding:0;
+    overflow:hidden; background:#fff; color:#241915; box-shadow:0 28px 80px rgba(40,18,8,.32);
+  }
+  #orderSuccessDialog::backdrop, #ratingDialog::backdrop { background:rgba(30,12,6,.68); backdrop-filter:blur(6px); }
+  .success-card, .rating-card { padding:28px; text-align:center; }
+  .success-icon, .rating-icon { width:68px; height:68px; margin:0 auto 14px; border-radius:22px; display:grid; place-items:center; font-size:32px; background:linear-gradient(135deg,#fff0df,#ffd0a7); }
+  .success-card h2, .rating-card h2 { margin:0; font-size:clamp(1.45rem,4vw,1.9rem); }
+  .success-card p, .rating-card p { color:#74645d; line-height:1.5; }
+  .success-code { display:inline-flex; margin:8px 0 4px; padding:12px 18px; border-radius:14px; background:#fff4eb; color:#b8420d; font-size:1.35rem; letter-spacing:1px; }
+  .success-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:20px; }
+  .success-actions button, .rating-actions button { min-height:48px; border:0; border-radius:14px; font-weight:900; cursor:pointer; }
+  .success-actions .primary, .rating-actions .primary { background:linear-gradient(135deg,#f4511e,#f57c00); color:#fff; }
+  .success-actions .secondary, .rating-actions .secondary { background:#f4ece7; color:#4a2b20; }
+  .success-actions .full { grid-column:1/-1; }
+  .rating-stars { display:flex; justify-content:center; gap:8px; margin:18px 0; }
+  .rating-star-button { width:48px; height:48px; border:0; border-radius:14px; background:#f5eee9; color:#c8b5aa; font-size:28px; cursor:pointer; transition:.18s ease; }
+  .rating-star-button.active { background:#fff0d4; color:#f59e0b; transform:translateY(-2px); }
+  .rating-product { font-weight:900; margin-top:6px; }
+  #ratingComment { width:100%; min-height:100px; resize:vertical; border:1px solid #decfc7; border-radius:14px; padding:13px; font:inherit; }
+  .rating-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:16px; }
+  @media(max-width:560px){ .success-card,.rating-card{padding:22px 16px}.success-actions,.rating-actions{grid-template-columns:1fr}.success-actions .full{grid-column:auto}.rating-star-button{width:44px;height:44px} }
+
 </style>
 
 <button type="button" id="openMyOrders">📦 Meus pedidos</button>
@@ -3086,16 +3110,37 @@
   </div>
 </dialog>
 
-<dialog id="orderSuccessDialog">
-  <div class="my-orders-shell">
-    <h2>Pedido realizado com sucesso!</h2>
-    <p>Número do pedido: <strong id="orderSuccessCode"></strong></p>
-    <p>Guarde este número para acompanhar seu pedido.</p>
+<dialog id="orderSuccessDialog" aria-labelledby="orderSuccessTitle">
+  <div class="success-card">
+    <div class="success-icon">✓</div>
+    <h2 id="orderSuccessTitle">Pedido realizado!</h2>
+    <p>Seu pedido foi enviado para o estabelecimento.</p>
+    <strong class="success-code" id="orderSuccessCode"></strong>
+    <p>Guarde este número para acompanhar o andamento.</p>
     <p id="orderSuccessWarning" hidden></p>
-    <div class="my-orders-form">
-      <button type="button" id="copyOrderCode">Copiar número</button>
-      <button type="button" id="trackCreatedOrder">Acompanhar pedido</button>
-      <button type="button" id="closeOrderSuccess">Fechar</button>
+    <div class="success-actions">
+      <button type="button" class="primary" id="copyOrderCode">Copiar número</button>
+      <button type="button" class="secondary" id="trackCreatedOrder">Acompanhar pedido</button>
+      <button type="button" class="secondary full" id="closeOrderSuccess">Fechar</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="ratingDialog" aria-labelledby="ratingTitle">
+  <div class="rating-card">
+    <div class="rating-icon">★</div>
+    <h2 id="ratingTitle">Como foi seu pedido?</h2>
+    <p>Avalie o produto depois que o pedido for entregue.</p>
+    <div class="rating-product" id="ratingProductName"></div>
+    <div class="rating-stars" role="radiogroup" aria-label="Nota de 1 a 5">
+      <% for (let star = 1; star <= 5; star += 1) { %>
+        <button type="button" class="rating-star-button" data-rating-star="<%= star %>" aria-label="<%= star %> estrela<%= star === 1 ? '' : 's' %>">★</button>
+      <% } %>
+    </div>
+    <textarea id="ratingComment" maxlength="500" placeholder="Conte como foi sua experiência (opcional)"></textarea>
+    <div class="rating-actions">
+      <button type="button" class="secondary" id="skipRating">Agora não</button>
+      <button type="button" class="primary" id="sendCatalogRating" disabled>Enviar avaliação</button>
     </div>
   </div>
 </dialog>
@@ -3133,6 +3178,64 @@
     box.textContent = String(mensagem || '');
     resultBox.replaceChildren(box);
   }
+
+  const ratingDialog = document.querySelector('#ratingDialog');
+  const ratingProductName = document.querySelector('#ratingProductName');
+  const ratingComment = document.querySelector('#ratingComment');
+  const sendCatalogRating = document.querySelector('#sendCatalogRating');
+  let ratingContext = null;
+  let ratingValue = 0;
+
+  function selectRating(value) {
+    ratingValue = Number(value || 0);
+    document.querySelectorAll('[data-rating-star]').forEach(button => {
+      button.classList.toggle('active', Number(button.dataset.ratingStar) <= ratingValue);
+      button.setAttribute('aria-checked', String(Number(button.dataset.ratingStar) === ratingValue));
+    });
+    sendCatalogRating.disabled = ratingValue < 1;
+  }
+
+  function openRatingModal(context) {
+    if (!context?.produtoId || !context?.codigoPublico) return;
+    ratingContext = context;
+    ratingProductName.textContent = context.nome || 'Produto';
+    ratingComment.value = '';
+    selectRating(0);
+    if (!ratingDialog.open) ratingDialog.showModal();
+  }
+
+  document.querySelectorAll('[data-rating-star]').forEach(button => {
+    button.addEventListener('click', () => selectRating(button.dataset.ratingStar));
+  });
+  document.querySelector('#skipRating').addEventListener('click', () => ratingDialog.close());
+  ratingDialog.addEventListener('click', event => { if (event.target === ratingDialog) ratingDialog.close(); });
+  sendCatalogRating.addEventListener('click', async () => {
+    if (!ratingContext || ratingValue < 1) return;
+    sendCatalogRating.disabled = true;
+    sendCatalogRating.textContent = 'Enviando...';
+    try {
+      const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/pedido/avaliacao`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          codigoPublico: ratingContext.codigoPublico,
+          produtoId: ratingContext.produtoId,
+          nota: ratingValue,
+          comentario: ratingComment.value
+        })
+      });
+      const data = await parseJsonSafe(response);
+      if (!response.ok) throw new Error(data.message || 'Não foi possível salvar a avaliação.');
+      ratingDialog.close();
+      const target = document.querySelector(`[data-rate-product][data-order-code="${CSS.escape(ratingContext.codigoPublico)}"][data-product-id="${CSS.escape(ratingContext.produtoId)}"]`);
+      if (target) { target.textContent = 'Avaliado'; target.disabled = true; }
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      sendCatalogRating.textContent = 'Enviar avaliação';
+      sendCatalogRating.disabled = ratingValue < 1;
+    }
+  });
 
   function renderOrders(orders) {
     tokensDosPedidos.clear();
@@ -3187,14 +3290,15 @@
         name.textContent = String(item.nome || 'Item');
         nameBox.appendChild(name);
         itemRow.append(quantity, nameBox);
-        if (order.pagamentoStatus === 'pago' && item.produtoId) {
+        if (order.podeAvaliar && item.produtoId) {
           const button = document.createElement('button');
           button.type = 'button';
           button.className = 'finish-pix-button';
           button.dataset.rateProduct = '';
           button.dataset.orderCode = String(order.codigoPublico || '');
           button.dataset.productId = String(item.produtoId);
-          button.textContent = 'Avaliar';
+          button.textContent = item.avaliado ? 'Avaliado' : 'Avaliar';
+          button.disabled = Boolean(item.avaliado);
           itemRow.appendChild(button);
         }
         itemsBox.appendChild(itemRow);
@@ -3202,6 +3306,15 @@
       return card;
     });
     resultBox.replaceChildren(...cards);
+    const primeiro = orders.flatMap(order => (order.itens || []).map(item => ({ order, item })))
+      .find(entry => entry.order.podeAvaliar && entry.item.produtoId && !entry.item.avaliado);
+    if (primeiro) {
+      setTimeout(() => openRatingModal({
+        codigoPublico: primeiro.order.codigoPublico,
+        produtoId: primeiro.item.produtoId,
+        nome: primeiro.item.nome
+      }), 350);
+    }
   }
 
   document.querySelector('#openMyOrders').onclick = async () => {
@@ -3295,48 +3408,16 @@
     successDialog.close(); dialog.showModal(); lookupSuffix.value = ultimoCodigoPublico.slice(-4); lookupPhone.focus();
   });
   document.querySelector('#closeOrderSuccess').addEventListener('click', () => successDialog.close());
-  resultBox.addEventListener('click', async event => {
+  resultBox.addEventListener('click', event => {
     const button = event.target.closest('[data-rate-product]');
-    if (!button) return;
-    const nota = Number(prompt('Nota de 1 a 5:'));
-    if (!Number.isInteger(nota) || nota < 1 || nota > 5) {
-      alert('Nota inválida.');
-      return;
-    }
-    const comentario = prompt('Comentário (opcional):') || '';
-    const token = tokensDosPedidos.get(button.dataset.orderCode);
-    if (!token) {
-      alert('Não foi possível validar este pedido.');
-      return;
-    }
-    button.disabled = true;
-    try {
-      const response = await fetch(
-        `/catalogo/${encodeURIComponent(slug)}/pedido/avaliacao`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            produtoId: button.dataset.productId,
-            nota,
-            comentario
-          })
-        }
-      );
-      const data = await response.json();
-      if (!response.ok) throw new Error(
-        data.message || 'Não foi possível salvar a avaliação.'
-      );
-      alert(data.message);
-    } catch (error) {
-      alert(error.message);
-    } finally {
-      button.disabled = false;
-    }
+    if (!button || button.disabled) return;
+    openRatingModal({
+      codigoPublico: button.dataset.orderCode,
+      produtoId: button.dataset.productId,
+      nome: button.closest('.customer-order-item')?.querySelector('strong')?.textContent || 'Produto'
+    });
   });
+
 })();
 </script>
 </body>

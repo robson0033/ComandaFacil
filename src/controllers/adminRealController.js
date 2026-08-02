@@ -4877,8 +4877,8 @@ exports.obterPedidoParaImpressao = async (
       pedido: {
         id: String(pedido._id),
         numero:
-          String(pedido._id)
-            .slice(-6)
+          String(pedido.codigoPublico || pedido._id)
+            .slice(pedido.codigoPublico ? 0 : -6)
             .toUpperCase(),
         origem,
         canal:
@@ -5046,7 +5046,7 @@ exports.atualizarStatusPedido =
             usuarioId: req.session.user.id,
             usuarioTipo: req.session.user.tipo,
             dadosResumidos: {
-              codigoPedido: String(pedido._id).slice(-6).toUpperCase(),
+              codigoPedido: String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase(),
               resultado: resultadoEstoque.status,
               estoqueRestaurado: true,
             },
@@ -5077,7 +5077,7 @@ exports.atualizarStatusPedido =
         usuarioId: req.session.user.id,
         usuarioTipo: req.session.user.tipo,
         dadosResumidos: {
-          codigoPedido: String(pedido._id).slice(-6).toUpperCase(),
+          codigoPedido: String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase(),
           statusNovo: status,
           pagamentoStatus: pedido.pagamentoStatus,
           motivo: String(req.body.motivo || "").trim().slice(0, 500),
@@ -5196,7 +5196,7 @@ exports.confirmarPagamentoPedido =
         usuarioId: req.session.user.id,
         usuarioTipo: req.session.user.tipo,
         dadosResumidos: {
-          codigoPedido: String(pedido._id).slice(-6).toUpperCase(),
+          codigoPedido: String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase(),
           pagamentoStatus: "pago",
           formaPagamento: pedido.formaPagamento,
         },
@@ -5363,8 +5363,8 @@ exports.arquivarPedido = async (req, res) => {
           id: String(pedido._id),
 
           numero:
-            String(pedido._id)
-              .slice(-6)
+            String(pedido.codigoPublico || pedido._id)
+              .slice(pedido.codigoPublico ? 0 : -6)
               .toUpperCase(),
 
           cliente:
@@ -5910,8 +5910,8 @@ const criarPedidoCatalogoAnterior = async (
         pedido._id,
 
       numeroPedido:
-        String(pedido._id)
-          .slice(-6)
+        String(pedido.codigoPublico || pedido._id)
+          .slice(pedido.codigoPublico ? 0 : -6)
           .toUpperCase(),
       acompanhamentoToken:
         pedido.acompanhamentoToken,
@@ -6314,8 +6314,8 @@ exports.criarPedidoMesa = async (
         "Pedido enviado com sucesso.",
       pedidoId: pedido._id,
       numeroPedido:
-        String(pedido._id)
-          .slice(-6)
+        String(pedido.codigoPublico || pedido._id)
+          .slice(pedido.codigoPublico ? 0 : -6)
           .toUpperCase(),
       acompanhamentoToken:
         pedido.acompanhamentoToken,
@@ -7206,6 +7206,25 @@ function normalizarTelefonePublico(value = "") {
   return String(value).replace(/\D/g, "").slice(-11);
 }
 
+function hashAuditoriaAvaliacao(value = "") {
+  const salt = String(process.env.AVALIACAO_AUDIT_SALT || process.env.SESSION_SECRET || "comanda-facil");
+  return crypto.createHash("sha256").update(`${salt}:${String(value || "")}`).digest("hex");
+}
+
+function autorizacaoAvaliacaoSessao(req, pedido) {
+  const agora = Date.now();
+  const atual = req.session?.avaliacaoPedidos || {};
+  const limpo = Object.fromEntries(
+    Object.entries(atual).filter(([, item]) => Number(item?.expiraEm || 0) > agora)
+  );
+  limpo[String(pedido.codigoPublico || "")] = {
+    pedidoId: String(pedido._id),
+    estabelecimentoId: String(pedido.estabelecimentoId),
+    expiraEm: agora + 30 * 60 * 1000,
+  };
+  req.session.avaliacaoPedidos = limpo;
+}
+
 function mascararEnderecoPublico(value = "") {
   const texto = String(value || "").trim();
   if (!texto) return "";
@@ -7217,16 +7236,22 @@ function mascararEnderecoPublico(value = "") {
   return `${palavras.join(" ")}${numero ? ", nº ***" : ""}`.slice(0, 180);
 }
 
-function serializarConsultaPublica(pedido) {
+function serializarConsultaPublica(pedido, avaliados = new Set()) {
+  const statusNormalizado = String(pedido.status || "");
+  const podeAvaliar = pedido.pagamentoStatus === "pago"
+    && ["entregue", "finalizado"].includes(statusNormalizado);
   return {
     codigoPublico: String(pedido.codigoPublico || ""),
+    podeAvaliar,
     data: pedido.createdAt,
     status: pedido.status,
     pagamentoStatus: pedido.pagamentoStatus,
     formaEntrega: pedido.canal,
     itens: (pedido.itens || []).slice(0, 100).map(item => ({
+      produtoId: item.produtoId ? String(item.produtoId) : "",
       nome: String(item.nome || "Item").slice(0, 160),
       quantidade: Math.max(1, Number(item.quantidade) || 1),
+      avaliado: item.produtoId ? avaliados.has(String(item.produtoId)) : false,
     })),
     total: Number(pedido.total || 0),
     previsao: pedido.previsaoEntrega || null,
@@ -7270,7 +7295,7 @@ exports.consultarPedidoPublico = async (req, res) => {
         : { codigoPublicoFinal: codigoRecebido }),
     };
     const pedidos = await Pedido.find(filtro)
-      .select("codigoPublico createdAt status pagamentoStatus canal itens.nome itens.quantidade total previsaoEntrega enderecoEntrega")
+      .select("codigoPublico createdAt status pagamentoStatus canal itens.produtoId itens.nome itens.quantidade total previsaoEntrega enderecoEntrega estabelecimentoId")
       .sort({ createdAt: -1 }).limit(2).lean();
     if (!pedidos.length) return generic();
     if (!completo && pedidos.length > 1) {
@@ -7280,7 +7305,18 @@ exports.consultarPedidoPublico = async (req, res) => {
         message: "Encontramos mais de um pedido. Informe o número completo do pedido.",
       });
     }
-    return res.json({ ok: true, pedido: serializarConsultaPublica(pedidos[0]) });
+    const pedidoEncontrado = pedidos[0];
+    const avaliacoes = await Avaliacao.find({
+      estabelecimentoId: configuracao.estabelecimentoId,
+      pedidoId: pedidoEncontrado._id,
+    }).select("produtoId").lean();
+    const avaliados = new Set(avaliacoes.map(item => String(item.produtoId)));
+    autorizacaoAvaliacaoSessao(req, pedidoEncontrado);
+    await new Promise(resolve => req.session.save(() => resolve()));
+    return res.json({
+      ok: true,
+      pedido: serializarConsultaPublica(pedidoEncontrado, avaliados),
+    });
   } catch (error) {
     console.warn("order_public_lookup_failed", {
       correlationId: req.correlationId,
@@ -7412,12 +7448,7 @@ exports.encerrarConsultaPedidos = async (req, res) => {
 exports.acompanharPedidoCatalogo = async (req, res) => {
   try {
     const token = extrairBearerToken(req);
-    if (!token) {
-      return res.status(404).json({
-        success: false,
-        message: "Pedido não encontrado.",
-      });
-    }
+    const codigoSessao = String(req.body?.codigoPublico || "").trim().toUpperCase();
     const configuracao = await Configuracao.findOne({
       slug: req.params.slug,
     }).select("estabelecimentoId").lean();
@@ -7453,12 +7484,7 @@ exports.acompanharPedidoCatalogo = async (req, res) => {
 exports.avaliarProdutoCatalogo = async (req, res) => {
   try {
     const token = extrairBearerToken(req);
-    if (!token) {
-      return res.status(404).json({
-        success: false,
-        message: "Pedido não encontrado.",
-      });
-    }
+    const codigoSessao = String(req.body?.codigoPublico || "").trim().toUpperCase();
     const configuracao = await Configuracao.findOne({
       slug: req.params.slug,
     }).select("estabelecimentoId").lean();
@@ -7468,21 +7494,37 @@ exports.avaliarProdutoCatalogo = async (req, res) => {
         message: "Pedido não encontrado.",
       });
     }
-    const pedido = await buscarPedidoPorToken({
-      estabelecimentoId: configuracao.estabelecimentoId,
-      token,
-      lean: false,
-    });
+    let pedido = null;
+    if (token) {
+      pedido = await buscarPedidoPorToken({
+        estabelecimentoId: configuracao.estabelecimentoId,
+        token,
+        lean: false,
+      });
+    } else {
+      const permissao = req.session?.avaliacaoPedidos?.[codigoSessao];
+      if (permissao
+        && Number(permissao.expiraEm || 0) > Date.now()
+        && String(permissao.estabelecimentoId) === String(configuracao.estabelecimentoId)) {
+        pedido = await Pedido.findOne({
+          _id: permissao.pedidoId,
+          estabelecimentoId: configuracao.estabelecimentoId,
+          codigoPublico: codigoSessao,
+          excluido: { $ne: true },
+        });
+      }
+    }
     if (!pedido) {
       return res.status(404).json({
         success: false,
         message: "Pedido não encontrado.",
       });
     }
-    if (pedido.pagamentoStatus !== "pago") {
+    if (pedido.pagamentoStatus !== "pago"
+      || !["entregue", "finalizado"].includes(String(pedido.status || ""))) {
       return res.status(403).json({
         success: false,
-        message: "A avaliação é liberada após a confirmação do pagamento.",
+        message: "A avaliação é liberada quando o pedido estiver pago e entregue.",
       });
     }
 
@@ -7528,6 +7570,8 @@ exports.avaliarProdutoCatalogo = async (req, res) => {
         cliente: pedido.cliente || "Cliente",
         nota,
         comentario,
+        ipHash: hashAuditoriaAvaliacao(req.ip),
+        dispositivoHash: hashAuditoriaAvaliacao(req.get("user-agent")),
       },
     };
     try {

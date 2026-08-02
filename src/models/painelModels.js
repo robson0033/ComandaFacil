@@ -935,6 +935,20 @@ const Avaliacao = mongoose.model(
         trim: true,
         maxlength: 500,
       },
+
+      ipHash: {
+        type: String,
+        default: "",
+        trim: true,
+        select: false,
+      },
+
+      dispositivoHash: {
+        type: String,
+        default: "",
+        trim: true,
+        select: false,
+      },
     },
     opts,
   ),

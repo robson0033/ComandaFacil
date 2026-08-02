@@ -3680,7 +3680,7 @@
             ? `55${telefoneWhatsapp}`
             : telefoneWhatsapp;
           const mensagemWhatsapp = encodeURIComponent(
-            `Olá, ${pedido.cliente || 'cliente'}! Estou entrando em contato sobre o pedido #${String(pedido._id).slice(-6).toUpperCase()} feito no ${(configuracao && configuracao.nomeEstabelecimento) || 'estabelecimento'}.`
+            `Olá, ${pedido.cliente || 'cliente'}! Estou entrando em contato sobre o pedido #${String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase()} feito no ${(configuracao && configuracao.nomeEstabelecimento) || 'estabelecimento'}.`
           );
           const nomesPagamento = {
             pix: 'Pix online',
@@ -3705,7 +3705,7 @@
           %>"
           data-order-status="<%= pedido.status || 'novo' %>"
           data-order-search="<%= [
-            String(pedido._id).slice(-6).toUpperCase(),
+            String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase(),
             pedido.cliente,
             pedido.telefoneCliente,
             pedido.ruaEntrega,
@@ -3723,7 +3723,7 @@
 
               <div>
                 <h3>
-                  Pedido #<%= String(pedido._id).slice(-6).toUpperCase() %>
+                  Pedido #<%= String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase() %>
                 </h3>
 
                 <p>
@@ -4046,7 +4046,7 @@
                 <tbody>
                   <% pedidosArquivados.forEach(pedido => { %>
                     <tr>
-                      <td>#<%= String(pedido._id).slice(-6).toUpperCase() %></td>
+                      <td>#<%= String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase() %></td>
                       <td><%= formatarDataPlano(pedido.createdAt) %></td>
                       <td><%= pedido.status || '-' %></td>
                       <td><%= pedido.motivoExclusao || '-' %></td>
@@ -5398,23 +5398,44 @@
               </form>
             <% } %>
           </section>
-          <dialog id="mercadoPagoTermsDialog" style="max-width:680px;width:calc(100% - 32px);border:0;border-radius:18px;padding:0">
-            <div style="padding:24px">
-              <h2>Termos dos pagamentos online</h2>
-              <p>Ao conectar sua conta Mercado Pago, você autoriza o Comanda Fácil a processar os pagamentos online dos pedidos da sua loja.</p>
-              <p>Em cada pagamento Pix online aprovado:</p>
-              <ul>
-                <li>o Comanda Fácil cobrará uma taxa de serviço de 1,5% sobre o valor total do pedido;</li>
-                <li>o Mercado Pago poderá descontar suas próprias tarifas;</li>
-                <li>o cliente pagará apenas o valor normal do pedido;</li>
-                <li>o valor restante será creditado na sua conta Mercado Pago.</li>
-              </ul>
-              <p>Exemplo: em R$ 30,00, a taxa será R$ 0,45, além das eventuais tarifas do Mercado Pago.</p>
-              <label style="display:flex;gap:10px;align-items:flex-start">
+
+<style>
+.mp-terms-dialog{width:min(680px,calc(100vw - 24px));border:0;border-radius:26px;padding:0;overflow:hidden;background:#fff;color:#241915;box-shadow:0 30px 90px rgba(30,10,5,.35)}
+.mp-terms-dialog::backdrop{background:rgba(25,10,6,.68);backdrop-filter:blur(7px)}
+.mp-terms-card{padding:28px}.mp-terms-icon{width:64px;height:64px;border-radius:20px;display:grid;place-items:center;margin-bottom:14px;background:linear-gradient(135deg,#fff0d8,#ffc48d);color:#d44a12;font-size:28px;font-weight:950}
+.mp-terms-heading span{font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.12em;color:#d95716}.mp-terms-heading h2{margin:4px 0 6px;font-size:clamp(1.55rem,4vw,2rem)}.mp-terms-heading p{margin:0;color:#75635b}
+.mp-terms-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:20px 0}.mp-terms-summary div{padding:14px;border-radius:16px;background:#fff6ee;border:1px solid #f3d7c4;text-align:center}.mp-terms-summary strong{display:block;font-size:1.2rem;color:#d64b10}.mp-terms-summary span{display:block;margin-top:4px;font-size:12px;color:#77655d}
+.mp-terms-content{padding:18px;border-radius:18px;background:#fbf8f6;line-height:1.55}.mp-terms-content p{margin-top:0}.mp-terms-content ul{margin-bottom:0;padding-left:20px}.mp-terms-content li+li{margin-top:7px}
+.mp-terms-accept{display:flex;gap:12px;align-items:flex-start;margin-top:18px;padding:15px;border:2px solid #f1d6c4;border-radius:16px;background:#fff}.mp-terms-accept input{width:22px;height:22px;flex:0 0 auto;accent-color:#e85d19}.mp-terms-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}.mp-terms-actions .button{min-height:48px;border-radius:14px}
+@media(max-width:600px){.mp-terms-card{padding:20px 15px}.mp-terms-summary{grid-template-columns:1fr}.mp-terms-summary div{display:flex;align-items:center;justify-content:space-between;text-align:left}.mp-terms-summary span{margin:0}.mp-terms-actions{display:grid;grid-template-columns:1fr}.mp-terms-actions .button{width:100%}}
+</style>
+          <dialog id="mercadoPagoTermsDialog" class="mp-terms-dialog" aria-labelledby="mpTermsTitle">
+            <div class="mp-terms-card">
+              <div class="mp-terms-icon">%</div>
+              <div class="mp-terms-heading">
+                <span>Mercado Pago</span>
+                <h2 id="mpTermsTitle">Termos dos pagamentos online</h2>
+                <p>Leia com atenção antes de conectar sua conta.</p>
+              </div>
+              <div class="mp-terms-summary">
+                <div><strong>1,5%</strong><span>Taxa Comanda Fácil</span></div>
+                <div><strong>R$ 30,00</strong><span>Pedido de exemplo</span></div>
+                <div><strong>R$ 0,45</strong><span>Taxa no exemplo</span></div>
+              </div>
+              <div class="mp-terms-content">
+                <p>Ao conectar sua conta Mercado Pago, você autoriza o Comanda Fácil a processar os pagamentos online dos pedidos da sua loja.</p>
+                <ul>
+                  <li>o Comanda Fácil cobrará 1,5% sobre cada Pix online aprovado;</li>
+                  <li>o Mercado Pago poderá descontar suas próprias tarifas;</li>
+                  <li>o cliente continuará pagando somente o valor normal do pedido;</li>
+                  <li>o restante será creditado na conta Mercado Pago da loja.</li>
+                </ul>
+              </div>
+              <label class="mp-terms-accept">
                 <input type="checkbox" id="platformFeeTermsCheckbox">
-                <span>Li, compreendi e aceito os termos e a taxa de serviço de 1,5% do Comanda Fácil.</span>
+                <span><strong>Li e compreendi.</strong> Aceito os termos e a taxa de serviço de 1,5% do Comanda Fácil.</span>
               </label>
-              <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px;flex-wrap:wrap">
+              <div class="mp-terms-actions">
                 <button type="button" class="button secondary" id="cancelPlatformFeeTerms">Cancelar</button>
                 <button type="button" class="button" id="confirmPlatformFeeTerms" disabled>Continuar e conectar</button>
               </div>

@@ -128,7 +128,7 @@ async function registrarArquivamento({ pedido, usuario, session }) {
     usuarioId: pedido.excluidoPor || usuario.id,
     usuarioTipo: pedido.excluidoPorTipo || usuario.tipo,
     dadosResumidos: {
-      codigoPedido: String(pedido._id).slice(-6).toUpperCase(),
+      codigoPedido: String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase(),
       statusAnterior: pedido.status,
       statusNovo: "arquivado",
       pagamentoStatus: pedido.pagamentoStatus,
@@ -149,7 +149,7 @@ async function registrarBloqueio({ pedido, usuario, error, session }) {
     usuarioId: usuario.id,
     usuarioTipo: usuario.tipo,
     dadosResumidos: {
-      codigoPedido: String(pedido._id).slice(-6).toUpperCase(),
+      codigoPedido: String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase(),
       pagamentoStatus: pedido.pagamentoStatus,
       erroCodigo: error.code,
       motivo: error.message,

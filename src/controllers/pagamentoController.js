@@ -1587,7 +1587,7 @@ exports.gerarPixPedido = async (req, res) => {
         ...(platformFeeConfig.enabled && Number(attempt.platformFeeCents || 0) > 0
           ? { application_fee: centsToDecimal(attempt.platformFeeCents) }
           : {}),
-        description: `Pedido ${String(pedido._id).slice(-6).toUpperCase()} - ${cfgPublica.nomeEstabelecimento}`,
+        description: `Pedido ${String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase()} - ${cfgPublica.nomeEstabelecimento}`,
         payment_method_id: "pix",
         external_reference: attempt.externalReference,
         notification_url: `${baseUrl(req)}/webhook/mercado-pago`,
