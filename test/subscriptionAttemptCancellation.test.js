@@ -283,10 +283,22 @@ test("status nulo ou desconhecido exige reconciliação com GET 200 registrado",
   for (const status of [null, "future_status"]) {
     const stored = attempt({ mercadoPagoPreapprovalId: "pre-secret-12345678" });
     const previous = process.env.MERCADO_PAGO_PLATFORM_USER_ID;
-    const originalInfo = console.info;
-    const logs = [];
+    const originalStdoutWrite = process.stdout.write;
+    const originalStderrWrite = process.stderr.write;
+    let capturedOutput = "";
+
+    const captureWrite = (original, stream) => function (...args) {
+      const [chunk, encoding] = args;
+      capturedOutput += Buffer.isBuffer(chunk)
+        ? chunk.toString(typeof encoding === "string" ? encoding : "utf8")
+        : String(chunk);
+      return original.apply(stream, args);
+    };
+
     process.env.MERCADO_PAGO_PLATFORM_USER_ID = "platform-1";
-    console.info = (name, data) => logs.push({ name, data });
+    process.stdout.write = captureWrite(originalStdoutWrite, process.stdout);
+    process.stderr.write = captureWrite(originalStderrWrite, process.stderr);
+
     try {
       await assert.rejects(pagamento._testing.cancelarPreapprovalRemoto(stored, "cancel-key", async () => ({
         id: "pre-secret-12345678",
@@ -305,22 +317,32 @@ test("status nulo ou desconhecido exige reconciliação com GET 200 registrado",
         assert.equal(error.classificationReason, "remote_status_not_supported");
         return true;
       });
-      assert.equal(logs.length, 1);
-      assert.equal(logs[0].name, "mercado_pago_preapproval_inspection");
-      assert.equal(logs[0].data.preapprovalIdSuffix, "12345678");
-      assert.equal(logs[0].data.remoteStatus, status || null);
-      assert.equal(logs[0].data.payerIdPresent, true);
-      assert.equal(logs[0].data.payerEmailPresent, true);
-      const serialized = JSON.stringify(logs[0]);
-      assert.equal(serialized.includes("pre-secret-12345678"), false);
-      assert.equal(serialized.includes("payer-secret"), false);
-      assert.equal(serialized.includes("pessoa@example.com"), false);
-      assert.equal(serialized.includes("https://example.invalid/secret"), false);
     } finally {
-      console.info = originalInfo;
+      process.stdout.write = originalStdoutWrite;
+      process.stderr.write = originalStderrWrite;
       if (previous === undefined) delete process.env.MERCADO_PAGO_PLATFORM_USER_ID;
       else process.env.MERCADO_PAGO_PLATFORM_USER_ID = previous;
     }
+
+    const logs = capturedOutput
+      .split(/\r?\n/)
+      .map(line => {
+        try { return JSON.parse(line); } catch { return null; }
+      })
+      .filter(entry => entry?.event === "mercado_pago_preapproval_inspection");
+
+    assert.equal(logs.length, 1);
+    const details = Array.isArray(logs[0].details) ? logs[0].details[0] : logs[0].details;
+    assert.equal(details.preapprovalIdSuffix, "12345678");
+    assert.equal(details.remoteStatus, status || null);
+    assert.equal(details.payerIdPresent, true);
+    assert.equal(details.payerEmailPresent, true);
+
+    const serialized = JSON.stringify(logs[0]);
+    assert.equal(serialized.includes("pre-secret-12345678"), false);
+    assert.equal(serialized.includes("payer-secret"), false);
+    assert.equal(serialized.includes("pessoa@example.com"), false);
+    assert.equal(serialized.includes("https://example.invalid/secret"), false);
   }
 });
 

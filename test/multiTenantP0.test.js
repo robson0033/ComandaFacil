@@ -75,8 +75,8 @@ test("cadastro de proprietário normaliza e bloqueia e-mail de funcionário", as
     email: "  MESMO@EXEMPLO.COM ",
     telefone: "71999999999",
     cpfCnpj: "52998224725",
-    senha: "123456",
-    confirmarSenha: "123456",
+    senha: "ComandaFacil#2026Segura",
+    confirmarSenha: "ComandaFacil#2026Segura",
     aceitarTermos: "on",
   });
   try {

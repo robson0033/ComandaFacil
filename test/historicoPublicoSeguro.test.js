@@ -341,6 +341,7 @@ test("avaliação pública exige token, compra paga e produto do pedido/loja", a
     _id: "507f1f77bcf86cd799439033",
     cliente: "Cliente",
     pagamentoStatus: "pago",
+    status: "finalizado",
     itens: [{ produtoId }],
   });
   Produto.exists = async filtro =>
@@ -360,6 +361,13 @@ test("avaliação pública exige token, compra paga e produto do pedido/loja", a
     params: { slug: "loja" },
     body: { produtoId, nota: 5, comentario: " Ótimo ", telefone: "9999" },
     headers: { authorization: `Bearer ${TOKEN_TESTE}` },
+    ip: "192.0.2.10",
+    get(nome) {
+      const header = String(nome || "").toLowerCase();
+      if (header === "authorization") return this.headers.authorization;
+      if (header === "user-agent") return "node-test";
+      return undefined;
+    },
   };
   const primeira = responseMock();
   await admin.avaliarProdutoCatalogo(req, primeira);
@@ -407,6 +415,7 @@ test("avaliação rejeita produto não comprado, pedido não pago e outra loja",
 
   Pedido.findOne = () => queryDocumento({
     pagamentoStatus: "pago",
+    status: "finalizado",
     itens: [{ produtoId: "507f1f77bcf86cd799439099" }],
   });
   const naoComprado = responseMock();
@@ -415,6 +424,7 @@ test("avaliação rejeita produto não comprado, pedido não pago e outra loja",
 
   Pedido.findOne = () => queryDocumento({
     pagamentoStatus: "pendente",
+    status: "finalizado",
     itens: [{ produtoId }],
   });
   const naoPago = responseMock();
@@ -423,6 +433,7 @@ test("avaliação rejeita produto não comprado, pedido não pago e outra loja",
 
   Pedido.findOne = () => queryDocumento({
     pagamentoStatus: "pago",
+    status: "finalizado",
     itens: [{ produtoId }],
   });
   const outraLoja = responseMock();

@@ -172,10 +172,10 @@ test("webhook: extrai IDs de body, query e aliases topic/id", () => {
     { body: {}, query: { topic: "preapproval", id: "pre-query" } },
   ];
   assert.deepEqual(fixtures.map(value => pagamento._testing.extractMercadoPagoWebhookEvent(value)), [
-    { resourceId: "pay-body", eventType: "payment", eventAction: "payment", resourceType: "payment", action: "payment" },
-    { resourceId: "pay-query", eventType: "payment", eventAction: "payment", resourceType: "payment", action: "payment" },
-    { resourceId: "pay-flat", eventType: "payment", eventAction: "payment", resourceType: "payment", action: "payment" },
-    { resourceId: "pre-query", eventType: "subscription_preapproval", eventAction: "subscription_preapproval", resourceType: "subscription_preapproval", action: "subscription_preapproval" },
+    { resourceId: "pay-body", signatureResourceId: "", eventType: "payment", eventAction: "payment", resourceType: "payment", action: "payment" },
+    { resourceId: "pay-query", signatureResourceId: "pay-query", eventType: "payment", eventAction: "payment", resourceType: "payment", action: "payment" },
+    { resourceId: "pay-flat", signatureResourceId: "", eventType: "payment", eventAction: "payment", resourceType: "payment", action: "payment" },
+    { resourceId: "pre-query", signatureResourceId: "", eventType: "subscription_preapproval", eventAction: "subscription_preapproval", resourceType: "subscription_preapproval", action: "subscription_preapproval" },
   ]);
 });
 

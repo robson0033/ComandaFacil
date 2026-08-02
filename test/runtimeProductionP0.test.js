@@ -310,7 +310,7 @@ test("login regenera, logout destrói e limpa o mesmo cookie", () => {
 test(".nvmrc e engines permanecem alinhados com Node 24.18 e npm 11/12", () => {
   const nvm = fs.readFileSync(path.resolve(__dirname, "../.nvmrc"), "utf8").trim();
   const pkg = require("../package.json");
-  assert.match(nvm, /^20\.19\.\d+$/);
+  assert.match(nvm, /^24\.18\.\d+$/);
   assert.equal(pkg.engines.node, ">=24.18.1 <25");
   assert.equal(pkg.engines.npm, ">=11 <13");
 });

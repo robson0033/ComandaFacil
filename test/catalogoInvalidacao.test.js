@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const test = require("node:test");
 const admin = require("../src/controllers/adminRealController");
 const models = require("../src/models/painelModels");
@@ -29,6 +30,7 @@ function requisicao(itens) {
   return {
     params: { slug: "loja-teste" },
     body: {
+      idempotencyKey: crypto.randomUUID(),
       cliente: "Cliente",
       telefone: "71999999999",
       canal: "retirada",

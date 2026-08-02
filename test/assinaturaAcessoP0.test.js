@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const test = require("node:test");
 const admin = require("../src/controllers/adminRealController");
@@ -194,7 +195,22 @@ test("pedido público bloqueado retorna 403 sem Pedido, PrintJob ou estoque", as
   const response = res();
   try {
     await admin.criarPedidoCatalogo(
-      { params: { slug: "loja" }, body: {} },
+      {
+        params: { slug: "loja" },
+        body: {
+          idempotencyKey: crypto.randomUUID(),
+          cliente: "Cliente",
+          telefone: "71999999999",
+          canal: "retirada",
+          formaPagamento: "cartao",
+          itens: [{
+            produtoId: PEDIDO,
+            preco: 10,
+            quantidade: 1,
+            adicionais: [],
+          }],
+        },
+      },
       response,
     );
     assert.equal(response.statusCode, 403);
