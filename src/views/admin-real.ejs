@@ -9494,7 +9494,7 @@ if (podeReceberNotificacoes) {
       row.innerHTML = `
         <select name="fichaEstoqueId[]" class="technical-stock" required>
           <option value="">Selecione o ingrediente</option>
-          ${opcoesEstoqueHtml}
+          ${opcoesEstoqueHtml()}
         </select>
         <input type="number" name="fichaQuantidade[]" class="technical-quantity" min="0.0001" step="0.0001" placeholder="Quantidade" required>
         <select name="fichaUnidade[]" class="technical-unit" required>
