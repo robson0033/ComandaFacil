@@ -10,7 +10,9 @@ function buildContentSecurityPolicy({ nonce, production = false }) {
   const directives = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}'`,
-    "style-src 'self' 'unsafe-inline'",
+    `style-src 'self' 'nonce-${nonce}'`,
+    `style-src-elem 'self' 'nonce-${nonce}'`,
+    "style-src-attr 'unsafe-inline'",
     "img-src 'self' data: https: blob:",
     "connect-src 'self'",
     "font-src 'self' data:",

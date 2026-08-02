@@ -65,7 +65,17 @@ function validateEnvironment(env = process.env) {
     invalid.push("APP_URL");
   }
 
+  const rateLimitStore = String(env.RATE_LIMIT_STORE || "").trim().toLowerCase();
+  if (rateLimitStore && !["mongo", "memory"].includes(rateLimitStore)) {
+    invalid.push("RATE_LIMIT_STORE");
+  }
+
   if (nodeEnv === "production") {
+    if (rateLimitStore === "memory") invalid.push("RATE_LIMIT_STORE");
+    const webConcurrency = Number(env.WEB_CONCURRENCY || 1);
+    if (!Number.isInteger(webConcurrency) || webConcurrency !== 1) {
+      invalid.push("WEB_CONCURRENCY");
+    }
     for (const name of REQUIRED_PRODUCTION) {
       if (!nonEmpty(env, name)) invalid.push(name);
     }

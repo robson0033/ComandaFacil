@@ -1,3 +1,5 @@
+const { logger: appLogger } = require("../utils/logger");
+
 /**
  * Ajuste do backend para os filtros dos relatórios do ComandaMix.
  *
@@ -365,7 +367,7 @@ exports.admin = async (req, res) => {
       // restante das variáveis...
     });
   } catch (erro) {
-    console.error(erro);
+    appLogger.error(erro);
 
     safeFlash(
       req,

@@ -1,5 +1,7 @@
 "use strict";
 
+const { logger: appLogger } = require("../utils/logger");
+
 const crypto = require("crypto");
 const { normalizePrinterLayoutConfig } = require("./printerLayoutConfig");
 const {
@@ -22,11 +24,16 @@ const {
 const { registroModel } = require("../models/registroModel");
 const {
   gerarTokenAcompanhamento,
+  gerarTokenAcompanhamentoIdempotente,
 } = require("./pedidoPublicoTokenService");
 const {
   codigoFinal,
   gerarCodigoPublico,
 } = require("./pedidoPublicCodeService");
+const {
+  createIdempotencyConflictError,
+  hashPublicOrderPayload,
+} = require("../utils/publicOrderIdempotency");
 
 const INSTANCE_ID = `${os.hostname()}:${process.pid}:${crypto.randomUUID()}`;
 const MAX_ATTEMPTS = 5;
@@ -278,9 +285,50 @@ async function criarJobManual({
   return job;
 }
 
+async function anexarResultadoPublico(pedido, token, { replay = false } = {}) {
+  Object.defineProperty(pedido, "acompanhamentoToken", {
+    value: token,
+    enumerable: false,
+  });
+  Object.defineProperty(pedido, "idempotentReplay", {
+    value: Boolean(replay),
+    enumerable: false,
+  });
+  return pedido;
+}
+
+async function buscarPedidoIdempotente(dados, token, payloadHash) {
+  if (!dados.idempotencyKey) return null;
+  const pedido = await Pedido.findOne({
+    estabelecimentoId: dados.estabelecimentoId,
+    canal: dados.canal,
+    idempotencyKey: dados.idempotencyKey,
+  });
+  if (!pedido) return null;
+  if (
+    pedido.idempotencyPayloadHash
+    && payloadHash
+    && pedido.idempotencyPayloadHash !== payloadHash
+  ) {
+    throw createIdempotencyConflictError();
+  }
+  return anexarResultadoPublico(pedido, token, { replay: true });
+}
+
 async function criarPedidoComJobsAutomaticos(dados, tentativaCodigo = 0) {
   assertAcceptingWork();
-  const tokenAcompanhamento = gerarTokenAcompanhamento();
+  const payloadHash = dados.idempotencyKey ? hashPublicOrderPayload(dados) : "";
+  const tokenAcompanhamento = dados.idempotencyKey
+    ? gerarTokenAcompanhamentoIdempotente({
+        estabelecimentoId: dados.estabelecimentoId,
+        canal: dados.canal,
+        idempotencyKey: dados.idempotencyKey,
+      })
+    : gerarTokenAcompanhamento();
+
+  const existente = await buscarPedidoIdempotente(dados, tokenAcompanhamento.token, payloadHash);
+  if (existente) return existente;
+
   const codigoPublico = gerarCodigoPublico();
   const dadosComToken = {
     ...dados,
@@ -289,6 +337,7 @@ async function criarPedidoComJobsAutomaticos(dados, tentativaCodigo = 0) {
     acompanhamentoTokenHash: tokenAcompanhamento.hash,
     acompanhamentoTokenCriadoEm: tokenAcompanhamento.criadoEm,
     acompanhamentoTokenExpiraEm: tokenAcompanhamento.expiraEm,
+    idempotencyPayloadHash: payloadHash,
   };
   const session = await Pedido.startSession();
   try {
@@ -297,12 +346,16 @@ async function criarPedidoComJobsAutomaticos(dados, tentativaCodigo = 0) {
       [pedido] = await Pedido.create([dadosComToken], { session });
       await criarJobsAutomaticos(pedido, { session });
     });
-    Object.defineProperty(pedido, "acompanhamentoToken", {
-      value: tokenAcompanhamento.token,
-      enumerable: false,
-    });
-    return pedido;
+    return anexarResultadoPublico(pedido, tokenAcompanhamento.token);
   } catch (error) {
+    const colisaoIdempotencia = Number(error?.code) === 11000
+      && (error?.keyPattern?.idempotencyKey
+        || String(error?.message || "").includes("pedido_criacao_idempotente_unica"));
+    if (colisaoIdempotencia) {
+      const repetido = await buscarPedidoIdempotente(dados, tokenAcompanhamento.token, payloadHash);
+      if (repetido) return repetido;
+    }
+
     const colisaoCodigo = Number(error?.code) === 11000
       && (error?.keyPattern?.codigoPublico
         || String(error?.message || "").includes("pedido_codigo_publico_tenant_unico"));
@@ -312,11 +365,18 @@ async function criarPedidoComJobsAutomaticos(dados, tentativaCodigo = 0) {
     const unsupported = /Transaction numbers|replica set|transactions are not supported/i
       .test(String(error?.message || ""));
     if (!unsupported) throw error;
-    console.warn("MongoDB sem transações; usando criação idempotente com reconciliador.");
+    appLogger.warn("MongoDB sem transações; usando criação idempotente com reconciliador.");
     let pedido;
     try {
       pedido = await Pedido.create(dadosComToken);
     } catch (fallbackError) {
+      const colisaoIdempotenciaFallback = Number(fallbackError?.code) === 11000
+        && (fallbackError?.keyPattern?.idempotencyKey
+          || String(fallbackError?.message || "").includes("pedido_criacao_idempotente_unica"));
+      if (colisaoIdempotenciaFallback) {
+        const repetido = await buscarPedidoIdempotente(dados, tokenAcompanhamento.token, payloadHash);
+        if (repetido) return repetido;
+      }
       const colisaoFallback = Number(fallbackError?.code) === 11000
         && (fallbackError?.keyPattern?.codigoPublico
           || String(fallbackError?.message || "").includes("pedido_codigo_publico_tenant_unico"));
@@ -326,11 +386,7 @@ async function criarPedidoComJobsAutomaticos(dados, tentativaCodigo = 0) {
       throw fallbackError;
     }
     await criarJobsAutomaticos(pedido);
-    Object.defineProperty(pedido, "acompanhamentoToken", {
-      value: tokenAcompanhamento.token,
-      enumerable: false,
-    });
-    return pedido;
+    return anexarResultadoPublico(pedido, tokenAcompanhamento.token);
   } finally {
     await session.endSession();
   }
@@ -426,7 +482,7 @@ async function atualizarStatusDoAgente(estabelecimentoId, status = {}) {
     || job.leaseToken !== validated.leaseId
     || calcularImpressoraId(job.impressora) !== validated.impressoraId
   ) {
-    console.warn(
+    appLogger.warn(
       `ACK de impressão ignorado: jobId=${validated.jobId} lease=${validated.leaseId.slice(0, 8)} code=LEASE_OR_PRINTER_MISMATCH`,
     );
     return null;

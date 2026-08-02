@@ -1,5 +1,8 @@
+const { logger: appLogger } = require("../utils/logger");
+
 const QRCode = require("qrcode");
 const bcrypt = require("bcryptjs");
+const { validatePassword } = require("../utils/passwordPolicy");
 const crypto = require("crypto");
 const mongoose = require("mongoose");
 
@@ -81,6 +84,11 @@ const {
   safeFlash,
   saveSessionOrRun,
 } = require("../utils/safeFlash");
+const {
+  PUBLIC_ORDER_LIMITS,
+  text: publicText,
+  validatePublicOrderBase,
+} = require("../utils/publicOrderValidation");
 
 function exigirMovimentacaoEstoqueConcluida(resultado) {
   if (resultado?.success
@@ -2360,7 +2368,7 @@ exports.admin = async (req, res) => {
                 link,
               );
           } catch (erroQrCode) {
-            console.error(
+            appLogger.error(
               `Erro ao gerar QR Code da mesa ${mesa.numero}:`,
               erroQrCode,
             );
@@ -2820,7 +2828,7 @@ exports.admin = async (req, res) => {
       },
     );
   } catch (error) {
-    console.error(
+    appLogger.error(
       "Erro ao carregar painel:",
       error,
     );
@@ -2863,7 +2871,7 @@ exports.criarCategoria = async (
       "Categoria cadastrada.",
     );
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
 
     return erroERedirecionar(
       req,
@@ -2940,7 +2948,7 @@ exports.excluirCategoria = async (
       "Categoria excluída.",
     );
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
 
     return erroERedirecionar(
       req,
@@ -3014,7 +3022,7 @@ exports.criarEstoque = async (
       "Item cadastrado.",
     );
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
 
     return erroERedirecionar(
       req,
@@ -3107,7 +3115,7 @@ exports.editarEstoque = async (
       "Item atualizado.",
     );
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
 
     return erroERedirecionar(
       req,
@@ -3233,7 +3241,7 @@ exports.excluirEstoque = async (
       message: "Ingrediente desativado.",
     });
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
 
     return res.status(500).json({
       success: false,
@@ -3326,11 +3334,11 @@ exports.criarProduto = async (
       "Produto cadastrado.",
     );
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
     if (novaImagem?.storageKey && idEstabelecimento) {
       await removerUploadSemOcultarErro(novaImagem, idEstabelecimento)
         .catch(cleanupError =>
-          console.error("Falha ao limpar nova imagem de produto:", cleanupError.message));
+          appLogger.error("Falha ao limpar nova imagem de produto:", cleanupError.message));
     }
     const uploadResponse = responderErroUpload(
       req, res, error, "catalogo", "Não foi possível cadastrar o produto.",
@@ -3460,7 +3468,7 @@ exports.editarProduto = async (
     produtoSalvo = true;
     await removerUploadSemOcultarErro(imagemAntiga, idEstabelecimento)
       .catch(cleanupError =>
-        console.error("Imagem anterior de produto ficou órfã:", cleanupError.message));
+        appLogger.error("Imagem anterior de produto ficou órfã:", cleanupError.message));
 
     return salvarERedirecionar(
       req,
@@ -3469,11 +3477,11 @@ exports.editarProduto = async (
       "Produto atualizado.",
     );
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
     if (!produtoSalvo && novaImagem?.storageKey && idEstabelecimento) {
       await removerUploadSemOcultarErro(novaImagem, idEstabelecimento)
         .catch(cleanupError =>
-          console.error("Falha ao limpar nova imagem de produto:", cleanupError.message));
+          appLogger.error("Falha ao limpar nova imagem de produto:", cleanupError.message));
     }
     const uploadResponse = responderErroUpload(
       req, res, error, "catalogo", "Não foi possível atualizar o produto.",
@@ -3594,7 +3602,7 @@ exports.excluirProduto = async (
         );
       } catch (error) {
         limpezaImagemPendente = true;
-        console.error("product_image_cleanup_pending", {
+        appLogger.error("product_image_cleanup_pending", {
           correlationId: req.correlationId,
           produtoId,
           code: error?.code || "STORAGE_REMOCAO_FALHOU",
@@ -3690,7 +3698,7 @@ exports.criarMesa = async (
       "Mesa cadastrada.",
     );
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
 
     return erroERedirecionar(
       req,
@@ -3783,7 +3791,7 @@ exports.editarMesa = async (
       "Mesa atualizada.",
     );
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
 
     return erroERedirecionar(
       req,
@@ -3836,7 +3844,7 @@ exports.excluirMesa = async (
       "Mesa excluída.",
     );
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
 
     return erroERedirecionar(
       req,
@@ -3906,7 +3914,7 @@ exports.atualizarStatusMesa = async (
       "Status da mesa atualizado.",
     );
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
 
     return erroERedirecionar(
       req,
@@ -3949,7 +3957,7 @@ exports.solicitarContaMesa = async (
       "Mesa marcada como aguardando pagamento.",
     );
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
 
     return erroERedirecionar(
       req,
@@ -4012,7 +4020,7 @@ exports.pagarContaMesa = async (
       "Conta paga e mesa liberada.",
     );
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
 
     return erroERedirecionar(
       req,
@@ -4221,12 +4229,13 @@ exports.criarFuncionario = async (
       );
     }
 
-    if (senha.length < 6) {
+    const passwordResult = validatePassword(senha);
+    if (!passwordResult.valid) {
       return erroERedirecionar(
         req,
         res,
         "funcionarios",
-        "A senha precisa ter pelo menos 6 caracteres.",
+        passwordResult.errors[0],
       );
     }
 
@@ -4306,11 +4315,11 @@ exports.criarFuncionario = async (
       "Funcionário cadastrado.",
     );
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
     if (novaImagem?.storageKey && idEstabelecimento) {
       await removerUploadSemOcultarErro(novaImagem, idEstabelecimento)
         .catch(cleanupError =>
-          console.error("Falha ao limpar nova foto de funcionário:", cleanupError.message));
+          appLogger.error("Falha ao limpar nova foto de funcionário:", cleanupError.message));
     }
     const uploadResponse = responderErroUpload(
       req, res, error, "funcionarios", "Não foi possível cadastrar o funcionário.",
@@ -4451,12 +4460,13 @@ exports.editarFuncionario = async (
     );
 
     if (novaSenha) {
-      if (novaSenha.length < 6) {
+      const passwordResult = validatePassword(novaSenha);
+      if (!passwordResult.valid) {
         return erroERedirecionar(
           req,
           res,
           "funcionarios",
-          "A nova senha precisa ter pelo menos 6 caracteres.",
+          passwordResult.errors[0],
         );
       }
 
@@ -4471,7 +4481,7 @@ exports.editarFuncionario = async (
     funcionarioSalvo = true;
     await removerUploadSemOcultarErro(imagemAntiga, idEstabelecimento)
       .catch(cleanupError =>
-        console.error("Foto anterior de funcionário ficou órfã:", cleanupError.message));
+        appLogger.error("Foto anterior de funcionário ficou órfã:", cleanupError.message));
 
     return salvarERedirecionar(
       req,
@@ -4480,11 +4490,11 @@ exports.editarFuncionario = async (
       "Funcionário atualizado.",
     );
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
     if (!funcionarioSalvo && novaImagem?.storageKey && idEstabelecimento) {
       await removerUploadSemOcultarErro(novaImagem, idEstabelecimento)
         .catch(cleanupError =>
-          console.error("Falha ao limpar nova foto de funcionário:", cleanupError.message));
+          appLogger.error("Falha ao limpar nova foto de funcionário:", cleanupError.message));
     }
     const uploadResponse = responderErroUpload(
       req, res, error, "funcionarios", "Não foi possível atualizar o funcionário.",
@@ -4529,7 +4539,7 @@ exports.excluirFuncionario = async (
       "Funcionário excluído.",
     );
   } catch (error) {
-    console.error(error);
+    appLogger.error(error);
 
     return responderErroFuncionario(
       req,
@@ -4674,7 +4684,7 @@ exports.salvarConfiguracao = async (
     configuracaoSalva = true;
     await removerUploadSemOcultarErro(imagemAntiga, idEstabelecimento)
       .catch(cleanupError =>
-        console.error("Foto anterior do perfil ficou órfã:", cleanupError.message));
+        appLogger.error("Foto anterior do perfil ficou órfã:", cleanupError.message));
 
     return salvarERedirecionar(
       req,
@@ -4683,14 +4693,14 @@ exports.salvarConfiguracao = async (
       'Configurações salvas.'
     );
   } catch (error) {
-    console.error(
+    appLogger.error(
       'Erro ao salvar configurações:',
       error
     );
     if (!configuracaoSalva && novaImagem?.storageKey && idEstabelecimento) {
       await removerUploadSemOcultarErro(novaImagem, idEstabelecimento)
         .catch(cleanupError =>
-          console.error("Falha ao limpar nova foto do perfil:", cleanupError.message));
+          appLogger.error("Falha ao limpar nova foto do perfil:", cleanupError.message));
     }
     const uploadResponse = responderErroUpload(
       req, res, error, "configuracoes", "Não foi possível salvar as configurações.",
@@ -4759,7 +4769,7 @@ exports.salvarImpressora = async (
       "Configurações das impressoras USB e de rede salvas.",
     );
   } catch (error) {
-    console.error(
+    appLogger.error(
       "Erro ao salvar impressoras:",
       error,
     );
@@ -4954,7 +4964,7 @@ exports.obterPedidoParaImpressao = async (
       },
     });
   } catch (error) {
-    console.error(
+    appLogger.error(
       "Erro ao preparar impressão:",
       error,
     );
@@ -5134,7 +5144,7 @@ exports.atualizarStatusPedido =
         "Status do pedido atualizado.",
       );
     } catch (error) {
-      console.error(error);
+      appLogger.error(error);
 
       return erroERedirecionar(
         req,
@@ -5210,7 +5220,7 @@ exports.confirmarPagamentoPedido =
         "Pagamento confirmado.",
       );
     } catch (error) {
-      console.error(
+      appLogger.error(
         "Erro ao confirmar pagamento:",
         error,
       );
@@ -5266,7 +5276,7 @@ exports.arquivarPedido = async (req, res) => {
         : "Pedido arquivado. O histórico foi preservado.",
     });
   } catch (error) {
-    console.error("Erro ao arquivar pedido:", error);
+    appLogger.error("Erro ao arquivar pedido:", error);
     const statusCode = error.statusCode || 500;
     return res.status(statusCode).json({
       success: false,
@@ -5481,7 +5491,7 @@ exports.arquivarPedido = async (req, res) => {
         pedidosFormatados,
     });
   } catch (error) {
-    console.error(
+    appLogger.error(
       'Erro ao buscar novos pedidos:',
       error
     );
@@ -5538,7 +5548,7 @@ exports.catalogoPublico = async (req, res) => {
       lojaDisponivel: acessoVenda.permitido,
     });
   } catch (error) {
-    console.error("Erro ao abrir catálogo:", error);
+    appLogger.error("Erro ao abrir catálogo:", error);
     return res.status(500).render("404");
   }
 };
@@ -5586,7 +5596,7 @@ exports.statusProdutosCatalogo = async (req, res) => {
       })),
     });
   } catch (error) {
-    console.error("Erro ao sincronizar produtos do catálogo:", error);
+    appLogger.error("Erro ao sincronizar produtos do catálogo:", error);
     return res.status(500).json({
       success: false,
       message: "Não foi possível atualizar o catálogo.",
@@ -5599,340 +5609,6 @@ exports.statusProdutosCatalogo = async (req, res) => {
 | MESA PÚBLICA
 |--------------------------------------------------------------------------
 */
-
-const criarPedidoCatalogoAnterior = async (
-  req,
-  res
-) => {
-  try {
-    const configuracao =
-      await Configuracao.findOne({
-        slug: req.params.slug,
-      }).lean();
-
-    if (!configuracao) {
-      return res.status(404).json({
-        success: false,
-        message:
-          'Estabelecimento não encontrado.',
-      });
-    }
-
-    const cliente = String(
-      req.body.cliente || ''
-    ).trim();
-
-    const telefone = String(
-      req.body.telefone || ''
-    ).trim();
-
-    const emailCliente = String(
-      req.body.emailCliente || req.body.email || ''
-    ).trim().toLowerCase();
-
-    const canal = String(
-      req.body.canal || ''
-    ).trim();
-
-    const enderecoEntrega = String(
-      req.body.enderecoEntrega || ''
-    ).trim();
-
-    const observacao = String(
-      req.body.observacao || ''
-    ).trim();
-
-    const formaPagamentoBruta = String(
-      req.body.formaPagamento ||
-      req.body.metodoPagamento ||
-      req.body.pagamentoMetodo ||
-      'nao_informado'
-    )
-      .trim()
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[\s-]+/g, '_');
-
-    const aliasesPagamento = {
-      pix: 'pix',
-      pix_online: 'pix',
-      dinheiro: 'dinheiro',
-      dinheiro_entrega: 'dinheiro',
-      dinheiro_na_entrega: 'dinheiro',
-      cash: 'dinheiro',
-      cartao: 'cartao',
-      cartao_entrega: 'cartao',
-      cartao_na_entrega: 'cartao',
-      credito: 'cartao',
-      debito: 'cartao',
-      card: 'cartao',
-    };
-
-    const formaPagamento = aliasesPagamento[formaPagamentoBruta] || 'nao_informado';
-
-    const precisaTroco = formaPagamento === 'dinheiro' &&
-      ['true', '1', 'sim', 'on'].includes(String(req.body.precisaTroco || '').toLowerCase());
-
-    const trocoParaRecebido = Number(
-      String(req.body.trocoPara ?? '')
-        .replace(',', '.')
-    );
-
-    if (precisaTroco && (!Number.isFinite(trocoParaRecebido) || trocoParaRecebido <= 0)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Informe para quanto o cliente precisa de troco.',
-      });
-    }
-
-    if (!cliente) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Informe o nome do cliente.',
-      });
-    }
-
-    if (!telefone) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Informe o WhatsApp do cliente.',
-      });
-    }
-
-    const canaisPermitidos = [
-      'delivery',
-      'retirada',
-    ];
-
-    if (
-      !canaisPermitidos.includes(canal)
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Tipo de pedido inválido.',
-      });
-    }
-
-    if (
-      canal === 'delivery' &&
-      !enderecoEntrega
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Informe o endereço de entrega.',
-      });
-    }
-
-    const itensRecebidos =
-      Array.isArray(req.body.itens)
-        ? req.body.itens
-        : [];
-
-    if (!itensRecebidos.length) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'O carrinho está vazio.',
-      });
-    }
-
-    const idsProdutos =
-      itensRecebidos
-        .map(item => {
-          return item.produtoId;
-        })
-        .filter(Boolean);
-
-    const produtos =
-      await Produto.find({
-        _id: {
-          $in: idsProdutos,
-        },
-
-        estabelecimentoId:
-          configuracao.estabelecimentoId,
-
-        ativo: true,
-      }).lean();
-
-    const mapaProdutos =
-      new Map(
-        produtos.map(produto => {
-          return [
-            String(produto._id),
-            produto,
-          ];
-        })
-      );
-
-    const itens = [];
-
-    let total = 0;
-    let custo = 0;
-
-    for (
-      const itemRecebido of
-      itensRecebidos
-    ) {
-      const produto =
-        mapaProdutos.get(
-          String(
-            itemRecebido.produtoId
-          )
-        );
-
-      if (!produto) {
-        continue;
-      }
-
-      const quantidade =
-        Math.max(
-          1,
-          Math.min(
-            99,
-            Number(
-              itemRecebido.quantidade
-            ) || 1
-          )
-        );
-
-      const preco = Number(
-        produto.preco || 0
-      );
-
-      const custoUnitario = Number(
-        produto.custo || 0
-      );
-
-      const subtotal =
-        preco * quantidade;
-
-      itens.push({
-        produtoId: produto._id,
-        nome: produto.nome,
-        quantidade,
-        preco,
-        subtotal,
-        custoUnitarioSnapshot: custoUnitario,
-        fichaTecnicaSnapshotCriado: true,
-        fichaTecnicaSnapshot: (produto.fichaTecnica || []).map(item => ({
-          estoqueId: item.estoqueId,
-          nome: item.nome,
-          quantidade: item.quantidade,
-          unidade: item.unidade,
-          custoCalculado: item.custoCalculado,
-        })),
-      });
-
-      total += subtotal;
-
-      custo +=
-        custoUnitario * quantidade;
-    }
-
-    if (!itens.length) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Nenhum produto válido foi encontrado.',
-      });
-    }
-
-    if (precisaTroco && trocoParaRecebido < total) {
-      return res.status(400).json({
-        success: false,
-        message: `O valor para troco deve ser igual ou maior que o total de R$ ${total.toFixed(2).replace('.', ',')}.`,
-      });
-    }
-
-    const pedido =
-      await printQueueService.criarPedidoComJobsAutomaticos({
-        estabelecimentoId:
-          configuracao.estabelecimentoId,
-
-        cliente,
-
-        telefoneCliente: telefone,
-        telefoneNormalizado: normalizarTelefonePublico(telefone),
-        emailCliente: formaPagamento === 'pix' ? emailCliente : '',
-
-        canal,
-
-        enderecoEntrega:
-          canal === 'delivery'
-            ? enderecoEntrega
-            : '',
-
-        itens,
-
-        observacao,
-
-        total,
-        custo,
-
-        status: 'novo',
-
-        pagamentoStatus:
-          'pendente',
-
-        formaPagamento,
-
-        pagamentoInformadoEm:
-          formaPagamento === 'pix'
-            ? null
-            : new Date(),
-
-        precisaTroco,
-
-        trocoPara:
-          precisaTroco
-            ? trocoParaRecebido
-            : null,
-
-        valorTroco:
-          precisaTroco
-            ? Math.max(0, trocoParaRecebido - total)
-            : null,
-      });
-
-    return res.status(201).json({
-      success: true,
-
-      message:
-        'Pedido enviado com sucesso.',
-
-      pedidoId:
-        pedido._id,
-
-      numeroPedido:
-        String(pedido.codigoPublico || pedido._id)
-          .slice(pedido.codigoPublico ? 0 : -6)
-          .toUpperCase(),
-      acompanhamentoToken:
-        pedido.acompanhamentoToken,
-      acompanhamentoTokenExpiraEm:
-        pedido.acompanhamentoTokenExpiraEm,
-
-      total,
-    });
-  } catch (error) {
-    console.error(
-      'Erro ao criar pedido do catálogo:',
-      error
-    );
-
-    return res.status(500).json({
-      success: false,
-      message:
-        'Não foi possível enviar o pedido.',
-    });
-  }
-};
 
 exports.mesaPublica = async (
   req,
@@ -6081,7 +5757,7 @@ exports.mesaPublica = async (
       },
     );
   } catch (error) {
-    console.error(
+    appLogger.error(
       "Erro ao abrir mesa:",
       error,
     );
@@ -6097,6 +5773,15 @@ exports.criarPedidoMesa = async (
   res,
 ) => {
   try {
+    const validacaoPedido = validatePublicOrderBase(req.body, { mesa: true });
+    if (!validacaoPedido.valid) {
+      return res.status(400).json({
+        success: false,
+        code: validacaoPedido.code || "PEDIDO_INVALIDO",
+        message: validacaoPedido.message,
+      });
+    }
+
     const mesa = await Mesa.findOne({
       token: req.params.token,
       status: {
@@ -6174,12 +5859,7 @@ exports.criarPedidoMesa = async (
         continue;
       }
 
-      const quantidade = Math.max(
-        1,
-        Number(
-          itemRecebido.quantidade,
-        ) || 1,
-      );
+      const quantidade = Number(itemRecebido.quantidade);
 
       const adicionaisDisponiveis =
         new Map(
@@ -6256,10 +5936,10 @@ exports.criarPedidoMesa = async (
         subtotal,
         adicionais:
           adicionaisEscolhidos,
-        observacao: String(
-          itemRecebido.observacao ||
-            "",
-        ).trim(),
+        observacao: publicText(
+          itemRecebido.observacao,
+          PUBLIC_ORDER_LIMITS.itemNote,
+        ),
         custoUnitarioSnapshot: custoUnitario,
         fichaTecnicaSnapshotCriado: true,
         fichaTecnicaSnapshot: (produto.fichaTecnica || []).map(item => ({
@@ -6289,15 +5969,17 @@ exports.criarPedidoMesa = async (
         estabelecimentoId:
           mesa.estabelecimentoId,
         mesaId: mesa._id,
-        cliente: String(
-          req.body.cliente ||
-            `Mesa ${mesa.numero}`,
-        ).trim(),
+        cliente: publicText(
+          req.body.cliente || `Mesa ${mesa.numero}`,
+          PUBLIC_ORDER_LIMITS.client,
+        ),
         canal: "mesa",
+        idempotencyKey: validacaoPedido.idempotencyKey,
         itens,
-        observacao: String(
-          req.body.observacao || "",
-        ).trim(),
+        observacao: publicText(
+          req.body.observacao,
+          PUBLIC_ORDER_LIMITS.orderNote,
+        ),
         total,
         custo,
         status: "novo",
@@ -6311,7 +5993,10 @@ exports.criarPedidoMesa = async (
     return res.status(201).json({
       success: true,
       message:
-        "Pedido enviado com sucesso.",
+        pedido.idempotentReplay
+          ? "Pedido já recebido anteriormente."
+          : "Pedido enviado com sucesso.",
+      idempotentReplay: Boolean(pedido.idempotentReplay),
       pedidoId: pedido._id,
       numeroPedido:
         String(pedido.codigoPublico || pedido._id)
@@ -6328,10 +6013,18 @@ exports.criarPedidoMesa = async (
       })),
     });
   } catch (error) {
-    console.error(
+    appLogger.error(
       "Erro ao criar pedido:",
       error,
     );
+
+    if (error?.code === "IDEMPOTENCY_CONFLICT") {
+      return res.status(409).json({
+        success: false,
+        code: error.code,
+        message: "Esta tentativa já foi usada com dados diferentes. Atualize a página e envie novamente.",
+      });
+    }
 
     return res.status(500).json({
       success: false,
@@ -6472,7 +6165,7 @@ exports.avaliarPedidoMesa = async (
         "Obrigado pela sua avaliação!",
     });
   } catch (error) {
-    console.error(
+    appLogger.error(
       "Erro ao avaliar pedido da mesa:",
       error,
     );
@@ -6709,6 +6402,15 @@ function estabelecimentoAberto(
 exports.criarPedidoCatalogo =
   async (req, res) => {
     try {
+      const validacaoPedido = validatePublicOrderBase(req.body);
+      if (!validacaoPedido.valid) {
+        return res.status(400).json({
+          success: false,
+          code: validacaoPedido.code || "PEDIDO_INVALIDO",
+          message: validacaoPedido.message,
+        });
+      }
+
       const configuracao =
         await Configuracao.findOne({
           slug: req.params.slug,
@@ -6739,29 +6441,35 @@ exports.criarPedidoCatalogo =
         });
       }
 
-      const cliente = String(
-        req.body.cliente || "",
-      ).trim();
+      const cliente = publicText(
+        req.body.cliente,
+        PUBLIC_ORDER_LIMITS.client,
+      );
 
-      const telefone = String(
-        req.body.telefone || "",
-      ).trim();
+      const telefone = publicText(
+        req.body.telefone,
+        PUBLIC_ORDER_LIMITS.phone,
+      );
 
       const canal = String(
         req.body.canal || "",
       ).trim();
 
-      const ruaEntrega = String(req.body.ruaEntrega || "").trim();
-      const numeroEntrega = String(req.body.numeroEntrega || "").trim();
-      const bairroEntrega = String(req.body.bairroEntrega || "").trim();
-      const referenciaEntrega = String(req.body.referenciaEntrega || "").trim();
+      const ruaEntrega = publicText(req.body.ruaEntrega, PUBLIC_ORDER_LIMITS.street);
+      const numeroEntrega = publicText(req.body.numeroEntrega, PUBLIC_ORDER_LIMITS.number);
+      const bairroEntrega = publicText(req.body.bairroEntrega, PUBLIC_ORDER_LIMITS.neighborhood);
+      const referenciaEntrega = publicText(
+        req.body.referenciaEntrega,
+        PUBLIC_ORDER_LIMITS.reference,
+      );
       const enderecoEntrega = [ruaEntrega, numeroEntrega, bairroEntrega]
         .filter(Boolean)
         .join(", ");
 
-      const observacao = String(
-        req.body.observacao || "",
-      ).trim();
+      const observacao = publicText(
+        req.body.observacao,
+        PUBLIC_ORDER_LIMITS.orderNote,
+      );
 
 
       // A forma de pagamento precisa ser lida nesta função, pois esta é a
@@ -6835,6 +6543,14 @@ exports.criarPedidoCatalogo =
           success: false,
           message:
             "Informe seu nome e WhatsApp.",
+        });
+      }
+
+      const telefoneNormalizado = normalizarTelefonePublico(telefone);
+      if (telefoneNormalizado.length < 10) {
+        return res.status(400).json({
+          success: false,
+          message: "Informe um WhatsApp válido com DDD.",
         });
       }
 
@@ -7075,7 +6791,10 @@ exports.criarPedidoCatalogo =
           preco,
           subtotal,
           adicionais,
-          observacao: String(itemRecebido.observacao || "").trim(),
+          observacao: publicText(
+            itemRecebido.observacao,
+            PUBLIC_ORDER_LIMITS.itemNote,
+          ),
           custoUnitarioSnapshot: custoUnitario,
           fichaTecnicaSnapshotCriado: true,
           fichaTecnicaSnapshot: (produto.fichaTecnica || []).map(item => ({
@@ -7122,10 +6841,10 @@ exports.criarPedidoCatalogo =
           cliente,
           emailCliente: "",
           telefoneCliente: telefone,
-          telefoneNormalizado:
-            normalizarTelefonePublico(telefone),
+          telefoneNormalizado,
 
           canal,
+          idempotencyKey: validacaoPedido.idempotencyKey,
 
           enderecoEntrega: canal === "delivery" ? enderecoEntrega : "",
           ruaEntrega: canal === "delivery" ? ruaEntrega : "",
@@ -7172,7 +6891,10 @@ exports.criarPedidoCatalogo =
         success: true,
 
         message:
-          "Pedido enviado com sucesso.",
+          pedido.idempotentReplay
+            ? "Pedido já recebido anteriormente."
+            : "Pedido enviado com sucesso.",
+        idempotentReplay: Boolean(pedido.idempotentReplay),
 
         numeroPedido: pedido.codigoPublico,
         codigoPublico: pedido.codigoPublico,
@@ -7187,10 +6909,18 @@ exports.criarPedidoCatalogo =
         total,
       });
     } catch (error) {
-      console.error(
+      appLogger.error(
         "Erro ao criar pedido do catálogo:",
         error,
       );
+
+      if (error?.code === "IDEMPOTENCY_CONFLICT") {
+        return res.status(409).json({
+          success: false,
+          code: error.code,
+          message: "Esta tentativa já foi usada com dados diferentes. Atualize a página e envie novamente.",
+        });
+      }
 
       return res.status(500).json({
         success: false,
@@ -7318,7 +7048,7 @@ exports.consultarPedidoPublico = async (req, res) => {
       pedido: serializarConsultaPublica(pedidoEncontrado, avaliados),
     });
   } catch (error) {
-    console.warn("order_public_lookup_failed", {
+    appLogger.warn("order_public_lookup_failed", {
       correlationId: req.correlationId,
       stage: "lookup",
     });
@@ -7379,7 +7109,7 @@ exports.iniciarConsultaPedidos = async (req, res) => {
       }
     }
   } catch (error) {
-    console.warn("order_lookup_start_failed", { correlationId: req.correlationId, stage: "verification_start" });
+    appLogger.warn("order_lookup_start_failed", { correlationId: req.correlationId, stage: "verification_start" });
   }
   const remaining = 250 - (Date.now() - started);
   if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining));
@@ -7473,7 +7203,7 @@ exports.acompanharPedidoCatalogo = async (req, res) => {
       pedido: serializarPedidoPublico(pedido),
     });
   } catch (error) {
-    console.error("Erro ao acompanhar pedido público:", error);
+    appLogger.error("Erro ao acompanhar pedido público:", error);
     return res.status(500).json({
       success: false,
       message: "Não foi possível acompanhar o pedido.",
@@ -7599,7 +7329,7 @@ exports.avaliarProdutoCatalogo = async (req, res) => {
       message: "Obrigado pela sua avaliação!",
     });
   } catch (error) {
-    console.error("Erro ao avaliar produto do catálogo:", error);
+    appLogger.error("Erro ao avaliar produto do catálogo:", error);
     return res.status(500).json({
       success: false,
       message: "Não foi possível salvar a avaliação.",

@@ -1,5 +1,7 @@
 "use strict";
 
+const { logger: appLogger } = require("../utils/logger");
+
 const session = require("express-session");
 const { MongoStore } = require("connect-mongo");
 
@@ -16,7 +18,7 @@ function isSessionTouchNotFound(error) {
 }
 
 function decorateSessionStore(store, {
-  logger = console,
+  logger = appLogger,
   now = () => Date.now(),
 } = {}) {
   if (!store || typeof store.touch !== "function" || store.sessionLifecycle) {
@@ -118,7 +120,7 @@ function createSessionStore({
   config,
   mongoClient,
   mongoUri,
-  logger = console,
+  logger = appLogger,
 }) {
   if (mongoClient || mongoUri) {
     const store = MongoStore.create({

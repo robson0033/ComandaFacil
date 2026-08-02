@@ -7,7 +7,14 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js --ignore public/uploads"
+    "dev": "nodemon server.js --ignore public/uploads",
+    "test": "node --test test/*.test.js",
+    "test:syntax": "node scripts/check-syntax.js",
+    "test:production": "npm run test:syntax && npm test",
+    "indexes:dry-run": "node scripts/create-mercado-pago-indexes.js --dry-run",
+    "indexes:apply": "node scripts/create-mercado-pago-indexes.js --apply",
+    "audit:production": "npm audit --omit=dev --audit-level=high",
+    "ci:production": "npm ci && npm run test:production && npm run audit:production"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -30,7 +37,7 @@
     "nodemon": "^3.1.14"
   },
   "engines": {
-    "node": ">=20.19.0 <21",
-    "npm": "10.x"
+    "node": ">=24.18.1 <25",
+    "npm": ">=11 <13"
   }
 }

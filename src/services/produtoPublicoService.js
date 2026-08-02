@@ -1,11 +1,13 @@
 "use strict";
 
+const { logger: appLogger } = require("../utils/logger");
+
 const { Produto } = require("../models/painelModels");
 
 function uniqueProductsById(items, {
   estabelecimentoId,
   source = "public_catalog",
-  logger = console,
+  logger = appLogger,
 } = {}) {
   const seen = new Set();
   const unique = [];
@@ -33,7 +35,7 @@ async function buscarProdutosPublicosDoEstabelecimento(
   {
     source = "public_catalog",
     model = Produto,
-    logger = console,
+    logger = appLogger,
   } = {},
 ) {
   if (!estabelecimentoId) return [];

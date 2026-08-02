@@ -1,5 +1,7 @@
 "use strict";
 
+const { logger: appLogger } = require("../utils/logger");
+
 const crypto = require("crypto");
 const validator = require("validator");
 const {
@@ -515,7 +517,7 @@ function classifyRemotePreapproval(preapproval) {
 
 function logRemotePreapprovalSnapshot(preapproval, correlationId) {
   const preapprovalId = String(preapproval?.id || "");
-  console.info("mercado_pago_preapproval_inspection", {
+  appLogger.info("mercado_pago_preapproval_inspection", {
     correlationId: String(correlationId || "") || null,
     operation: "preapproval_cancel_inspection",
     preapprovalIdSuffix: preapprovalId.slice(-8) || null,
@@ -757,7 +759,7 @@ function manterTesteOuStatusAtual(assinatura) {
 
 function flashSafeIntegrationError(req, error) {
   error.correlationId ||= String(req?.correlationId || "");
-  console.error("mercado_pago_platform_error", platformErrorLog(error, {
+  appLogger.error("mercado_pago_platform_error", platformErrorLog(error, {
     correlationId: error.correlationId,
   }));
 }
@@ -1558,7 +1560,7 @@ exports.gerarPixPedido = async (req, res) => {
     const platformFeeConfig = getCurrentPlatformFeeConfig();
     const sellerUserId = String(cfgPrivada.mercadoPago.userId || "");
     const platformUserId = String(process.env.MERCADO_PAGO_PLATFORM_USER_ID || "");
-    console.info("mercado_pago_order_token_diagnostic", {
+    appLogger.info("mercado_pago_order_token_diagnostic", {
       operation: "create_order_pix",
       tokenSource: "oauth_estabelecimento",
       sellerUserIdSuffix: idSuffix(sellerUserId),
@@ -1635,7 +1637,7 @@ exports.gerarPixPedido = async (req, res) => {
       expiraEm: pedido.pixExpiraEm,
     });
   } catch (error) {
-    console.error("Pix do pedido:", sanitizeMercadoPagoError(error));
+    appLogger.error("Pix do pedido:", sanitizeMercadoPagoError(error));
     const status = Number(error?.httpStatus || 400);
     if (error?.code === "PLATFORM_FEE_TERMS_REQUIRED") {
       return res.status(status).json({
@@ -1967,7 +1969,7 @@ async function processApprovedOrderPayment({
     _id: pedido._id,
     estabelecimentoId: pedido.estabelecimentoId,
   });
-  console.info("order_pix_confirmation", {
+  appLogger.info("order_pix_confirmation", {
     operation: "order_pix_confirmation",
     stage: "approved_processed",
     orderIdSuffix: String(pedido._id).slice(-6),
@@ -2172,7 +2174,7 @@ async function processSubscriptionPayment(event, payment) {
         registradoEm: new Date(),
       });
       await assinatura.save();
-      console.warn("subscription_abandoned_payment_reconciliation", {
+      appLogger.warn("subscription_abandoned_payment_reconciliation", {
         paymentId: String(payment.id),
         attemptId: String(attempt.attemptId),
         estabelecimentoId: String(assinatura.estabelecimentoId),
@@ -2490,7 +2492,7 @@ exports.webhook = async (req, res) => {
           },
         },
       ).catch(() => {});
-      console.error("mercado_pago_webhook_error", webhookDiagnostic(error, req, data, {
+      appLogger.error("mercado_pago_webhook_error", webhookDiagnostic(error, req, data, {
         signatureValid,
         responseStatus: 503,
       }));
@@ -2502,7 +2504,7 @@ exports.webhook = async (req, res) => {
       });
     }
     if (signatureValid) {
-      console.error("mercado_pago_webhook_error", webhookDiagnostic(error, req, data, {
+      appLogger.error("mercado_pago_webhook_error", webhookDiagnostic(error, req, data, {
         signatureValid,
         responseStatus: 503,
       }));
@@ -2514,7 +2516,7 @@ exports.webhook = async (req, res) => {
       });
     }
     const responseStatus = Number(error?.httpStatus || 401);
-    console.warn("mercado_pago_webhook_rejected", webhookDiagnostic(error, req, data, {
+    appLogger.warn("mercado_pago_webhook_rejected", webhookDiagnostic(error, req, data, {
       signatureValid,
       responseStatus,
     }));

@@ -561,14 +561,21 @@ const Pedido = mongoose.model(
         type: String,
         default: "Cliente",
         trim: true,
+        maxlength: 120,
       },
 
-      telefoneCliente: { type: String, default: "", trim: true },
+      telefoneCliente: { type: String, default: "", trim: true, maxlength: 30 },
       telefoneNormalizado: { type: String, default: "", trim: true, index: true },
       codigoPublico: { type: String, trim: true, uppercase: true },
       codigoPublicoFinal: { type: String, trim: true, uppercase: true },
-      emailCliente: { type: String, default: "", trim: true, lowercase: true },
-      enderecoEntrega: { type: String, default: "", trim: true },
+      emailCliente: {
+        type: String,
+        default: "",
+        trim: true,
+        lowercase: true,
+        maxlength: 254,
+      },
+      enderecoEntrega: { type: String, default: "", trim: true, maxlength: 360 },
       ruaEntrega: { type: String, default: "", trim: true, maxlength: 180 },
       numeroEntrega: { type: String, default: "", trim: true, maxlength: 40 },
       bairroEntrega: { type: String, default: "", trim: true, maxlength: 120 },
@@ -599,6 +606,20 @@ const Pedido = mongoose.model(
         default: "mesa",
       },
 
+      idempotencyKey: {
+        type: String,
+        default: "",
+        trim: true,
+        lowercase: true,
+        maxlength: 36,
+      },
+      idempotencyPayloadHash: {
+        type: String,
+        default: "",
+        trim: true,
+        maxlength: 64,
+      },
+
       itens: [
         {
           produtoId: {
@@ -610,12 +631,18 @@ const Pedido = mongoose.model(
           nome: {
             type: String,
             required: true,
+            maxlength: 160,
           },
 
           quantidade: {
             type: Number,
             required: true,
             min: 1,
+            max: 99,
+            validate: {
+              validator: Number.isInteger,
+              message: "A quantidade deve ser inteira.",
+            },
           },
 
           preco: {
@@ -636,6 +663,7 @@ const Pedido = mongoose.model(
                 type: String,
                 required: true,
                 trim: true,
+                maxlength: 120,
               },
 
               preco: {
@@ -650,6 +678,7 @@ const Pedido = mongoose.model(
             type: String,
             default: "",
             trim: true,
+            maxlength: 300,
           },
           custoUnitarioSnapshot: { type: Number, default: 0, min: 0 },
           fichaTecnicaSnapshotCriado: {
@@ -680,6 +709,7 @@ const Pedido = mongoose.model(
         type: String,
         default: "",
         trim: true,
+        maxlength: 500,
       },
 
       total: {
@@ -847,6 +877,14 @@ const Pedido = mongoose.model(
   ),
 );
 
+Pedido.schema.index(
+  { estabelecimentoId: 1, canal: 1, idempotencyKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { idempotencyKey: { $type: "string", $gt: "" } },
+    name: "pedido_criacao_idempotente_unica",
+  },
+);
 Pedido.schema.index(
   { estabelecimentoId: 1, codigoPublico: 1 },
   {

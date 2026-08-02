@@ -17,7 +17,7 @@
     type="image/png"
   >
 
-  <style>
+  <style nonce="<%= cspNonce %>">
     * {
       margin: 0;
       padding: 0;
@@ -730,6 +730,7 @@
           class="formulario ativo"
           id="formLogin"
         >
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <div class="campo">
             <label for="loginEmail">
               E-mail
@@ -820,6 +821,7 @@
           class="formulario"
           id="formCadastro"
         >
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <div class="duas-colunas">
             <div class="campo">
               <label for="nome">
@@ -958,9 +960,9 @@
                   type="password"
                   id="cadastroSenha"
                   name="senha"
-                  placeholder="Crie uma senha"
-                  minlength="6"
-                  maxlength="15"
+                  placeholder="Crie uma senha forte"
+                  minlength="12"
+                  maxlength="64"
                   autocomplete="new-password"
                   required
                 >
@@ -994,8 +996,8 @@
                   id="confirmarSenha"
                   name="confirmarSenha"
                   placeholder="Repita a senha"
-                  minlength="6"
-                  maxlength="15"
+                  minlength="12"
+                  maxlength="64"
                   autocomplete="new-password"
                   required
                 >

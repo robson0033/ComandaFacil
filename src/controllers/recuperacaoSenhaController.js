@@ -1,3 +1,5 @@
+const { logger: appLogger } = require("../utils/logger");
+
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const validator = require("validator");
@@ -5,6 +7,7 @@ const RecuperacaoSenha = require("../models/recuperacaoSenhaModel");
 const { registroModel } = require("../models/registroModel");
 const { Funcionario } = require("../models/painelModels");
 const { enviarCodigoRecuperacao } = require("../services/emailService");
+const { validatePassword } = require("../utils/passwordPolicy");
 const {
   safeFlash,
   saveSessionOrRun,
@@ -151,7 +154,7 @@ exports.solicitarCodigo = async (req, res) => {
       res.redirect("/login/verificar-codigo"),
     );
   } catch (erro) {
-    console.error("Erro ao enviar código de recuperação:", erro);
+    appLogger.error("Erro ao enviar código de recuperação:", erro);
     return renderizar(res, "recuperar-senha", {
       email: normalizarEmail(req.body.email),
       errors: [
@@ -235,7 +238,7 @@ exports.verificarCodigo = async (req, res) => {
 
     return saveSessionOrRun(req, () => res.redirect("/login/nova-senha"));
   } catch (erro) {
-    console.error("Erro ao verificar código:", erro);
+    appLogger.error("Erro ao verificar código:", erro);
     return res.status(500).render("404");
   }
 };
@@ -274,9 +277,8 @@ exports.salvarNovaSenha = async (req, res) => {
       return res.redirect("/login/recuperar-senha");
     }
 
-    if (senha.length < 6 || senha.length > 15) {
-      errors.push("A senha deve ter entre 6 e 15 caracteres.");
-    }
+    const passwordResult = validatePassword(senha);
+    errors.push(...passwordResult.errors);
 
     if (senha !== confirmarSenha) {
       errors.push("As senhas não são iguais.");
@@ -328,7 +330,7 @@ exports.salvarNovaSenha = async (req, res) => {
     safeFlash(req, "success", "Senha alterada com sucesso. Entre com a nova senha.");
     return saveSessionOrRun(req, () => res.redirect("/login/index"));
   } catch (erro) {
-    console.error("Erro ao redefinir senha:", erro);
+    appLogger.error("Erro ao redefinir senha:", erro);
     return res.status(500).render("404");
   }
 };

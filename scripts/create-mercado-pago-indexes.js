@@ -79,6 +79,16 @@ const definitions = [
   },
   {
     model: Pedido,
+    key: { estabelecimentoId: 1, canal: 1, idempotencyKey: 1 },
+    options: {
+      unique: true,
+      partialFilterExpression: { idempotencyKey: { $type: "string", $gt: "" } },
+      name: "pedido_criacao_idempotente_unica",
+    },
+    expectedType: "objectId",
+  },
+  {
+    model: Pedido,
     key: { estabelecimentoId: 1, codigoPublico: 1 },
     options: {
       unique: true,
@@ -292,6 +302,7 @@ const purposes = {
   assinatura_estabelecimento_unico: "manter uma assinatura canônica por loja",
   configuracao_estabelecimento_unico: "manter uma configuração canônica por loja",
   pedido_estabelecimento_excluido_data: "listar pedidos da loja por exclusão e data",
+  pedido_criacao_idempotente_unica: "impedir pedidos duplicados por repetição da mesma solicitação pública",
   pedido_codigo_publico_tenant_unico: "garantir código público único dentro da loja",
   pedido_consulta_publica_segura: "consultar pedido por loja, telefone e final do código",
   auditoria_operation_key_unico: "deduplicar uma operação auditada",

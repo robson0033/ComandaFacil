@@ -1,5 +1,7 @@
 "use strict";
 
+const { logger: appLogger } = require("./src/utils/logger");
+
 require("dotenv").config({ quiet: true });
 
 const path = require("path");
@@ -11,7 +13,10 @@ const { Server } = require("socket.io");
 
 const route = require("./route");
 const middleware = require("./src/middleware/middlewareGlobal");
-const { ensureCsrfToken } = require("./src/middleware/csrf");
+const {
+  configuredOrigins,
+  ensureCsrfToken,
+} = require("./src/middleware/csrf");
 const { securityHeaders } = require("./src/middleware/securityHeaders");
 const { requestContext } = require("./src/middleware/requestContext");
 const { stopRateLimiters } = require("./src/middleware/rateLimit");
@@ -29,6 +34,9 @@ const appState = require("./src/runtime/appState");
 const { safeFlash } = require("./src/utils/safeFlash");
 const printAgentHub = require("./src/services/printAgentHub");
 const printQueueService = require("./src/services/printQueueService");
+const {
+  verifyCriticalIndexes,
+} = require("./src/services/criticalIndexService");
 
 const SHUTDOWN_TIMEOUT_MS = 25_000;
 
@@ -54,10 +62,15 @@ function configureApplication(app, {
   env = process.env,
 }) {
   if (config.production) app.set("trust proxy", 1);
+  app.disable("x-powered-by");
   app.use(requestContext);
   app.use(securityHeaders);
-  app.use(express.urlencoded({ extended: true }));
-  app.use(express.json());
+  app.use(express.urlencoded({
+    extended: true,
+    limit: "64kb",
+    parameterLimit: 200,
+  }));
+  app.use(express.json({ limit: "128kb", strict: true }));
   app.set("views", path.resolve(__dirname, "src", "views"));
   app.set("view engine", "ejs");
   app.use("/uploads", (req, res, next) => {
@@ -86,7 +99,7 @@ function configureApplication(app, {
   app.use((error, req, res, next) => {
     if (res.headersSent) return next(error);
     const type = String(error?.name || "Error").slice(0, 80);
-    console.error("request_failed", {
+    appLogger.error("request_failed", {
       correlationId: req.correlationId,
       code: "INTERNAL_ERROR",
       type,
@@ -135,7 +148,7 @@ function closeWithCallback(resource, method) {
 function createShutdown(runtime, {
   timeoutMs = SHUTDOWN_TIMEOUT_MS,
   exit = code => process.exit(code),
-  logger = console,
+  logger = appLogger,
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
   database = mongoose,
@@ -207,7 +220,7 @@ function createShutdown(runtime, {
 
 async function boot({
   env = process.env,
-  logger = console,
+  logger = appLogger,
   listen = true,
   exit,
   homologation,
@@ -232,8 +245,13 @@ async function boot({
     appState.setCheck("envValid", true);
     appState.setCheck("storageAdapterReady", true);
 
-    await mongoose.connect(runtime.config.mongoUri);
+    await mongoose.connect(runtime.config.mongoUri, { autoIndex: false });
     appState.setCheck("databaseConnected", true);
+
+    if (runtime.config.production) {
+      await verifyCriticalIndexes({ logger });
+    }
+    appState.setCheck("indexesReady", true);
 
     runtime.sessionStore = createSessionStore({
       config: runtime.config,
@@ -255,7 +273,11 @@ async function boot({
 
     runtime.httpServer = http.createServer(runtime.app);
     runtime.io = new Server(runtime.httpServer, {
-      cors: { origin: runtime.config.appUrl, methods: ["GET", "POST"] },
+      cors: {
+        origin: [...configuredOrigins(env)],
+        methods: ["GET", "POST"],
+        credentials: true,
+      },
     });
     printAgentHub.init(runtime.io);
     await printQueueService.reconciliarPedidosSemJob();
@@ -304,7 +326,7 @@ async function boot({
   }
 }
 
-function createFatalHandlers(runtime, { logger = console } = {}) {
+function createFatalHandlers(runtime, { logger = appLogger } = {}) {
   return {
     SIGTERM: () => runtime.shutdown("SIGTERM", 0),
     SIGINT: () => runtime.shutdown("SIGINT", 0),
@@ -320,7 +342,7 @@ function createFatalHandlers(runtime, { logger = console } = {}) {
 }
 
 function installFatalHandlers(runtime, {
-  logger = console,
+  logger = appLogger,
   processTarget = process,
 } = {}) {
   const handlers = createFatalHandlers(runtime, { logger });
@@ -336,7 +358,7 @@ async function main() {
     const runtime = await boot();
     installFatalHandlers(runtime);
   } catch (error) {
-    console.error(`Falha ao iniciar: ${sanitizeFatal(error)}`);
+    appLogger.error(`Falha ao iniciar: ${sanitizeFatal(error)}`);
     process.exitCode = 1;
   }
 }

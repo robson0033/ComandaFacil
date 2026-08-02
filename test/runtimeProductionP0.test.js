@@ -307,10 +307,10 @@ test("login regenera, logout destrói e limpa o mesmo cookie", () => {
   assert.match(login, /clearSessionCookie/);
 });
 
-test(".nvmrc e engines permanecem alinhados com Node 20.19 e npm 10", () => {
+test(".nvmrc e engines permanecem alinhados com Node 24.18 e npm 11/12", () => {
   const nvm = fs.readFileSync(path.resolve(__dirname, "../.nvmrc"), "utf8").trim();
   const pkg = require("../package.json");
   assert.match(nvm, /^20\.19\.\d+$/);
-  assert.equal(pkg.engines.node, ">=20.19.0 <21");
-  assert.equal(pkg.engines.npm, "10.x");
+  assert.equal(pkg.engines.node, ">=24.18.1 <25");
+  assert.equal(pkg.engines.npm, ">=11 <13");
 });

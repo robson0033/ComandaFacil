@@ -1,13 +1,19 @@
 # Ambiente de produção
 
-O projeto usa Node.js 20.19.x e npm 10.x. Para preparar o ambiente local:
+O projeto usa **Node.js 24.18.1 LTS** e npm 11 ou 12. Prepare o ambiente com:
 
 ```bash
-nvm install 20.19.5
+nvm install 24.18.1
 nvm use
-npm install -g npm@10
+npm install -g npm@11
 npm ci
+npm run test:production
+npm run audit:production
 ```
+
+Não use `npm install` no deploy. O `npm ci` deve respeitar integralmente o
+`package-lock.json` e o deploy deve parar quando instalação, testes ou auditoria
+falharem.
 
 ## Variáveis obrigatórias
 
@@ -21,6 +27,8 @@ Em todos os ambientes:
 
 Em produção também são obrigatórias:
 
+- `WEB_CONCURRENCY=1`;
+- `RATE_LIMIT_STORE=mongo` (é o padrão em produção, mas deixe explícito);
 - `STORAGE_DRIVER=cloudinary`;
 - `CLOUDINARY_CLOUD_NAME`;
 - `CLOUDINARY_API_KEY`;
@@ -33,6 +41,15 @@ Em produção também são obrigatórias:
 - `TOKEN_ENCRYPTION_KEY`;
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` e `SMTP_FROM`.
 
+`ALLOWED_ORIGINS` é opcional quando existe apenas o domínio de `APP_URL`. Para
+mais de uma origem, use uma lista separada por vírgulas, sempre com HTTPS e sem
+caminho:
+
+```env
+APP_URL=https://app.exemplo.com.br
+ALLOWED_ORIGINS=https://www.exemplo.com.br,https://servico.onrender.com
+```
+
 Nunca registre os valores dessas variáveis. O nome legado `SECRETSESSION` não é
 usado no novo boot; configure `SESSION_SECRET`.
 
@@ -44,6 +61,32 @@ produção.
 O `MemoryStore` só pode ser usado fora de produção com
 `ALLOW_MEMORY_SESSION=true`. Quando MongoDB estiver disponível, o sistema usa o
 mesmo cliente Mongoose no `connect-mongo`.
+
+## Índices obrigatórios antes do primeiro boot de produção
+
+A criação automática de índices críticos permanece desligada para evitar uma
+migração única acidental em uma base existente. Execute primeiro em homologação:
+
+```bash
+npm run indexes:dry-run
+```
+
+Resolva toda duplicidade exibida. Depois aplique de forma controlada:
+
+```bash
+ALLOW_INDEX_MIGRATION=true npm run indexes:apply
+```
+
+O servidor de produção agora verifica esses índices após conectar ao MongoDB e
+**recusa o boot** quando algum índice crítico estiver ausente ou divergente.
+Isso inclui a unicidade da criação pública de pedidos por chave de idempotência.
+
+## Limite de instâncias
+
+Mantenha `WEB_CONCURRENCY=1`. O rate limit usa MongoDB em produção e é
+compartilhado, porém a conexão em tempo real com o agente de impressão ainda é
+local ao processo. Escala horizontal exige um adaptador compartilhado para o
+Socket.IO/agente e uma estratégia de roteamento apropriada.
 
 ## Homologação controlada do Cloudinary
 
@@ -123,8 +166,9 @@ para falha de limpeza.
 ## Health checks
 
 - `GET /health`: confirma que o processo responde; não consulta o banco.
-- `GET /ready`: retorna 200 somente após ambiente, MongoDB, store de sessão,
-  workers e listener HTTP estarem prontos. Durante boot ou shutdown retorna 503.
+- `GET /ready`: retorna 200 somente após ambiente, MongoDB, índices críticos,
+  store de sessão, workers e listener HTTP estarem prontos. Durante boot ou
+  shutdown retorna 503.
 
 Ambas as respostas usam `Cache-Control: no-store` e não expõem configuração.
 

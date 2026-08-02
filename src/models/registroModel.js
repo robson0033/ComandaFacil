@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const validator = require("validator");
 const bcryptjs = require("bcryptjs");
+const { validatePassword } = require("../utils/passwordPolicy");
 
 const registroSchema = new mongoose.Schema({
   nome: {
@@ -263,9 +264,8 @@ class Registro {
   validaSenha() {
     if (!this.body.senha) return;
 
-    if (this.body.senha.length < 6 || this.body.senha.length > 15) {
-      this.errors.push("A senha precisa ter entre 6 e 15 caracteres.");
-    }
+    const passwordResult = validatePassword(this.body.senha);
+    this.errors.push(...passwordResult.errors);
 
     if (this.body.senha !== this.body.confirmarSenha) {
       this.errors.push("As senhas não são iguais.");

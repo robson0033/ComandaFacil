@@ -1,5 +1,7 @@
 "use strict";
 
+const { logger: appLogger } = require("../utils/logger");
+
 const { Funcionario } = require("../models/painelModels");
 const {
   clearSessionCookie,
@@ -25,7 +27,7 @@ function encerrarSessao(req, callback) {
   if (typeof req.session?.destroy === "function") {
     return req.session.destroy(error => {
       if (error) {
-        console.error("session_destroy_failed", {
+        appLogger.error("session_destroy_failed", {
           code: "SESSION_DESTROY_FAILED",
           type: String(error.name || "Error").slice(0, 80),
         });
@@ -41,7 +43,7 @@ function encerrarSessao(req, callback) {
 }
 
 function negarAutenticacao(req, res) {
-  console.warn("access_blocked", {
+  appLogger.warn("access_blocked", {
     correlationId: req.correlationId,
     code: "SESSION_INVALID",
     method: req.method,
@@ -144,7 +146,7 @@ async function carregarIdentidadeAtual(req, { forcar = false } = {}) {
 }
 
 function negarPermissao(req, res, message) {
-  console.warn("access_blocked", {
+  appLogger.warn("access_blocked", {
     correlationId: req.correlationId,
     code: "PERMISSION_DENIED",
     method: req.method,

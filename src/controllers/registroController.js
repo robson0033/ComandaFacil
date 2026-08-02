@@ -1,3 +1,5 @@
+const { logger: appLogger } = require("../utils/logger");
+
 const { Registro } = require('../models/registroModel');
 const {
   safeFlash,
@@ -39,7 +41,7 @@ exports.registro = async (req, res) => {
       return res.redirect('/login/index');
     });
   } catch (error) {
-    console.error('Erro ao realizar cadastro:', error);
+    appLogger.error('Erro ao realizar cadastro:', error);
 
     safeFlash(
       req,

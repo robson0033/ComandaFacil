@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const express = require('express');
 const {
   createImageUpload,
@@ -45,18 +46,83 @@ const {
   assinaturaRequired,
 } = require('./src/middleware/assinatura');
 const {
+  anonymousSameOriginProtection,
   csrfSameOriginProtection,
 } = require('./src/middleware/csrf');
 const {
   createRateLimiter,
 } = require('./src/middleware/rateLimit');
 
-const limiteAssinatura = createRateLimiter({ windowMs: 60_000, max: 6 });
-const limiteOauth = createRateLimiter({ windowMs: 60_000, max: 10 });
-const limitePixPedido = createRateLimiter({ windowMs: 60_000, max: 12 });
-const limiteStatusPagamento = createRateLimiter({ windowMs: 60_000, max: 60 });
-const limiteWebhook = createRateLimiter({ windowMs: 60_000, max: 300 });
+const normalizarEmailRateLimit = value => String(value || "").trim().toLowerCase().slice(0, 254);
+const hashRateLimit = value => crypto.createHash("sha256").update(String(value || "")).digest("hex");
+
+const limiteAssinatura = createRateLimiter({ name: "subscription", windowMs: 60_000, max: 6 });
+const limiteOauth = createRateLimiter({ name: "oauth", windowMs: 60_000, max: 10 });
+const limitePixPedido = createRateLimiter({ name: "order-pix", windowMs: 60_000, max: 12 });
+const limiteStatusPagamento = createRateLimiter({ name: "payment-status", windowMs: 60_000, max: 60 });
+const limiteWebhook = createRateLimiter({ name: "webhook", windowMs: 60_000, max: 300 });
+const limiteLoginIp = createRateLimiter({
+  name: "auth-login-ip",
+  windowMs: 15 * 60_000,
+  max: 40,
+  key: req => req.ip,
+});
+const limiteLoginIdentidade = createRateLimiter({
+  name: "auth-login-identity",
+  windowMs: 15 * 60_000,
+  max: 10,
+  key: req => `${req.ip}|${hashRateLimit(normalizarEmailRateLimit(req.body?.email))}`,
+});
+const limiteCadastro = createRateLimiter({
+  name: "auth-register",
+  windowMs: 60 * 60_000,
+  max: 5,
+  key: req => req.ip,
+});
+const limiteRecuperacaoSolicitar = createRateLimiter({
+  name: "auth-recovery-request",
+  windowMs: 15 * 60_000,
+  max: 5,
+  key: req => `${req.ip}|${hashRateLimit(normalizarEmailRateLimit(req.body?.email))}`,
+});
+const limiteRecuperacaoCodigo = createRateLimiter({
+  name: "auth-recovery-code",
+  windowMs: 15 * 60_000,
+  max: 10,
+  key: req => `${req.ip}|${req.sessionID || "no-session"}|${hashRateLimit(req.session?.recuperacaoEmail)}`,
+});
+const limiteNovaSenha = createRateLimiter({
+  name: "auth-recovery-password",
+  windowMs: 15 * 60_000,
+  max: 5,
+  key: req => `${req.ip}|${req.sessionID || "no-session"}`,
+});
+const limitePedidoCatalogo = createRateLimiter({
+  name: "public-order-catalog-burst",
+  windowMs: 60_000,
+  max: 8,
+  key: req => `${req.ip}|${String(req.params.slug || "").toLowerCase()}`,
+});
+const limitePedidoCatalogoHora = createRateLimiter({
+  name: "public-order-catalog-hour",
+  windowMs: 60 * 60_000,
+  max: 30,
+  key: req => `${req.ip}|${String(req.params.slug || "").toLowerCase()}`,
+});
+const limitePedidoMesa = createRateLimiter({
+  name: "public-order-table-burst",
+  windowMs: 60_000,
+  max: 12,
+  key: req => `${req.ip}|${String(req.params.token || "")}`,
+});
+const limitePedidoMesaHora = createRateLimiter({
+  name: "public-order-table-hour",
+  windowMs: 60 * 60_000,
+  max: 60,
+  key: req => `${req.ip}|${String(req.params.token || "")}`,
+});
 const limiteAcompanhamentoPedido = createRateLimiter({
+  name: "public-order-tracking",
   windowMs: 60_000,
   max: 30,
   key: req => `${req.ip}|${String(req.params.slug || "").toLowerCase()}`,
@@ -66,10 +132,10 @@ const limiteAcompanhamentoPedido = createRateLimiter({
   }),
 });
 const limiteConsultaPedidoPublico = createRateLimiter({
+  name: "public-order-lookup",
   windowMs: 5 * 60_000,
   max: 8,
   key: req => {
-    const crypto = require("crypto");
     const phone = String(req.body?.telefone || "").replace(/\D/g, "").slice(-11);
     const code = String(req.body?.codigoCompleto || req.body?.codigoFinal || "")
       .trim().toUpperCase();
@@ -125,6 +191,9 @@ route.get(
 
 route.post(
   '/login/admin',
+  limiteLoginIp,
+  limiteLoginIdentidade,
+  anonymousSameOriginProtection,
   loginController.login
 );
 
@@ -135,6 +204,8 @@ route.get(
 
 route.post(
   '/login/recuperar-senha',
+  limiteRecuperacaoSolicitar,
+  anonymousSameOriginProtection,
   recuperacaoSenhaController.solicitarCodigo
 );
 
@@ -145,6 +216,8 @@ route.get(
 
 route.post(
   '/login/verificar-codigo',
+  limiteRecuperacaoCodigo,
+  anonymousSameOriginProtection,
   recuperacaoSenhaController.verificarCodigo
 );
 
@@ -155,6 +228,8 @@ route.get(
 
 route.post(
   '/login/nova-senha',
+  limiteNovaSenha,
+  anonymousSameOriginProtection,
   recuperacaoSenhaController.salvarNovaSenha
 );
 
@@ -165,6 +240,8 @@ route.get(
 
 route.post(
   '/cadastro/login',
+  limiteCadastro,
+  anonymousSameOriginProtection,
   registroController.registro
 );
 
@@ -582,7 +659,7 @@ route.get(
 );
 
 route.get('/catalogo/:slug/produtos-status', admin.statusProdutosCatalogo);
-route.post('/catalogo/:slug/pedidos', respostaPedidoSemCache, admin.criarPedidoCatalogo);
+route.post('/catalogo/:slug/pedidos', respostaPedidoSemCache, limitePedidoCatalogo, limitePedidoCatalogoHora, anonymousSameOriginProtection, admin.criarPedidoCatalogo);
 route.post('/catalogo/:slug/pedidos/consultar', respostaPedidoSemCache, limiteConsultaPedidoPublico, admin.consultarPedidoPublico);
 route.post(
   '/catalogo/:slug/pedido/consultar',
@@ -602,6 +679,9 @@ route.get(
 route.post(
   '/mesa/:token/pedidos',
   respostaPedidoSemCache,
+  limitePedidoMesa,
+  limitePedidoMesaHora,
+  anonymousSameOriginProtection,
   admin.criarPedidoMesa
 );
 

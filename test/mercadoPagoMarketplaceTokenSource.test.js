@@ -23,7 +23,7 @@ test("taxa de marketplace bloqueia conta vendedora igual à conta integradora", 
 });
 
 test("diagnóstico não registra access token", () => {
-  const diagnostic = controller.match(/console\.info\("mercado_pago_order_token_diagnostic"[\s\S]*?\n\s*\}\);/)?.[0] || "";
+  const diagnostic = controller.match(/appLogger\.info\("mercado_pago_order_token_diagnostic"[\s\S]*?\n\s*\}\);/)?.[0] || "";
   assert.ok(diagnostic);
   assert.doesNotMatch(diagnostic, /accessToken\s*[,}]/);
   assert.match(diagnostic, /accessTokenPresent/);

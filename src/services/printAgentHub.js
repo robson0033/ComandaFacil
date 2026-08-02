@@ -1,3 +1,5 @@
+const { logger: appLogger } = require("../utils/logger");
+
 const crypto = require("crypto");
 const { PrintAgent } = require("../models/painelModels");
 const printQueueService = require("./printQueueService");
@@ -64,7 +66,7 @@ function publishStatus(estabelecimentoId, connected, details) {
     try {
       listener(payload);
     } catch (error) {
-      console.error("Erro ao publicar status do agente:", error);
+      appLogger.error("Erro ao publicar status do agente:", error);
     }
   }
   return payload;
@@ -176,7 +178,7 @@ function init(io) {
       socket.data.agent = agente;
       return next();
     } catch (error) {
-      console.error("Erro ao autenticar agente de impressão:", error);
+      appLogger.error("Erro ao autenticar agente de impressão:", error);
       return next(new Error("Falha ao autenticar agente de impressão."));
     }
   });
@@ -273,7 +275,7 @@ function init(io) {
       });
       void printQueueService.drenarFilaDoEstabelecimento(lojaId, socket);
     } catch (error) {
-      console.error("Erro ao finalizar conexão do agente:", error);
+      appLogger.error("Erro ao finalizar conexão do agente:", error);
       socket.disconnect(true);
       return;
     }
@@ -284,7 +286,7 @@ function init(io) {
         agente.ultimaConexao = new Date();
         await agente.save();
       } catch (error) {
-        console.error("Erro ao salvar impressoras do agente:", error);
+        appLogger.error("Erro ao salvar impressoras do agente:", error);
       }
     });
 
@@ -296,7 +298,7 @@ function init(io) {
           void printQueueService.drenarFilaDoEstabelecimento(lojaId, socket);
         }
       } catch (error) {
-        console.error("Erro ao persistir status do trabalho:", error);
+        appLogger.error("Erro ao persistir status do trabalho:", error);
       }
     });
 
@@ -318,7 +320,7 @@ function init(io) {
           }
         }
       } catch (error) {
-        console.error("Erro no sweep da fila de impressão:", error);
+        appLogger.error("Erro no sweep da fila de impressão:", error);
       }
     }, 15000);
     sweepTimer.unref?.();

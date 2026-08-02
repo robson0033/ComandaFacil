@@ -39,7 +39,7 @@ Limitação do ambiente:
   ser executadas neste ambiente.
 
 Antes de produção:
-- instalar dependências no ambiente Node 20.19.x;
+- instalar dependências no ambiente Node 24.18.1 LTS;
 - rodar node --test test/*.test.js;
 - compilar todos os EJS;
 - executar o dry-run do script de índices;

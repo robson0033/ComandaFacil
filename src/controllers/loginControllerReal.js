@@ -1,3 +1,5 @@
+const { logger: appLogger } = require("../utils/logger");
+
 const bcrypt = require("bcryptjs");
 const validator = require("validator");
 const { registroModel } = require("../models/registroModel");
@@ -30,14 +32,14 @@ function autenticarComNovaSessao(req, res, user, lembrar) {
   appState.closeSseConnectionsForSession(previousSessionId);
   return req.session.regenerate(error => {
     if (error) {
-      console.error("session_regenerate_failed", { code: "SESSION_REGENERATE_FAILED" });
+      appLogger.error("session_regenerate_failed", { code: "SESSION_REGENERATE_FAILED" });
       return res.status(500).render("404");
     }
     configurarDuracaoDaSessao(req, lembrar);
     req.session.user = user;
     return req.session.save(saveError => {
       if (saveError) {
-        console.error("session_save_failed", { code: "SESSION_SAVE_FAILED" });
+        appLogger.error("session_save_failed", { code: "SESSION_SAVE_FAILED" });
         return res.status(500).render("404");
       }
       res.clearCookie("connect.sid", {
@@ -109,7 +111,7 @@ exports.login = async (req, res) => {
     safeFlash(req, "errors", "E-mail ou senha inválidos.");
     return saveSessionOrRun(req, () => res.redirect("/login/index"));
   } catch (e) {
-    console.error(e);
+    appLogger.error(e);
     return res.status(500).render("404");
   }
 };

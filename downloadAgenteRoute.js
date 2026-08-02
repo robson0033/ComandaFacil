@@ -1,3 +1,5 @@
+const { logger: appLogger } = require("./src/utils/logger");
+
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -31,7 +33,7 @@ router.get('/downloads/agente', (req, res) => {
     nomeArquivo,
     error => {
       if (error && !res.headersSent) {
-        console.error(
+        appLogger.error(
           'Erro ao baixar o agente:',
           error
         );

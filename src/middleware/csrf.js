@@ -1,5 +1,7 @@
 "use strict";
 
+const { logger: appLogger } = require("../utils/logger");
+
 const crypto = require("crypto");
 const { clearSessionCookie } = require("../config/sessionConfig");
 const { safeFlash } = require("../utils/safeFlash");
@@ -113,7 +115,7 @@ function configuredOrigins(env = process.env) {
 
 function createCsrfSameOriginProtection({
   env = process.env,
-  logger = console,
+  logger = appLogger,
 } = {}) {
   const allowed = configuredOrigins(env);
   const appOrigin = normalizeOrigin(env.APP_URL);
@@ -216,6 +218,61 @@ function createCsrfSameOriginProtection({
 
 const csrfSameOriginProtection = createCsrfSameOriginProtection();
 
+function createAnonymousSameOriginProtection({
+  env = process.env,
+  logger = appLogger,
+} = {}) {
+  const allowed = configuredOrigins(env);
+  return function anonymousSameOriginProtection(req, res, next) {
+    const method = String(req.method || "").toUpperCase();
+    if (isSafeHttpMethod(method)) return next();
+    if (!MUTATING_METHODS.has(method)) {
+      return res.status(405).send("Método não permitido.");
+    }
+
+    const originRaw = req.get?.("origin");
+    const hasOrigin = typeof originRaw === "string"
+      ? Boolean(originRaw.trim())
+      : originRaw !== undefined && originRaw !== null;
+    const refererRaw = hasOrigin ? "" : req.get?.("referer");
+    const sourceOrigin = normalizeOrigin(hasOrigin ? originRaw : refererRaw);
+    let code = "";
+
+    if (hasOrigin && String(originRaw).trim() === "null") code = "ORIGIN_NULL";
+    else if (!sourceOrigin) code = hasOrigin ? "ORIGIN_MALFORMADA" : "ORIGIN_AUSENTE";
+    else if (!allowed.has(sourceOrigin)) code = "ORIGIN_NAO_AUTORIZADA";
+    else if (!req.session) code = "SESSION_REQUIRED";
+    else {
+      const tokenStatus = csrfTokenStatus(req);
+      if (tokenStatus !== "VALIDO") code = tokenStatus;
+    }
+
+    if (!code) return next();
+
+    logger.warn?.("anonymous_csrf_blocked", {
+      correlationId: req.correlationId,
+      code,
+      method,
+      path: String(req.originalUrl || req.path || "").slice(0, 300),
+      requestType: requestKind(req),
+      sessionPresent: Boolean(req.session),
+    });
+
+    if (requestKind(req) === "api") {
+      return res.status(403).json({
+        success: false,
+        ok: false,
+        code,
+        message: "Atualize a página e tente novamente.",
+        correlationId: req.correlationId,
+      });
+    }
+    return res.status(403).send(`Operação bloqueada (${code}).`);
+  };
+}
+
+const anonymousSameOriginProtection = createAnonymousSameOriginProtection();
+
 function isSafeHttpMethod(method) {
   return SAFE_METHODS.has(String(method || "").toUpperCase());
 }
@@ -251,7 +308,9 @@ function assertCsrfConfiguration(env = process.env) {
 
 module.exports = {
   assertCsrfConfiguration,
+  anonymousSameOriginProtection,
   configuredOrigins,
+  createAnonymousSameOriginProtection,
   createCsrfSameOriginProtection,
   ensureCsrfToken,
   isMutatingMethod,

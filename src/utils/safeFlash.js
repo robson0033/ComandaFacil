@@ -1,5 +1,7 @@
 "use strict";
 
+const { logger: appLogger } = require("./logger");
+
 function canUseFlash(req) {
   return Boolean(req?.session && typeof req.flash === "function");
 }
@@ -28,7 +30,7 @@ function saveSessionOrRun(req, callback) {
   if (typeof req?.session?.save !== "function") return callback();
   return req.session.save(error => {
     if (error) {
-      console.error("session_save_failed", {
+      appLogger.error("session_save_failed", {
         code: "SESSION_SAVE_FAILED",
         type: String(error.name || "Error").slice(0, 80),
       });

@@ -1,8 +1,6 @@
 "use strict";
 
 const crypto = require("crypto");
-const { Pedido } = require("../models/painelModels");
-
 const VALIDADE_TOKEN_MS = 90 * 24 * 60 * 60 * 1000;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
@@ -12,6 +10,35 @@ function hashToken(token) {
 
 function gerarTokenAcompanhamento(agora = new Date()) {
   const token = crypto.randomBytes(32).toString("base64url");
+  return {
+    token,
+    hash: hashToken(token),
+    criadoEm: new Date(agora),
+    expiraEm: new Date(new Date(agora).getTime() + VALIDADE_TOKEN_MS),
+  };
+}
+
+
+function gerarTokenAcompanhamentoIdempotente({
+  estabelecimentoId,
+  canal,
+  idempotencyKey,
+  agora = new Date(),
+  secret = process.env.SESSION_SECRET,
+} = {}) {
+  const segredo = String(secret || "");
+  if (segredo.length < 32) {
+    throw new Error("SESSION_SECRET não configurada para idempotência.");
+  }
+  const material = [
+    "public-order-v1",
+    String(estabelecimentoId || ""),
+    String(canal || ""),
+    String(idempotencyKey || ""),
+  ].join(":");
+  const token = crypto.createHmac("sha256", segredo)
+    .update(material)
+    .digest("base64url");
   return {
     token,
     hash: hashToken(token),
@@ -39,6 +66,7 @@ async function buscarPedidoPorToken({
   lean = true,
 } = {}) {
   if (!estabelecimentoId || !tokenTemFormatoValido(token)) return null;
+  const { Pedido } = require("../models/painelModels");
   const query = Pedido.findOne({
     estabelecimentoId,
     acompanhamentoTokenHash: hashToken(token),
@@ -103,6 +131,7 @@ module.exports = {
   codigoPublico,
   extrairBearerToken,
   gerarTokenAcompanhamento,
+  gerarTokenAcompanhamentoIdempotente,
   hashToken,
   serializarPedidoPublico,
   tokenTemFormatoValido,

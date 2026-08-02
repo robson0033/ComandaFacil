@@ -8,7 +8,7 @@
   <title><%= configuracao.nomeEstabelecimento %> | Cardápio</title>
   <link rel="icon" href="/assets/imgs/comanda.png" type="image/x-png">
 
-  <style>
+  <style nonce="<%= cspNonce %>">
     :root {
       --bg: #f7f4f1;
       --card: #ffffff;
@@ -2653,6 +2653,16 @@
     const confirmarTrocoBtn = document.querySelector("#confirmarTrocoBtn");
     const voltarTrocoBtn = document.querySelector("#voltarTrocoBtn");
 
+    const csrfTokenPublico = <%- safeJsonForHtml(csrfToken) %>;
+    let pedidoIdempotencyKeyAtual = null;
+
+    function criarIdempotencyKey() {
+      if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+      return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, caractere =>
+        (Number(caractere) ^ (globalThis.crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (Number(caractere) / 4))))
+          .toString(16));
+    }
+
     let pedidoPendente = null;
 
     function abrirModalTroco(payload) {
@@ -2703,7 +2713,10 @@
           `/catalogo/${encodeURIComponent(storeSlug)}/pedidos`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRF-Token": csrfTokenPublico
+            },
             body: JSON.stringify(payload)
           }
         );
@@ -2711,6 +2724,9 @@
         const result = await response.json();
 
         if (!response.ok) {
+          // Erros de validação permitem uma nova tentativa com outro payload.
+          // Em falhas 5xx/rede, a chave é preservada para repetir com segurança.
+          if (response.status < 500) pedidoIdempotencyKeyAtual = null;
           if (result.code === "LOJA_INDISPONIVEL") {
             bloquearLojaPublica();
           }
@@ -2745,6 +2761,7 @@
         }
 
         fecharModalTroco();
+        pedidoIdempotencyKeyAtual = null;
 
         if (payload.formaPagamento === "pix") {
           const pixResponse = await fetch(
@@ -2920,6 +2937,7 @@
         formaPagamento: String(formData.get("formaPagamento") || "nao_informado"),
         precisaTroco: false,
         trocoPara: null,
+        idempotencyKey: pedidoIdempotencyKeyAtual ||= criarIdempotencyKey(),
         itens: cart.map(item => ({
           produtoId: item.id,
           preco: Number(item.price),
@@ -2962,7 +2980,7 @@
     });
   </script>
 
-<style>
+<style nonce="<%= cspNonce %>">
   #openMyOrders {
     position: fixed;
     right: 18px;
