@@ -214,6 +214,21 @@ test("idempotência existe no navegador, controller, serviço e índice único",
     assert.match(page, /X-CSRF-Token/);
     assert.match(page, /crypto\.randomUUID/);
   }
+  assert.match(catalog, /let pedidoPreparacaoEmAndamento = false/);
+  assert.match(catalog, /let pedidoEnvioEmAndamento = false/);
+  assert.match(
+    catalog,
+    /orderForm\.addEventListener\("submit"[\s\S]{0,500}if \(pedidoPreparacaoEmAndamento \|\| pedidoEnvioEmAndamento\) return;[\s\S]{0,500}pedidoPreparacaoEmAndamento = true;[\s\S]{0,300}await sincronizarCarrinho\(\)/,
+  );
+  assert.match(
+    catalog,
+    /async function enviarPedido\(payload\) \{[\s\S]{0,160}if \(pedidoEnvioEmAndamento\) return;[\s\S]{0,120}pedidoEnvioEmAndamento = true;/,
+  );
+  assert.match(table, /let pedidoEnvioEmAndamento = false/);
+  assert.match(
+    table,
+    /if \(pedidoEnvioEmAndamento\) return;[\s\S]{0,120}pedidoEnvioEmAndamento = true;[\s\S]{0,120}button\.disabled = true;/,
+  );
   assert.match(controller, /validatePublicOrderBase/);
   assert.doesNotMatch(controller, /criarPedidoCatalogoAnterior/);
   assert.match(queue, /gerarTokenAcompanhamentoIdempotente/);

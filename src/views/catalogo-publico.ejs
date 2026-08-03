@@ -2655,6 +2655,8 @@
 
     const csrfTokenPublico = <%- safeJsonForHtml(csrfToken) %>;
     let pedidoIdempotencyKeyAtual = null;
+    let pedidoPreparacaoEmAndamento = false;
+    let pedidoEnvioEmAndamento = false;
 
     function criarIdempotencyKey() {
       if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -2702,11 +2704,16 @@
     });
 
     async function enviarPedido(payload) {
+      if (pedidoEnvioEmAndamento) return;
+      pedidoEnvioEmAndamento = true;
+
       formMessage.className = "form-message";
       formMessage.textContent = "";
       sendOrderBtn.disabled = true;
       sendOrderBtn.textContent = "Enviando pedido...";
       confirmarTrocoBtn.disabled = true;
+      semTrocoBtn.disabled = true;
+      comTrocoBtn.disabled = true;
 
       try {
         const response = await fetch(
@@ -2860,10 +2867,13 @@
           trocoMessage.textContent = error.message;
         }
       } finally {
+        pedidoEnvioEmAndamento = false;
         sendOrderBtn.disabled = false;
         sendOrderBtn.textContent = "Enviar pedido";
         confirmarTrocoBtn.disabled = false;
         confirmarTrocoBtn.textContent = "Confirmar e enviar pedido";
+        semTrocoBtn.disabled = false;
+        comTrocoBtn.disabled = false;
       }
     }
 
@@ -2909,52 +2919,69 @@
     orderForm.addEventListener("submit", async event => {
       event.preventDefault();
 
+      // O bloqueio precisa acontecer antes da primeira operação assíncrona.
+      // Sem isso, vários cliques entram simultaneamente em sincronizarCarrinho()
+      // e podem gerar chaves diferentes depois que a primeira requisição termina.
+      if (pedidoPreparacaoEmAndamento || pedidoEnvioEmAndamento) return;
       if (!storeIsOpen || !cart.length) return;
+
+      pedidoPreparacaoEmAndamento = true;
+      sendOrderBtn.disabled = true;
+      sendOrderBtn.textContent = "Preparando pedido...";
+
       try {
-        const mudancas = await sincronizarCarrinho();
-        if (
-          mudancas.lojaIndisponivel
-          || mudancas.idsRemovidos.length
-          || mudancas.precoAlterado
-        ) {
+        try {
+          const mudancas = await sincronizarCarrinho();
+          if (
+            mudancas.lojaIndisponivel
+            || mudancas.idsRemovidos.length
+            || mudancas.precoAlterado
+          ) {
+            return;
+          }
+        } catch (error) {
+          avisarCarrinho(error.message);
           return;
         }
-      } catch (error) {
-        avisarCarrinho(error.message);
-        return;
+
+        const formData = new FormData(orderForm);
+        const payload = {
+          cliente: String(formData.get("cliente") || "").trim(),
+          telefone: String(formData.get("telefone") || "").trim(),
+          canal: String(formData.get("canal") || ""),
+          ruaEntrega: String(formData.get("ruaEntrega") || "").trim(),
+          numeroEntrega: String(formData.get("numeroEntrega") || "").trim(),
+          bairroEntrega: String(formData.get("bairroEntrega") || "").trim(),
+          referenciaEntrega: String(formData.get("referenciaEntrega") || "").trim(),
+          observacao: String(formData.get("observacao") || "").trim(),
+          formaPagamento: String(formData.get("formaPagamento") || "nao_informado"),
+          precisaTroco: false,
+          trocoPara: null,
+          idempotencyKey: pedidoIdempotencyKeyAtual ||= criarIdempotencyKey(),
+          itens: cart.map(item => ({
+            produtoId: item.id,
+            preco: Number(item.price),
+            quantidade: Number(item.quantity),
+            adicionais: (item.adicionais || []).map(adicional => ({
+              _id: adicional._id
+            })),
+            observacao: String(item.observacao || "")
+          }))
+        };
+
+        if (payload.formaPagamento === "dinheiro") {
+          abrirModalTroco(payload);
+          return;
+        }
+
+        await enviarPedido(payload);
+      } finally {
+        pedidoPreparacaoEmAndamento = false;
+        if (!pedidoEnvioEmAndamento) {
+          sendOrderBtn.disabled = false;
+          sendOrderBtn.textContent = "Enviar pedido";
+        }
       }
-
-      const formData = new FormData(orderForm);
-      const payload = {
-        cliente: String(formData.get("cliente") || "").trim(),
-        telefone: String(formData.get("telefone") || "").trim(),
-        canal: String(formData.get("canal") || ""),
-        ruaEntrega: String(formData.get("ruaEntrega") || "").trim(),
-        numeroEntrega: String(formData.get("numeroEntrega") || "").trim(),
-        bairroEntrega: String(formData.get("bairroEntrega") || "").trim(),
-        referenciaEntrega: String(formData.get("referenciaEntrega") || "").trim(),
-        observacao: String(formData.get("observacao") || "").trim(),
-        formaPagamento: String(formData.get("formaPagamento") || "nao_informado"),
-        precisaTroco: false,
-        trocoPara: null,
-        idempotencyKey: pedidoIdempotencyKeyAtual ||= criarIdempotencyKey(),
-        itens: cart.map(item => ({
-          produtoId: item.id,
-          preco: Number(item.price),
-          quantidade: Number(item.quantity),
-          adicionais: (item.adicionais || []).map(adicional => ({
-            _id: adicional._id
-          })),
-          observacao: String(item.observacao || "")
-        }))
-      };
-
-      if (payload.formaPagamento === "dinheiro") {
-        abrirModalTroco(payload);
-        return;
-      }
-
-      await enviarPedido(payload);
     });
 
     loadCart();

@@ -2295,6 +2295,7 @@
 
     const csrfTokenPublico = <%- safeJsonForHtml(csrfToken) %>;
     let pedidoIdempotencyKeyAtual = null;
+    let pedidoEnvioEmAndamento = false;
 
     function criarIdempotencyKey() {
       if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -2324,6 +2325,8 @@
               '#finishOrder'
             );
 
+          if (pedidoEnvioEmAndamento) return;
+          pedidoEnvioEmAndamento = true;
           button.disabled = true;
           button.textContent =
             'Enviando pedido...';
@@ -2381,6 +2384,7 @@
               'Não foi possível enviar o pedido.'
             );
           } finally {
+            pedidoEnvioEmAndamento = false;
             if (lojaDisponivelPublica) {
               button.disabled = false;
               button.textContent =
