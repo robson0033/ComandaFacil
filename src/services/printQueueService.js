@@ -172,7 +172,15 @@ async function montarSnapshotValidado({
       mesaNumero,
       cliente: text(pedido.cliente || "Cliente não informado", 160),
       telefone: text(pedido.telefoneCliente, 40),
+      // O agente valida os nomes canônicos do protocolo de impressão,
+      // enquanto o Pedido persiste os campos com o sufixo "Entrega".
+      // Manter o endereço legado preserva compatibilidade com pedidos antigos;
+      // os campos estruturados garantem Rua, Número, Bairro e Referência.
       endereco: text(pedido.enderecoEntrega, 500),
+      rua: text(pedido.ruaEntrega, 220),
+      numeroEndereco: text(pedido.numeroEntrega, 40),
+      bairro: text(pedido.bairroEntrega, 160),
+      referencia: text(pedido.referenciaEntrega, 300),
       observacao: text(pedido.observacao, 1_000),
       total: number(pedido.total),
       status: text(pedido.status || "novo", 30),
