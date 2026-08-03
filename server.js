@@ -20,6 +20,7 @@ const {
 const { securityHeaders } = require("./src/middleware/securityHeaders");
 const { requestContext } = require("./src/middleware/requestContext");
 const { stopRateLimiters } = require("./src/middleware/rateLimit");
+const { requestBodyErrorHandler } = require("./src/middleware/requestBodyErrors");
 const { createSystemRouter } = require("./src/routes/systemRoutes");
 const {
   createRuntimeHomologacaoRouter,
@@ -96,6 +97,7 @@ function configureApplication(app, {
   app.use(middleware.middlewareGlobal);
   app.use(route);
   app.use((req, res) => res.status(404).render("404"));
+  app.use(requestBodyErrorHandler);
   app.use((error, req, res, next) => {
     if (res.headersSent) return next(error);
     const type = String(error?.name || "Error").slice(0, 80);

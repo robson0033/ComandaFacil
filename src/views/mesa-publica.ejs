@@ -1728,7 +1728,7 @@
       class="order-field"
       id="clientName"
       placeholder="Seu nome (opcional)"
-      maxlength="100"
+      maxlength="120"
     >
 
     <textarea
@@ -1836,6 +1836,13 @@
     let lojaDisponivelPublica =
       <%- safeJsonForHtml(lojaDisponivel !== false) %>;
 
+    const PUBLIC_ORDER_LIMITS = Object.freeze({
+      maxItems: 50,
+      maxTotalQuantity: 200,
+      maxQuantityPerItem: 99,
+      maxAdditionsPerItem: 20,
+    });
+
     const cartElement =
       document.querySelector('#cart');
 
@@ -1942,10 +1949,22 @@
 
     let pendingProductToAdd = null;
 
+    function totalCartQuantity() {
+      return cart.reduce(
+        (sum, item) => sum + Number(item.quantidade || 0),
+        0
+      );
+    }
+
     function addProductToCart(product, additionals = []) {
+      if (additionals.length > PUBLIC_ORDER_LIMITS.maxAdditionsPerItem) {
+        alert(`Escolha no máximo ${PUBLIC_ORDER_LIMITS.maxAdditionsPerItem} adicionais por item.`);
+        return false;
+      }
+
       const additionsKey =
         additionals
-          .map(additional => additional._id)
+          .map(adicional => adicional._id)
           .sort()
           .join(',');
 
@@ -1954,6 +1973,21 @@
           item.produtoId === product.produtoId &&
           item.additionsKey === additionsKey
       );
+
+      if (totalCartQuantity() >= PUBLIC_ORDER_LIMITS.maxTotalQuantity) {
+        alert(`O pedido pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxTotalQuantity} unidades.`);
+        return false;
+      }
+
+      if (existing && Number(existing.quantidade || 0) >= PUBLIC_ORDER_LIMITS.maxQuantityPerItem) {
+        alert(`Cada item pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxQuantityPerItem} unidades.`);
+        return false;
+      }
+
+      if (!existing && cart.length >= PUBLIC_ORDER_LIMITS.maxItems) {
+        alert(`O pedido pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxItems} itens diferentes.`);
+        return false;
+      }
 
       if (existing) {
         existing.quantidade += 1;
@@ -1969,6 +2003,7 @@
 
       renderCart();
       openCart();
+      return true;
     }
 
     function closeAddonModal() {
@@ -2050,24 +2085,43 @@
           )
         ).map(input => input.value);
 
+        if (selectedIds.length > PUBLIC_ORDER_LIMITS.maxAdditionsPerItem) {
+          alert(`Escolha no máximo ${PUBLIC_ORDER_LIMITS.maxAdditionsPerItem} adicionais por item.`);
+          return;
+        }
+
         const selected = pendingProductToAdd
           .additionals
           .filter(adicional =>
             selectedIds.includes(adicional._id)
           );
 
-        addProductToCart(
+        if (addProductToCart(
           pendingProductToAdd.product,
           selected
-        );
-
-        closeAddonModal();
+        )) {
+          closeAddonModal();
+        }
       });
 
     function changeQuantity(index, value) {
-      cart[index].quantidade += value;
+      const item = cart[index];
+      if (!item) return;
 
-      if (cart[index].quantidade <= 0) {
+      if (value > 0) {
+        if (totalCartQuantity() >= PUBLIC_ORDER_LIMITS.maxTotalQuantity) {
+          alert(`O pedido pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxTotalQuantity} unidades.`);
+          return;
+        }
+        if (Number(item.quantidade || 0) >= PUBLIC_ORDER_LIMITS.maxQuantityPerItem) {
+          alert(`Cada item pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxQuantityPerItem} unidades.`);
+          return;
+        }
+      }
+
+      item.quantidade += value;
+
+      if (item.quantidade <= 0) {
         cart.splice(index, 1);
       }
 
@@ -2090,7 +2144,7 @@
 
         element.className = 'cart-item';
 
-        element.innerHTML = '<div class="cart-item-image"></div><div><div class="cart-item-top"><div><strong class="cart-item-name"></strong><small class="cart-item-addons" style="display:block;margin-top:4px;color:#756a65"></small></div><strong class="cart-item-price"></strong></div><div class="quantity"><button type="button" data-action="minus">−</button><span></span><button type="button" data-action="plus">+</button></div><input class="item-note" placeholder="Observação deste item" maxlength="250"></div>';
+        element.innerHTML = '<div class="cart-item-image"></div><div><div class="cart-item-top"><div><strong class="cart-item-name"></strong><small class="cart-item-addons" style="display:block;margin-top:4px;color:#756a65"></small></div><strong class="cart-item-price"></strong></div><div class="quantity"><button type="button" data-action="minus">−</button><span></span><button type="button" data-action="plus">+</button></div><input class="item-note" placeholder="Observação deste item" maxlength="300"></div>';
         const imageBox = element.querySelector('.cart-item-image');
         const imageUrl = urlImagemSegura(item.imagem);
         if (imageUrl) {

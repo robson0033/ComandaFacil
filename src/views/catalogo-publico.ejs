@@ -1437,6 +1437,7 @@
           <input
             id="clienteNome"
             name="cliente"
+            maxlength="120"
             required
           >
         </div>
@@ -1450,6 +1451,7 @@
             id="clienteTelefone"
             name="telefone"
             inputmode="tel"
+            maxlength="30"
             placeholder="(99) 99999-9999"
             required
           >
@@ -1477,22 +1479,22 @@
 
         <div class="form-field full delivery-address-field" id="enderecoField">
           <label for="ruaEntrega">Rua</label>
-          <input id="ruaEntrega" name="ruaEntrega" placeholder="Nome da rua" required>
+          <input id="ruaEntrega" name="ruaEntrega" maxlength="180" placeholder="Nome da rua" required>
         </div>
 
         <div class="form-field delivery-address-field">
           <label for="numeroEntrega">Número</label>
-          <input id="numeroEntrega" name="numeroEntrega" placeholder="Ex.: 03" required>
+          <input id="numeroEntrega" name="numeroEntrega" maxlength="40" placeholder="Ex.: 03" required>
         </div>
 
         <div class="form-field delivery-address-field">
           <label for="bairroEntrega">Bairro</label>
-          <input id="bairroEntrega" name="bairroEntrega" placeholder="Nome do bairro" required>
+          <input id="bairroEntrega" name="bairroEntrega" maxlength="120" placeholder="Nome do bairro" required>
         </div>
 
         <div class="form-field full delivery-address-field">
           <label for="referenciaEntrega">Ponto de referência</label>
-          <input id="referenciaEntrega" name="referenciaEntrega" placeholder="Ex.: próximo à praça">
+          <input id="referenciaEntrega" name="referenciaEntrega" maxlength="240" placeholder="Ex.: próximo à praça">
         </div>
 
         <div class="form-field full">
@@ -1512,6 +1514,7 @@
           <textarea
             id="observacaoFinal"
             name="observacao"
+            maxlength="500"
             placeholder="Alguma observação adicional?"
           ></textarea>
         </div>
@@ -1672,6 +1675,13 @@
       <%- safeJsonForHtml(configuracao.slug || "") %>;
     const lojaDisponivelInicial =
       <%- safeJsonForHtml(lojaDisponivel !== false) %>;
+
+    const PUBLIC_ORDER_LIMITS = Object.freeze({
+      maxItems: 50,
+      maxTotalQuantity: 200,
+      maxQuantityPerItem: 99,
+      maxAdditionsPerItem: 20,
+    });
 
     const horarioAbertura =
       <%- safeJsonForHtml(horarioAbertura) %>;
@@ -2126,12 +2136,40 @@
     }
 
     function addToCart(product, adicionais = []) {
+      if (adicionais.length > PUBLIC_ORDER_LIMITS.maxAdditionsPerItem) {
+        avisarCarrinho(
+          `Escolha no máximo ${PUBLIC_ORDER_LIMITS.maxAdditionsPerItem} adicionais por item.`
+        );
+        return false;
+      }
+
       const addonsKey = adicionais
         .map(adicional => String(adicional._id))
         .sort()
         .join(",");
       const cartId = `${product.id}:${addonsKey}`;
       const existing = cart.find(item => item.cartId === cartId);
+
+      if (totalItems() >= PUBLIC_ORDER_LIMITS.maxTotalQuantity) {
+        avisarCarrinho(
+          `O pedido pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxTotalQuantity} unidades.`
+        );
+        return false;
+      }
+
+      if (existing && Number(existing.quantity || 0) >= PUBLIC_ORDER_LIMITS.maxQuantityPerItem) {
+        avisarCarrinho(
+          `Cada item pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxQuantityPerItem} unidades.`
+        );
+        return false;
+      }
+
+      if (!existing && cart.length >= PUBLIC_ORDER_LIMITS.maxItems) {
+        avisarCarrinho(
+          `O pedido pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxItems} itens diferentes.`
+        );
+        return false;
+      }
 
       if (existing) {
         existing.quantity += 1;
@@ -2146,6 +2184,7 @@
 
       saveCart();
       renderCart();
+      return true;
     }
 
     function updateCartItem(
@@ -2162,6 +2201,18 @@
       }
 
       if (action === "increase") {
+        if (totalItems() >= PUBLIC_ORDER_LIMITS.maxTotalQuantity) {
+          avisarCarrinho(
+            `O pedido pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxTotalQuantity} unidades.`
+          );
+          return;
+        }
+        if (Number(item.quantity || 0) >= PUBLIC_ORDER_LIMITS.maxQuantityPerItem) {
+          avisarCarrinho(
+            `Cada item pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxQuantityPerItem} unidades.`
+          );
+          return;
+        }
         item.quantity += 1;
       }
 
@@ -2258,9 +2309,14 @@
     document.querySelector("#confirmAddon").addEventListener("click", () => {
       if (!pendingProduct) return;
       const ids = [...addonList.querySelectorAll("input:checked")].map(input => input.value);
+      if (ids.length > PUBLIC_ORDER_LIMITS.maxAdditionsPerItem) {
+        avisarCarrinho(
+          `Escolha no máximo ${PUBLIC_ORDER_LIMITS.maxAdditionsPerItem} adicionais por item.`
+        );
+        return;
+      }
       const selected = pendingProduct.adicionais.filter(adicional => ids.includes(String(adicional._id)));
-      addToCart(pendingProduct.product, selected);
-      closeAddonModal();
+      if (addToCart(pendingProduct.product, selected)) closeAddonModal();
     });
 
     cartList.addEventListener(

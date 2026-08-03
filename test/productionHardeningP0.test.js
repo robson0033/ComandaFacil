@@ -67,7 +67,7 @@ test("política de senha aceita frases-senha e bloqueia senhas curtas/comuns", (
   assert.equal(validatePassword("á".repeat(40)).valid, false, "bcrypt limita a 72 bytes");
 });
 
-test("pedido público rejeita quantidade decimal, infinita, excessiva e carrinho gigante", () => {
+test("pedido público rejeita quantidade, carrinho e adicionais fora dos limites", () => {
   for (const quantidade of [0, 1.5, 100, Infinity, -1, "1.5"]) {
     const result = validatePublicOrderBase(validOrder({
       itens: [{ produtoId: "x", quantidade }],
@@ -81,12 +81,63 @@ test("pedido público rejeita quantidade decimal, infinita, excessiva e carrinho
   );
   assert.equal(validatePublicOrderBase(validOrder({ itens: tooManyItems })).valid, false);
 
+  assert.equal(validatePublicOrderBase(validOrder({
+    itens: [
+      { produtoId: "a", quantidade: 99 },
+      { produtoId: "b", quantidade: 99 },
+      { produtoId: "c", quantidade: 3 },
+    ],
+  })).valid, false, "quantidade total acima de 200");
+
   const tooManyAdditions = Array.from(
     { length: PUBLIC_ORDER_LIMITS.maxAdditionsPerItem + 1 },
     (_, index) => String(index),
   );
   assert.equal(validatePublicOrderBase(validOrder({
     itens: [{ produtoId: "x", quantidade: 1, adicionais: tooManyAdditions }],
+  })).valid, false);
+
+  assert.equal(validatePublicOrderBase(validOrder({
+    itens: [{ produtoId: "x", quantidade: 1, adicionais: { id: "a" } }],
+  })).valid, false, "adicionais precisam ser array");
+
+  assert.equal(validatePublicOrderBase(validOrder({
+    itens: [{ produtoId: "x", quantidade: 1, adicionais: ["a", { id: "a" }] }],
+  })).valid, false, "adicional duplicado");
+});
+
+test("pedido público rejeita textos acima dos limites e aceita exatamente o máximo", () => {
+  const cases = [
+    ["cliente", "client"],
+    ["telefone", "phone"],
+    ["emailCliente", "email"],
+    ["ruaEntrega", "street"],
+    ["numeroEntrega", "number"],
+    ["bairroEntrega", "neighborhood"],
+    ["referenciaEntrega", "reference"],
+    ["observacao", "orderNote"],
+  ];
+
+  for (const [field, limitName] of cases) {
+    const limit = PUBLIC_ORDER_LIMITS[limitName];
+    assert.equal(
+      validatePublicOrderBase(validOrder({ [field]: "a".repeat(limit) })).valid,
+      true,
+      `${field} no limite`,
+    );
+    assert.equal(
+      validatePublicOrderBase(validOrder({ [field]: "a".repeat(limit + 1) })).valid,
+      false,
+      `${field} acima do limite`,
+    );
+  }
+
+  assert.equal(validatePublicOrderBase(validOrder({
+    itens: [{
+      produtoId: "x",
+      quantidade: 1,
+      observacao: "a".repeat(PUBLIC_ORDER_LIMITS.itemNote + 1),
+    }],
   })).valid, false);
 });
 
@@ -252,14 +303,37 @@ test("quantidades restantes do estoque são formatadas sem resíduos de ponto fl
   );
 });
 
-test("servidor limita body, remove identificação Express, usa todas as origens e valida índices", () => {
+test("servidor limita body, responde 413 e mantém proteções de produção", () => {
   const server = source("server.js");
+  const bodyErrors = source("src/middleware/requestBodyErrors.js");
   assert.match(server, /app\.disable\("x-powered-by"\)/);
   assert.match(server, /express\.urlencoded\(\{[\s\S]*limit:\s*"64kb"[\s\S]*parameterLimit:\s*200/);
   assert.match(server, /express\.json\(\{[\s\S]*limit:\s*"128kb"[\s\S]*strict:\s*true/);
+  assert.match(server, /app\.use\(requestBodyErrorHandler\)/);
+  assert.match(bodyErrors, /PAYLOAD_TOO_LARGE/);
+  assert.match(bodyErrors, /status:\s*413/);
+  assert.match(bodyErrors, /PAYLOAD_INVALID/);
   assert.match(server, /configuredOrigins\(env\)/);
   assert.match(server, /verifyCriticalIndexes/);
   assert.match(server, /indexesReady/);
+});
+
+test("catálogo e mesa aplicam os mesmos limites antes do envio", () => {
+  const catalog = source("src/views/catalogo-publico.ejs");
+  const table = source("src/views/mesa-publica.ejs");
+
+  assert.match(catalog, /name="cliente"[\s\S]{0,100}maxlength="120"/);
+  assert.match(catalog, /name="telefone"[\s\S]{0,140}maxlength="30"/);
+  assert.match(catalog, /name="observacao"[\s\S]{0,100}maxlength="500"/);
+  assert.match(table, /id="clientName"[\s\S]{0,140}maxlength="120"/);
+  assert.match(table, /class="item-note"[\s\S]{0,160}maxlength="300"/);
+
+  for (const page of [catalog, table]) {
+    assert.match(page, /maxItems:\s*50/);
+    assert.match(page, /maxTotalQuantity:\s*200/);
+    assert.match(page, /maxQuantityPerItem:\s*99/);
+    assert.match(page, /maxAdditionsPerItem:\s*20/);
+  }
 });
 
 

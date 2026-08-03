@@ -6,6 +6,8 @@ const PUBLIC_ORDER_LIMITS = Object.freeze({
   maxItems: 50,
   maxTotalQuantity: 200,
   maxAdditionsPerItem: 20,
+  maxProductIdLength: 64,
+  maxAdditionIdLength: 64,
   client: 120,
   phone: 30,
   email: 254,
@@ -25,6 +27,15 @@ function text(value, maxLength) {
 
 function hasExcessLength(value, maxLength) {
   return String(value ?? "").trim().length > maxLength;
+}
+
+
+function publicIdentifier(value, maxLength) {
+  const candidate = value && typeof value === "object"
+    ? value._id ?? value.id ?? ""
+    : value;
+  const identifier = String(candidate ?? "").trim();
+  return identifier && identifier.length <= maxLength ? identifier : "";
 }
 
 function normalizeIdempotencyKey(value) {
@@ -49,7 +60,15 @@ function validateItemsShape(items) {
 
   let totalQuantity = 0;
   for (const item of items) {
-    const quantity = Number(item?.quantidade);
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return { valid: false, message: "Item do pedido inválido." };
+    }
+
+    if (!publicIdentifier(item.produtoId, PUBLIC_ORDER_LIMITS.maxProductIdLength)) {
+      return { valid: false, message: "Produto do pedido inválido." };
+    }
+
+    const quantity = Number(item.quantidade);
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
       return { valid: false, message: "Quantidade de produto inválida." };
     }
@@ -60,17 +79,35 @@ function validateItemsShape(items) {
         message: `O pedido pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxTotalQuantity} unidades.`,
       };
     }
-    if (hasExcessLength(item?.observacao, PUBLIC_ORDER_LIMITS.itemNote)) {
+    if (hasExcessLength(item.observacao, PUBLIC_ORDER_LIMITS.itemNote)) {
       return { valid: false, message: "A observação de um item está muito longa." };
     }
-    if (
-      Array.isArray(item?.adicionais)
-      && item.adicionais.length > PUBLIC_ORDER_LIMITS.maxAdditionsPerItem
-    ) {
+
+    if (item.adicionais != null && !Array.isArray(item.adicionais)) {
+      return { valid: false, message: "Os adicionais de um item são inválidos." };
+    }
+
+    const additions = item.adicionais || [];
+    if (additions.length > PUBLIC_ORDER_LIMITS.maxAdditionsPerItem) {
       return {
         valid: false,
         message: `Cada item pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxAdditionsPerItem} adicionais.`,
       };
+    }
+
+    const additionIds = new Set();
+    for (const addition of additions) {
+      const additionId = publicIdentifier(
+        addition,
+        PUBLIC_ORDER_LIMITS.maxAdditionIdLength,
+      );
+      if (!additionId) {
+        return { valid: false, message: "Adicional do pedido inválido." };
+      }
+      if (additionIds.has(additionId)) {
+        return { valid: false, message: "Não repita o mesmo adicional em um item." };
+      }
+      additionIds.add(additionId);
     }
   }
 
@@ -122,6 +159,7 @@ module.exports = {
   UUID_PATTERN,
   hashPublicIdentity,
   normalizeIdempotencyKey,
+  publicIdentifier,
   text,
   validateItemsShape,
   validatePublicOrderBase,
