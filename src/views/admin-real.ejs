@@ -7759,8 +7759,91 @@ const showCustomOrdersFilter = document.querySelector('#showCustomOrdersFilter')
 const pedidoPeriodoInput = document.querySelector('#pedidoPeriodoInput');
 const customOrdersDateFields = document.querySelectorAll('.custom-orders-date');
 
+function normalizeOrderSearch(value = '') {
+  return String(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9@.]+/g, ' ')
+    .trim();
+}
+
+function buildOrderSearchText(pedido = {}) {
+  return normalizeOrderSearch([
+    pedido.numero,
+    pedido.codigoPublico,
+    pedido.id,
+    pedido.cliente,
+    pedido.telefone,
+    pedido.telefoneCliente,
+    pedido.email,
+    pedido.emailCliente,
+    pedido.rua,
+    pedido.ruaEntrega,
+    pedido.endereco,
+    pedido.enderecoEntrega,
+    pedido.numeroEndereco,
+    pedido.numeroEntrega,
+    pedido.bairro,
+    pedido.bairroEntrega,
+    pedido.referencia,
+    pedido.referenciaEntrega,
+    pedido.origem?.texto,
+    pedido.canal,
+  ].filter(Boolean).join(' '));
+}
+
+function filterOrdersByText() {
+  const searchInput = document.querySelector('#ordersTextSearch');
+  if (!searchInput) return;
+
+  const query = normalizeOrderSearch(searchInput.value);
+  const terms = query.split(/\s+/).filter(Boolean);
+  const orderCards = [...document.querySelectorAll('#ordersGrid .order-card')];
+  const visibleCount = document.querySelector('#ordersVisibleCount');
+  const noResults = document.querySelector('#ordersSearchNoResults');
+  let visible = 0;
+
+  orderCards.forEach(card => {
+    const indexedText = card.dataset?.orderSearch || '';
+    const renderedText = card.textContent || '';
+    const searchable = normalizeOrderSearch(`${indexedText} ${renderedText}`);
+    const matches = terms.every(term => searchable.includes(term));
+
+    card.classList.toggle('order-filter-hidden', !matches);
+    if (matches) visible += 1;
+  });
+
+  if (visibleCount) {
+    visibleCount.textContent = String(visible);
+  }
+
+  if (noResults) {
+    noResults.classList.toggle(
+      'visible',
+      orderCards.length > 0 && visible === 0
+    );
+  }
+}
+
+function initializeOrdersTextSearch() {
+  const searchInput = document.querySelector('#ordersTextSearch');
+  if (!searchInput) return;
+
+  if (searchInput.dataset.ordersSearchReady !== 'true') {
+    searchInput.dataset.ordersSearchReady = 'true';
+    searchInput.addEventListener('input', filterOrdersByText);
+    searchInput.addEventListener('search', filterOrdersByText);
+  }
+
+  filterOrdersByText();
+}
+
 function applyOrdersFilters() {
-  // Os pedidos já chegam filtrados pelo servidor para evitar carregar todo o histórico.
+  // Os filtros de período, canal e status são aplicados pelo servidor.
+  // A pesquisa textual continua sendo aplicada no navegador, inclusive
+  // quando um novo pedido entra em tempo real.
+  filterOrdersByText();
 }
 
 showCustomOrdersFilter?.addEventListener('click', () => {
@@ -7768,6 +7851,8 @@ showCustomOrdersFilter?.addEventListener('click', () => {
   customOrdersDateFields.forEach(field => field.classList.remove('order-filter-hidden'));
   document.querySelector('#ordersDateStart')?.focus();
 });
+
+initializeOrdersTextSearch();
 
 const podeReceberNotificacoes =
   <%- safeJsonForHtml(pode('pedidos')); %>;
@@ -8251,6 +8336,9 @@ function criarCardPedido(
 
   artigo.dataset.orderStatus =
     pedido.status || 'novo';
+
+  artigo.dataset.orderSearch =
+    buildOrderSearchText(pedido);
 
   artigo.innerHTML = `
     <div class="order-card-header">
@@ -9664,54 +9752,6 @@ if (podeReceberNotificacoes) {
     );
 
   
-
-    // Pesquisa instantânea dos pedidos por número, cliente, telefone, e-mail ou endereço.
-    const ordersTextSearch = document.querySelector("#ordersTextSearch");
-    const ordersVisibleCount = document.querySelector("#ordersVisibleCount");
-    const ordersSearchNoResults = document.querySelector("#ordersSearchNoResults");
-
-    function normalizeOrderSearch(value = "") {
-      return String(value)
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .replace(/[^a-z0-9@.]+/g, " ")
-        .trim();
-    }
-
-    function filterOrdersByText() {
-      if (!ordersTextSearch) return;
-
-      const query = normalizeOrderSearch(ordersTextSearch.value);
-      const terms = query.split(/\s+/).filter(Boolean);
-      const orderCards = [...document.querySelectorAll("#ordersGrid .order-card")];
-      let visible = 0;
-
-      orderCards.forEach(card => {
-        const searchable = normalizeOrderSearch(card.dataset.orderSearch || "");
-        const matches = terms.every(term => searchable.includes(term));
-
-        card.classList.toggle("order-filter-hidden", !matches);
-        if (matches) visible += 1;
-      });
-
-      if (ordersVisibleCount) {
-        ordersVisibleCount.textContent = String(visible);
-      }
-
-      if (ordersSearchNoResults) {
-        ordersSearchNoResults.classList.toggle(
-          "visible",
-          orderCards.length > 0 && visible === 0
-        );
-      }
-    }
-
-    if (ordersTextSearch) {
-      ordersTextSearch.addEventListener("input", filterOrdersByText);
-      ordersTextSearch.addEventListener("search", filterOrdersByText);
-      filterOrdersByText();
-    }
 
     const uploadPreviewUrls = new Map();
 
