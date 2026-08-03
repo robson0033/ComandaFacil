@@ -29,6 +29,11 @@ const {
 
 const printAgentHub = require("../services/printAgentHub");
 const printQueueService = require("../services/printQueueService");
+const {
+  BLOCKING_PRINT_STATUSES,
+  MANUAL_PRINT_COOLDOWN_MS,
+  evaluateManualPrintRequest,
+} = require("../services/manualPrintGuard");
 const { normalizeRightMarginMm } = require("../services/printerLayoutConfig");
 const {
   datePartsInTimezone,
@@ -7528,12 +7533,27 @@ exports.testarImpressoraRemota = async (req, res) => {
   catch (error) { return res.status(503).json({ success: false, message: error.message }); }
 };
 
+const manualPrintRequestsInFlight = new Set();
+
 exports.imprimirPedidoRemoto = async (req, res) => {
+  const lojaId = String(estabelecimentoId(req));
+  const pedidoId = String(req.params.id || "");
+  const requestLockKey = `${lojaId}:${pedidoId}`;
+
+  if (manualPrintRequestsInFlight.has(requestLockKey)) {
+    return res.status(409).json({
+      success: false,
+      code: "PRINT_REQUEST_IN_PROGRESS",
+      message: "Já existe uma solicitação de impressão em andamento para este pedido.",
+    });
+  }
+
+  manualPrintRequestsInFlight.add(requestLockKey);
+
   try {
-    const lojaId = String(estabelecimentoId(req));
     const [pedido, configuracao, dono] = await Promise.all([
       Pedido.findOne({
-        _id: req.params.id,
+        _id: pedidoId,
         estabelecimentoId: lojaId,
         excluido: { $ne: true },
       }).populate("mesaId", "numero setor").lean(),
@@ -7557,6 +7577,53 @@ exports.imprimirPedidoRemoto = async (req, res) => {
         message: "Nenhuma impressora manual está configurada.",
       });
     }
+
+    const impressoraChaves = [...new Set(
+      impressoras.map(item => printQueueService.calcularImpressoraChave(item)),
+    )];
+    const jobsExistentes = await PrintJob.find({
+      estabelecimentoId: lojaId,
+      pedidoId: pedido._id,
+      impressoraChave: { $in: impressoraChaves },
+      status: { $in: BLOCKING_PRINT_STATUSES },
+    })
+      .sort({ createdAt: -1 })
+      .limit(Math.max(50, impressoraChaves.length * 20))
+      .select("jobId tipo status createdAt concluidoEm impressoraChave")
+      .lean();
+
+    const confirmReprint = req.body?.confirmReprint === true;
+    const decision = evaluateManualPrintRequest({
+      jobs: jobsExistentes,
+      confirmReprint,
+      now: Date.now(),
+      cooldownMs: MANUAL_PRINT_COOLDOWN_MS,
+    });
+
+    if (decision.action === "confirm_reprint") {
+      const latestAt = decision.latestJob?.concluidoEm || decision.latestJob?.createdAt || null;
+      return res.status(409).json({
+        success: false,
+        code: "PRINT_REPRINT_CONFIRMATION_REQUIRED",
+        message: latestAt
+          ? `Este pedido já possui uma impressão registrada em ${new Date(latestAt).toLocaleString("pt-BR")}. Deseja imprimir outra via?`
+          : "Este pedido já possui uma impressão registrada. Deseja imprimir outra via?",
+        latestJobId: decision.latestJob?.jobId || "",
+        latestStatus: decision.latestJob?.status || "",
+        latestPrintedAt: latestAt,
+      });
+    }
+
+    if (decision.action === "too_recent") {
+      return res.status(409).json({
+        success: false,
+        code: "PRINT_REPRINT_TOO_SOON",
+        message: `Uma impressão manual acabou de ser solicitada. Aguarde ${decision.retryAfterSeconds} segundo(s) antes de pedir outra via.`,
+        retryAfterSeconds: decision.retryAfterSeconds,
+        latestJobId: decision.latestJob?.jobId || "",
+      });
+    }
+
     const jobs = [];
     for (const impressora of impressoras) {
       jobs.push(await printQueueService.criarJobManual({
@@ -7572,11 +7639,18 @@ exports.imprimirPedidoRemoto = async (req, res) => {
       status: agentOnline ? "pendente" : "aguardando_agente",
       jobId: jobs[0].jobId,
       jobIds: jobs.map(job => job.jobId),
+      reprint: confirmReprint,
       message: agentOnline
-        ? "Impressão adicionada à fila."
-        : "Impressão aguardando o agente reconectar.",
+        ? (confirmReprint ? "Reimpressão adicionada à fila." : "Impressão adicionada à fila.")
+        : (confirmReprint
+            ? "Reimpressão aguardando o agente reconectar."
+            : "Impressão aguardando o agente reconectar."),
     });
-  } catch (error) { return res.status(503).json({ success: false, message: error.message }); }
+  } catch (error) {
+    return res.status(503).json({ success: false, message: error.message });
+  } finally {
+    manualPrintRequestsInFlight.delete(requestLockKey);
+  }
 };
 
 exports.statusJobImpressao = async (req, res) => {

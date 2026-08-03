@@ -8586,7 +8586,8 @@ function atualizarStatusAgente({
   document.querySelectorAll(
     '[data-agent-required], [data-print-order]'
   ).forEach(button => {
-    button.disabled = !online;
+    const printBusy = Boolean(button.dataset && button.dataset.printBusy === 'true');
+    button.disabled = !online || printBusy;
   });
 
   if (online) {
@@ -9034,19 +9035,28 @@ if (podeImprimirPedidos || <%- safeJsonForHtml(pode('configurar_impressoras')); 
 
 async function imprimirPedido(
   pedidoId,
-  modo = 'manual'
+  { confirmReprint = false } = {}
 ) {
   const response = await adminFetch(`/admin/agente/pedidos/${encodeURIComponent(pedidoId)}/imprimir`, {
-    method: 'POST', skipAdminLoading: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ modo })
+    method: 'POST',
+    skipAdminLoading: true,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      modo: 'manual',
+      confirmReprint
+    })
   });
 
   const result = await response.json();
 
   if (!response.ok) {
-    throw new Error(
+    const error = new Error(
       result.message ||
       'O agente não conseguiu imprimir.'
     );
+    error.code = result.code || '';
+    error.details = result;
+    throw error;
   }
 
   return result;
@@ -9274,37 +9284,61 @@ document.addEventListener(
       '[data-print-order]'
     );
 
-    if (!button) {
+    if (!button || button.dataset.printBusy === 'true') {
       return;
     }
 
-    const original =
-      button.textContent;
+    const original = button.textContent;
+    let result = null;
+    let completed = false;
 
+    button.dataset.printBusy = 'true';
     button.disabled = true;
-    button.textContent =
-      'Enfileirando...';
+    button.textContent = 'Enfileirando...';
 
     try {
-      const result =
-        await imprimirPedido(
-          button.dataset.printOrder,
-          'manual'
+      try {
+        result = await imprimirPedido(
+          button.dataset.printOrder
         );
+      } catch (error) {
+        if (error.code !== 'PRINT_REPRINT_CONFIRMATION_REQUIRED') {
+          throw error;
+        }
 
-      button.textContent = 'Na fila';
+        const confirmed = window.confirm(
+          `${error.message}\n\nConfirme somente se deseja realmente imprimir outra via.`
+        );
+        if (!confirmed) {
+          button.textContent = original;
+          return;
+        }
+
+        button.textContent = 'Confirmando reimpressão...';
+        result = await imprimirPedido(
+          button.dataset.printOrder,
+          { confirmReprint: true }
+        );
+      }
+
+      button.textContent = result.reprint ? 'Reimpressão na fila' : 'Na fila';
       await acompanharJobsImpressao(
         result.jobIds || [result.jobId],
         button
       );
+      completed = true;
+      button.dataset.printedOnce = 'true';
     } catch (error) {
       alert(error.message);
       button.textContent = original;
     } finally {
-      button.disabled = false;
-      if (button.textContent !== original) {
+      delete button.dataset.printBusy;
+      button.disabled = !printAgentConectado;
+      if (completed) {
         setTimeout(() => {
-          button.textContent = original;
+          if (button.dataset.printBusy !== 'true') {
+            button.textContent = '🖨 Reimprimir pedido';
+          }
         }, 3000);
       }
     }
