@@ -203,3 +203,25 @@ ALERT_WEBHOOK_TIMEOUT_MS=5000
 
 Consulte `docs/alertas-operacionais.md` para configuração, segurança,
 homologação do canal e monitor externo de `/ready`.
+
+## Segredos por ambiente e rotação
+
+Os valores reais de produção ficam exclusivamente em `Render > Environment`. Não crie nem envie um arquivo `.env.production` ao servidor.
+
+Modelos sem valores reais:
+
+- `.env.development.example`;
+- `.env.test.example`;
+- `.env.production.example`.
+
+Regras e inventário: `docs/segredos-por-ambiente.md`.
+
+Procedimentos de troca e revogação: `docs/rotacao-segredos.md`.
+
+Antes de commit ou deploy, execute:
+
+```bash
+npm run audit:secrets
+```
+
+O comando verifica arquivos `.env` rastreados, modelos com valores secretos, padrões de credenciais reais em arquivos versionados e a presença da documentação de rotação. Ele nunca imprime os valores do `.env` local.
