@@ -1,13 +1,14 @@
 "use strict";
 
+const { isPersonalDataKey, redactPersonalString } = require("./privacy");
+
 const SENSITIVE_KEY = /(authorization|cookie|password|senha|secret|token|connectionstring|mongo(uri)?|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret)/i;
 
 function sanitizeString(value, maxLength = 4_000) {
-  return String(value ?? "")
+  return redactPersonalString(String(value ?? "")
     .replace(/mongodb(?:\+srv)?:\/\/\S+/gi, "[URI_REMOVIDA]")
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REMOVIDO]")
-    .replace(/((?:token|secret|password|senha|api[_-]?key)\s*[=:]\s*)[^\s,;&]+/gi, "$1[REMOVIDO]")
-    .slice(0, maxLength);
+    .replace(/((?:token|secret|password|senha|api[_-]?key)\s*[=:]\s*)[^\s,;&]+/gi, "$1[REMOVIDO]"), maxLength);
 }
 
 function sanitizeValue(value, depth = 0, seen = new WeakSet()) {
@@ -43,7 +44,7 @@ function sanitizeValue(value, depth = 0, seen = new WeakSet()) {
   const result = {};
   for (const [rawKey, rawValue] of Object.entries(value).slice(0, 80)) {
     const key = sanitizeString(rawKey, 120);
-    result[key] = SENSITIVE_KEY.test(key)
+    result[key] = SENSITIVE_KEY.test(key) || isPersonalDataKey(key)
       ? "[REMOVIDO]"
       : sanitizeValue(rawValue, depth + 1, seen);
   }

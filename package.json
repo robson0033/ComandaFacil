@@ -15,6 +15,7 @@
     "indexes:apply": "node scripts/create-mercado-pago-indexes.js --apply",
     "audit:production": "npm audit --omit=dev --audit-level=high",
     "audit:secrets": "node scripts/auditar-segredos.js",
+    "audit:privacy": "node scripts/auditar-privacidade-retencao.js",
     "ci:production": "npm ci && npm run test:production && npm run audit:production"
   },
   "dependencies": {

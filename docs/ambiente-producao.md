@@ -225,3 +225,9 @@ npm run audit:secrets
 ```
 
 O comando verifica arquivos `.env` rastreados, modelos com valores secretos, padrões de credenciais reais em arquivos versionados e a presença da documentação de rotação. Ele nunca imprime os valores do `.env` local.
+
+## Item 20 — privacidade e retenção
+
+A revisão técnica está documentada em `docs/privacidade-retencao.md`. Execute `npm run audit:privacy` para a revisão estática. A contagem opcional no banco exige `ALLOW_READONLY_AUDIT=true` e não realiza escrita nem exibe dados pessoais.
+
+A revisão não habilita exclusão automática. Os prazos de pedidos, print jobs, auditoria, funcionários, logs e backups precisam de validação jurídica, contábil/fiscal e trabalhista antes da implantação de anonimização ou descarte.
