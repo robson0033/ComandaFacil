@@ -81,7 +81,7 @@ test("download exige flag, nome fixo, checksum e homologação Windows", t => {
   assert.equal(artifact.checksum, digest);
 });
 
-test("rota é fixa, autenticada e o download atual não foi substituído", () => {
+test("rota é fixa, autenticada e aponta para o release atual do agente", () => {
   const route = fs.readFileSync(path.resolve(__dirname, "../route.js"), "utf8");
   const view = fs.readFileSync(
     path.resolve(__dirname, "../src/views/admin-real.ejs"),
@@ -90,6 +90,6 @@ test("rota é fixa, autenticada e o download atual não foi substituído", () =>
   assert.match(route, /\/admin\/agente\/download\/1\.2\.0/);
   assert.match(route, /download\/1\.2\.0'.*loginRequired/);
   assert.doesNotMatch(route, /download\/:.*path|download\/\*/);
-  assert.match(view, /releases\/latest\/download\/agente\.zip/);
+  assert.match(view, /releases\/latest\/download\/agente\.7z/);
   assert.match(view, /data-staged-agent-version="1\.2\.0"/);
 });
