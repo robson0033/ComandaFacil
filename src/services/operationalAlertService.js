@@ -8,6 +8,9 @@ const {
 
 const DEFAULT_COOLDOWN_MS = 15 * 60_000;
 const DEFAULT_TIMEOUT_MS = 5_000;
+const DEFAULT_MAX_DELIVERY_ATTEMPTS = 3;
+const MIN_RATE_LIMIT_WAIT_MS = 250;
+const MAX_RATE_LIMIT_WAIT_MS = 30_000;
 const MAX_TEXT_LENGTH = 3_500;
 
 function integerEnv(env, name, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
@@ -76,6 +79,46 @@ function webhookPayload(url, record) {
   return record;
 }
 
+
+function retryDelayFromSeconds(value) {
+  const seconds = Number.parseFloat(String(value ?? "").trim());
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  return Math.min(
+    MAX_RATE_LIMIT_WAIT_MS,
+    Math.max(MIN_RATE_LIMIT_WAIT_MS, Math.ceil(seconds * 1_000)),
+  );
+}
+
+async function discordRetryDelayMs(response) {
+  const header = name => {
+    try {
+      return response?.headers?.get?.(name);
+    } catch {
+      return null;
+    }
+  };
+
+  const fromRetryAfter = retryDelayFromSeconds(header("retry-after"));
+  if (fromRetryAfter !== null) return fromRetryAfter;
+
+  const fromResetAfter = retryDelayFromSeconds(
+    header("x-ratelimit-reset-after"),
+  );
+  if (fromResetAfter !== null) return fromResetAfter;
+
+  if (typeof response?.json === "function") {
+    try {
+      const body = await response.json();
+      const fromBody = retryDelayFromSeconds(body?.retry_after);
+      if (fromBody !== null) return fromBody;
+    } catch {
+      // Respostas de erro nunca são registradas para evitar vazamento de dados.
+    }
+  }
+
+  return 1_000;
+}
+
 function createOperationalAlertService({
   env = process.env,
   logger = appLogger,
@@ -83,9 +126,11 @@ function createOperationalAlertService({
   now = () => Date.now(),
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
+  sleepFn = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
 } = {}) {
   const incidents = new Map();
   const pending = new Set();
+  let deliveryChain = Promise.resolve();
 
   function config() {
     return {
@@ -113,53 +158,88 @@ function createOperationalAlertService({
       return { ok: false, skipped: true, reason: "channel_not_configured" };
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeoutFn(() => controller.abort(), current.timeoutMs);
-    timeout.unref?.();
-    try {
-      const headers = { "content-type": "application/json" };
-      if (current.bearerToken) {
-        headers.authorization = `Bearer ${current.bearerToken}`;
-      }
-      const response = await fetchFn(current.url.toString(), {
-        method: "POST",
-        headers,
-        body: JSON.stringify(webhookPayload(current.url, record)),
-        signal: controller.signal,
-      });
-      if (!response?.ok) {
+    for (let attempt = 1; attempt <= DEFAULT_MAX_DELIVERY_ATTEMPTS; attempt += 1) {
+      const controller = new AbortController();
+      const timeout = setTimeoutFn(() => controller.abort(), current.timeoutMs);
+      timeout.unref?.();
+
+      try {
+        const headers = { "content-type": "application/json" };
+        if (current.bearerToken) {
+          headers.authorization = `Bearer ${current.bearerToken}`;
+        }
+        const response = await fetchFn(current.url.toString(), {
+          method: "POST",
+          headers,
+          body: JSON.stringify(webhookPayload(current.url, record)),
+          signal: controller.signal,
+        });
+
+        if (response?.ok) {
+          logger.info("operational_alert_delivered", {
+            event: record.event,
+            state: record.state,
+            responseStatus: Number(response.status || 200),
+            attempt,
+          });
+          return {
+            ok: true,
+            status: Number(response.status || 200),
+            attempts: attempt,
+          };
+        }
+
+        const status = Number(response?.status || 0);
+        if (status === 429 && attempt < DEFAULT_MAX_DELIVERY_ATTEMPTS) {
+          const retryAfterMs = await discordRetryDelayMs(response);
+          logger.warn?.("operational_alert_rate_limited", {
+            event: record.event,
+            state: record.state,
+            responseStatus: status,
+            attempt,
+            retryAfterMs,
+          });
+          await sleepFn(retryAfterMs);
+          continue;
+        }
+
         logger.error("operational_alert_delivery_failed", {
           event: record.event,
           state: record.state,
-          responseStatus: Number(response?.status || 0),
+          responseStatus: status,
+          attempts: attempt,
         });
         return {
           ok: false,
           skipped: false,
-          status: Number(response?.status || 0),
+          status,
+          attempts: attempt,
         };
+      } catch (error) {
+        logger.error("operational_alert_delivery_failed", {
+          event: record.event,
+          state: record.state,
+          errorName: String(error?.name || "Error").slice(0, 80),
+          errorMessage: sanitizeString(error?.message || "Falha ao enviar alerta.", 500),
+          attempts: attempt,
+        });
+        return {
+          ok: false,
+          skipped: false,
+          error: sanitizeString(error?.message, 300),
+          attempts: attempt,
+        };
+      } finally {
+        clearTimeoutFn(timeout);
       }
-      logger.info("operational_alert_delivered", {
-        event: record.event,
-        state: record.state,
-        responseStatus: Number(response.status || 200),
-      });
-      return { ok: true, status: Number(response.status || 200) };
-    } catch (error) {
-      logger.error("operational_alert_delivery_failed", {
-        event: record.event,
-        state: record.state,
-        errorName: String(error?.name || "Error").slice(0, 80),
-        errorMessage: sanitizeString(error?.message || "Falha ao enviar alerta.", 500),
-      });
-      return { ok: false, skipped: false, error: sanitizeString(error?.message, 300) };
-    } finally {
-      clearTimeoutFn(timeout);
     }
+
+    return { ok: false, skipped: false, reason: "delivery_attempts_exhausted" };
   }
 
   function enqueue(record) {
-    const promise = deliver(record);
+    const promise = deliveryChain.then(() => deliver(record));
+    deliveryChain = promise.catch(() => undefined);
     pending.add(promise);
     promise.finally(() => pending.delete(promise));
   }
@@ -278,6 +358,7 @@ const operationalAlerts = createOperationalAlertService();
 
 module.exports = {
   DEFAULT_COOLDOWN_MS,
+  DEFAULT_MAX_DELIVERY_ATTEMPTS,
   createOperationalAlertService,
   operationalAlerts,
   safeEventName,

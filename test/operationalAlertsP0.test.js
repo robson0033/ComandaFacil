@@ -78,6 +78,62 @@ test("serviço central deduplica, mascara segredos e envia recuperação", async
   assert.equal(requests[1].body.state, "resolved");
 });
 
+test("serviço serializa entregas e respeita Retry-After do Discord", async () => {
+  let calls = 0;
+  let active = 0;
+  let maxActive = 0;
+  const waits = [];
+  const alerts = createOperationalAlertService({
+    env: {
+      NODE_ENV: "test",
+      ALERT_WEBHOOK_URL: "https://discord.com/api/webhooks/123/token",
+    },
+    logger: silentLogger(),
+    sleepFn: async milliseconds => { waits.push(milliseconds); },
+    fetchFn: async () => {
+      calls += 1;
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await Promise.resolve();
+      active -= 1;
+
+      if (calls === 6) {
+        return {
+          ok: false,
+          status: 429,
+          headers: {
+            get(name) {
+              return String(name).toLowerCase() === "retry-after"
+                ? "0.25"
+                : null;
+            },
+          },
+          async json() {
+            return { retry_after: 0.25, global: false };
+          },
+        };
+      }
+
+      return { ok: true, status: 204 };
+    },
+  });
+
+  for (let index = 0; index < 7; index += 1) {
+    alerts.trigger({
+      event: `homologation_${index}`,
+      key: `homologation:${index}`,
+      details: { index },
+    });
+  }
+
+  const results = await alerts.flush();
+  assert.equal(results.length, 7);
+  assert.equal(results.every(result => result.ok), true);
+  assert.equal(calls, 8);
+  assert.equal(maxActive, 1);
+  assert.deepEqual(waits, [250]);
+});
+
 test("middleware 5xx só alerta ao atingir limiar e ignora ready tratado", () => {
   const calls = [];
   const middleware = createHttp5xxAlertMiddleware({
