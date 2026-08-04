@@ -179,3 +179,27 @@ trabalhos de impressão, encerram reconciliadores, rate limiters, SSE, Socket.IO
 HTTP, store de sessão e Mongoose. Há limite máximo de 25 segundos. Erros fatais
 (`uncaughtException` e `unhandledRejection`) usam o mesmo fluxo e código de saída
 1.
+
+## Alertas operacionais
+
+Os alertas internos usam um webhook externo e independente do SMTP. A variável
+`ALERT_WEBHOOK_URL` é opcional durante a implantação, mas o item de alertas não
+está homologado enquanto ela não estiver configurada e testada.
+
+Variáveis disponíveis:
+
+```env
+ALERT_WEBHOOK_URL=https://endereco-secreto-do-canal
+ALERT_WEBHOOK_BEARER_TOKEN=
+ALERT_SERVICE_NAME=ComandaFacil
+ALERT_ENVIRONMENT=production
+ALERT_COOLDOWN_MS=900000
+ALERT_5XX_THRESHOLD=5
+ALERT_5XX_WINDOW_MS=300000
+ALERT_QUEUE_STUCK_MS=180000
+ALERT_QUEUE_CHECK_INTERVAL_MS=60000
+ALERT_WEBHOOK_TIMEOUT_MS=5000
+```
+
+Consulte `docs/alertas-operacionais.md` para configuração, segurança,
+homologação do canal e monitor externo de `/ready`.

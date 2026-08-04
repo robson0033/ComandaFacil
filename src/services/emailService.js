@@ -1,4 +1,7 @@
+"use strict";
+
 const nodemailer = require("nodemailer");
+const { operationalAlerts } = require("./operationalAlertService");
 
 function criarTransportador() {
   const host = String(process.env.SMTP_HOST || "").trim();
@@ -23,50 +26,85 @@ function criarTransportador() {
   });
 }
 
+function mascararEmail(value) {
+  const email = String(value || "").trim().toLowerCase();
+  const [local, domain] = email.split("@");
+  if (!local || !domain) return "destinatario_invalido";
+  return `${local.slice(0, 1)}***@${domain.slice(0, 120)}`;
+}
+
+async function enviarComAlerta({ tipo, destinatario, mensagem }) {
+  try {
+    const transportador = criarTransportador();
+    return await transportador.sendMail(mensagem);
+  } catch (error) {
+    operationalAlerts.trigger({
+      event: "email_delivery_failed",
+      key: `email_delivery_failed:${String(tipo || "unknown").slice(0, 80)}`,
+      severity: "critical",
+      details: {
+        emailType: String(tipo || "unknown").slice(0, 80),
+        recipientMasked: mascararEmail(destinatario),
+        errorName: String(error?.name || "Error").slice(0, 80),
+        errorCode: String(error?.code || "").slice(0, 120) || null,
+        smtpCommand: String(error?.command || "").slice(0, 80) || null,
+        responseCode: Number(error?.responseCode || 0) || null,
+      },
+    });
+    throw error;
+  }
+}
+
 async function enviarCodigoRecuperacao({ email, nome, codigo }) {
-  const transportador = criarTransportador();
   const remetente = String(
     process.env.SMTP_FROM || process.env.SMTP_USER || "",
   ).trim();
 
   const nomeSeguro = String(nome || "cliente").trim();
 
-  await transportador.sendMail({
-    from: remetente,
-    to: email,
-    subject: "Código para redefinir sua senha — Comanda Fácil",
-    text: [
-      `Olá, ${nomeSeguro}.`,
-      "",
-      "Recebemos uma solicitação para redefinir sua senha no Comanda Fácil.",
-      `Seu código de recuperação é: ${codigo}`,
-      "",
-      "O código expira em 10 minutos.",
-      "Se você não solicitou a alteração, ignore este e-mail.",
-    ].join("\n"),
-    html: `
-      <div style="font-family:Arial,sans-serif;background:#f7f3f0;padding:32px;color:#1d1d1f">
-        <div style="max-width:560px;margin:auto;background:#fff;border:1px solid #eadfd8;border-radius:18px;padding:32px">
-          <h1 style="margin:0 0 12px;font-size:26px;color:#111827">Redefinição de senha</h1>
-          <p style="line-height:1.6">Olá, <strong>${nomeSeguro}</strong>.</p>
-          <p style="line-height:1.6">Use o código abaixo para criar uma nova senha no Comanda Fácil:</p>
-          <div style="font-size:34px;font-weight:800;letter-spacing:8px;text-align:center;background:#fff4e8;color:#d94b16;border-radius:14px;padding:20px;margin:24px 0">${codigo}</div>
-          <p style="line-height:1.6"><strong>Validade:</strong> 10 minutos.</p>
-          <p style="line-height:1.6;color:#6b7280">Se você não solicitou esta alteração, ignore esta mensagem. Sua senha atual continuará funcionando.</p>
+  await enviarComAlerta({
+    tipo: "password_recovery",
+    destinatario: email,
+    mensagem: {
+      from: remetente,
+      to: email,
+      subject: "Código para redefinir sua senha — Comanda Fácil",
+      text: [
+        `Olá, ${nomeSeguro}.`,
+        "",
+        "Recebemos uma solicitação para redefinir sua senha no Comanda Fácil.",
+        `Seu código de recuperação é: ${codigo}`,
+        "",
+        "O código expira em 10 minutos.",
+        "Se você não solicitou a alteração, ignore este e-mail.",
+      ].join("\n"),
+      html: `
+        <div style="font-family:Arial,sans-serif;background:#f7f3f0;padding:32px;color:#1d1d1f">
+          <div style="max-width:560px;margin:auto;background:#fff;border:1px solid #eadfd8;border-radius:18px;padding:32px">
+            <h1 style="margin:0 0 12px;font-size:26px;color:#111827">Redefinição de senha</h1>
+            <p style="line-height:1.6">Olá, <strong>${nomeSeguro}</strong>.</p>
+            <p style="line-height:1.6">Use o código abaixo para criar uma nova senha no Comanda Fácil:</p>
+            <div style="font-size:34px;font-weight:800;letter-spacing:8px;text-align:center;background:#fff4e8;color:#d94b16;border-radius:14px;padding:20px;margin:24px 0">${codigo}</div>
+            <p style="line-height:1.6"><strong>Validade:</strong> 10 minutos.</p>
+            <p style="line-height:1.6;color:#6b7280">Se você não solicitou esta alteração, ignore esta mensagem. Sua senha atual continuará funcionando.</p>
+          </div>
         </div>
-      </div>
-    `,
+      `,
+    },
   });
 }
 
 async function enviarCodigoConsultaPedidos({ email, codigo }) {
-  const transportador = criarTransportador();
   const remetente = String(process.env.SMTP_FROM || process.env.SMTP_USER || "").trim();
-  await transportador.sendMail({
-    from: remetente,
-    to: email,
-    subject: "Código para consultar seus pedidos — Comanda Fácil",
-    text: `Seu código para consultar pedidos é ${codigo}. Ele expira em 10 minutos.`,
+  await enviarComAlerta({
+    tipo: "order_lookup_verification",
+    destinatario: email,
+    mensagem: {
+      from: remetente,
+      to: email,
+      subject: "Código para consultar seus pedidos — Comanda Fácil",
+      text: `Seu código para consultar pedidos é ${codigo}. Ele expira em 10 minutos.`,
+    },
   });
 }
 
@@ -94,7 +132,6 @@ async function enviarConfirmacaoPedido({
   acompanhamentoUrl,
 }) {
   if (!emailValido(email)) return false;
-  const transportador = criarTransportador();
   const remetenteConfigurado = String(
     process.env.SMTP_FROM || process.env.SMTP_USER || "",
   ).trim();
@@ -132,7 +169,11 @@ async function enviarConfirmacaoPedido({
       </div>`,
   };
   if (emailValido(emailLoja)) mail.replyTo = String(emailLoja).trim().toLowerCase();
-  await transportador.sendMail(mail);
+  await enviarComAlerta({
+    tipo: "order_confirmation",
+    destinatario: email,
+    mensagem: mail,
+  });
   return true;
 }
 
@@ -140,4 +181,7 @@ module.exports = {
   enviarConfirmacaoPedido,
   enviarCodigoRecuperacao,
   enviarCodigoConsultaPedidos,
+  _testing: {
+    mascararEmail,
+  },
 };

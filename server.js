@@ -21,6 +21,7 @@ const { securityHeaders } = require("./src/middleware/securityHeaders");
 const { requestContext } = require("./src/middleware/requestContext");
 const { stopRateLimiters } = require("./src/middleware/rateLimit");
 const { requestBodyErrorHandler } = require("./src/middleware/requestBodyErrors");
+const { createHttp5xxAlertMiddleware } = require("./src/middleware/http5xxAlert");
 const { createSystemRouter } = require("./src/routes/systemRoutes");
 const {
   createRuntimeHomologacaoRouter,
@@ -35,6 +36,9 @@ const appState = require("./src/runtime/appState");
 const { safeFlash } = require("./src/utils/safeFlash");
 const printAgentHub = require("./src/services/printAgentHub");
 const printQueueService = require("./src/services/printQueueService");
+const {
+  createPrintQueueAlertMonitor,
+} = require("./src/services/printQueueAlertMonitor");
 const {
   verifyCriticalIndexes,
 } = require("./src/services/criticalIndexService");
@@ -52,6 +56,7 @@ function sanitizeFatal(error) {
 
 function createBaseApplication() {
   const app = express();
+  app.use(createHttp5xxAlertMiddleware());
   app.use(createSystemRouter());
   return app;
 }
@@ -173,6 +178,7 @@ function createShutdown(runtime, {
         clearInterval(runtime.reconcileTimer);
         runtime.reconcileTimer = null;
       }
+      runtime.queueAlertMonitor?.stop();
       state.closeSseConnections();
 
       let timeout;
@@ -237,6 +243,7 @@ async function boot({
     io: null,
     sessionStore: null,
     reconcileTimer: null,
+    queueAlertMonitor: null,
     shutdown: null,
   };
 
@@ -283,6 +290,8 @@ async function boot({
     });
     printAgentHub.init(runtime.io);
     await printQueueService.reconciliarPedidosSemJob();
+    runtime.queueAlertMonitor = createPrintQueueAlertMonitor({ env });
+    runtime.queueAlertMonitor.start();
     runtime.reconcileTimer = setInterval(() => {
       void printQueueService.reconciliarPedidosSemJob().catch(error =>
         logger.error(`Erro no reconciliador: ${sanitizeFatal(error)}`));
@@ -316,6 +325,7 @@ async function boot({
   } catch (error) {
     appState.setState("failed");
     if (runtime.reconcileTimer) clearInterval(runtime.reconcileTimer);
+    runtime.queueAlertMonitor?.stop();
     try {
       await closeWithCallback(runtime.io, "close");
       await closeWithCallback(runtime.httpServer, "close");

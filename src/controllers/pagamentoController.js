@@ -29,6 +29,7 @@ const {
 } = require("../services/pedidoPublicoTokenService");
 const { baixarEstoqueDoPedido, restaurarEstoqueDoPedido } = require("../services/estoqueService");
 const printQueueService = require("../services/printQueueService");
+const { operationalAlerts } = require("../services/operationalAlertService");
 const { registroModel } = require("../models/registroModel");
 const {
   buildPlatformFeeSnapshot,
@@ -2492,10 +2493,25 @@ exports.webhook = async (req, res) => {
           },
         },
       ).catch(() => {});
-      appLogger.error("mercado_pago_webhook_error", webhookDiagnostic(error, req, data, {
+      const diagnostic = webhookDiagnostic(error, req, data, {
         signatureValid,
         responseStatus: 503,
-      }));
+      });
+      appLogger.error("mercado_pago_webhook_error", diagnostic);
+      operationalAlerts.trigger({
+        event: "mercado_pago_webhook_failed",
+        key: `mercado_pago_webhook_failed:${diagnostic.stage}`,
+        severity: "critical",
+        details: {
+          stage: diagnostic.stage,
+          eventType: diagnostic.eventType,
+          resourceIdSuffix: diagnostic.resourceIdSuffix,
+          providerCode: diagnostic.providerCode,
+          errorName: diagnostic.errorName,
+          correlationId: diagnostic.correlationId,
+        },
+      });
+      res.locals.operationalAlertHandled = true;
       return res.status(503).json({
         ok: false,
         code: error.code || "WEBHOOK_PROCESSING_RETRYABLE",
@@ -2504,10 +2520,25 @@ exports.webhook = async (req, res) => {
       });
     }
     if (signatureValid) {
-      appLogger.error("mercado_pago_webhook_error", webhookDiagnostic(error, req, data, {
+      const diagnostic = webhookDiagnostic(error, req, data, {
         signatureValid,
         responseStatus: 503,
-      }));
+      });
+      appLogger.error("mercado_pago_webhook_error", diagnostic);
+      operationalAlerts.trigger({
+        event: "mercado_pago_webhook_failed",
+        key: `mercado_pago_webhook_failed:${diagnostic.stage}`,
+        severity: "critical",
+        details: {
+          stage: diagnostic.stage,
+          eventType: diagnostic.eventType,
+          resourceIdSuffix: diagnostic.resourceIdSuffix,
+          providerCode: diagnostic.providerCode,
+          errorName: diagnostic.errorName,
+          correlationId: diagnostic.correlationId,
+        },
+      });
+      res.locals.operationalAlertHandled = true;
       return res.status(503).json({
         ok: false,
         code: error.code || "WEBHOOK_PROVIDER_RETRYABLE",
