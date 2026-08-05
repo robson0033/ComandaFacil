@@ -610,6 +610,33 @@ route.post(
 */
 
 route.post(
+  '/admin/cidades-entrega',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissao('configuracoes'),
+  admin.criarCidadeEntrega
+);
+
+route.post(
+  '/admin/cidades-entrega/:id/editar',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissao('configuracoes'),
+  admin.editarCidadeEntrega
+);
+
+route.post(
+  '/admin/cidades-entrega/:id/status',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissao('configuracoes'),
+  admin.alterarStatusCidadeEntrega
+);
+
+route.post(
   '/admin/configuracoes',
   loginRequired,
   carregarAssinatura,

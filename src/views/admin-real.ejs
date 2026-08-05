@@ -2024,6 +2024,70 @@
       gap: 18px;
     }
 
+    .delivery-city-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .delivery-city-card {
+      padding: 15px;
+      border: 1px solid var(--cinza-200);
+      border-radius: 14px;
+      background: var(--cinza-50);
+    }
+
+    .delivery-city-card.inactive {
+      opacity: 0.72;
+    }
+
+    .delivery-city-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .delivery-city-card-header strong {
+      color: var(--cinza-900);
+      font-size: 14px;
+    }
+
+    .delivery-city-status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: #dcf6e8;
+      color: #177544;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .delivery-city-status.inactive {
+      background: #f3e5e5;
+      color: #8c2727;
+    }
+
+    .delivery-city-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .delivery-city-empty {
+      padding: 15px;
+      border: 1px dashed var(--cinza-300);
+      border-radius: 12px;
+      color: var(--cinza-500);
+      font-size: 13px;
+      text-align: center;
+    }
+
     .profile-preview {
       width: 88px;
       height: 88px;
@@ -2934,6 +2998,11 @@
           impressaoAutomatica: false,
           impressoras: []
         };
+
+  const cidadesEntregaPainel =
+    typeof cidadesEntrega !== 'undefined' && Array.isArray(cidadesEntrega)
+      ? cidadesEntrega
+      : [];
 
   const painelDashboard =
     typeof dashboard !== 'undefined' && dashboard
@@ -5360,6 +5429,151 @@
                 </button>
               </div>
             </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div class="panel-title">
+                <h2>Cidades e taxas de entrega</h2>
+                <p>Cadastre somente as cidades atendidas e informe a taxa cobrada em cada uma.</p>
+              </div>
+            </div>
+
+            <%
+              const ufsEntrega = [
+                'AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG',
+                'PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'
+              ];
+            %>
+
+            <form
+              action="/admin/cidades-entrega"
+              method="POST"
+              class="form-grid"
+            >
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+              <div class="field">
+                <label for="cidadeEntregaNome">Cidade</label>
+                <input
+                  id="cidadeEntregaNome"
+                  name="nome"
+                  maxlength="120"
+                  placeholder="Ex.: Contagem"
+                  required
+                >
+              </div>
+
+              <div class="field">
+                <label for="cidadeEntregaUf">UF</label>
+                <select id="cidadeEntregaUf" name="uf" required>
+                  <option value="">Selecione</option>
+                  <% ufsEntrega.forEach(uf => { %>
+                    <option value="<%= uf %>"><%= uf %></option>
+                  <% }) %>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="cidadeEntregaTaxa">Taxa de entrega</label>
+                <input
+                  id="cidadeEntregaTaxa"
+                  name="taxa"
+                  inputmode="decimal"
+                  maxlength="6"
+                  placeholder="Ex.: 12,00"
+                  required
+                >
+              </div>
+
+              <div class="field" style="align-self:end">
+                <button type="submit" class="button">Adicionar cidade</button>
+              </div>
+            </form>
+
+            <div class="delivery-city-list">
+              <% if (!cidadesEntregaPainel.length) { %>
+                <div class="delivery-city-empty">
+                  Nenhuma cidade de entrega foi cadastrada.
+                </div>
+              <% } %>
+
+              <% cidadesEntregaPainel.forEach(cidade => { %>
+                <article class="delivery-city-card <%= cidade.ativo === false ? 'inactive' : '' %>">
+                  <div class="delivery-city-card-header">
+                    <strong><%= cidade.nome %> - <%= cidade.uf %></strong>
+                    <span class="delivery-city-status <%= cidade.ativo === false ? 'inactive' : '' %>">
+                      <%= cidade.ativo === false ? 'Desativada' : 'Ativa' %>
+                    </span>
+                  </div>
+
+                  <form
+                    action="/admin/cidades-entrega/<%= cidade._id %>/editar"
+                    method="POST"
+                    class="form-grid"
+                  >
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
+                    <div class="field">
+                      <label>Cidade</label>
+                      <input
+                        name="nome"
+                        value="<%= cidade.nome %>"
+                        maxlength="120"
+                        required
+                      >
+                    </div>
+
+                    <div class="field">
+                      <label>UF</label>
+                      <select name="uf" required>
+                        <% ufsEntrega.forEach(uf => { %>
+                          <option
+                            value="<%= uf %>"
+                            <%= cidade.uf === uf ? 'selected' : '' %>
+                          ><%= uf %></option>
+                        <% }) %>
+                      </select>
+                    </div>
+
+                    <div class="field">
+                      <label>Taxa de entrega</label>
+                      <input
+                        name="taxa"
+                        inputmode="decimal"
+                        maxlength="6"
+                        value="<%= (Number(cidade.taxaCentavos || 0) / 100).toFixed(2).replace('.', ',') %>"
+                        required
+                      >
+                    </div>
+
+                    <div class="field" style="align-self:end">
+                      <button type="submit" class="mini-button edit">Salvar alterações</button>
+                    </div>
+                  </form>
+
+                  <div class="delivery-city-actions">
+                    <form
+                      action="/admin/cidades-entrega/<%= cidade._id %>/status"
+                      method="POST"
+                    >
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <input
+                        type="hidden"
+                        name="ativo"
+                        value="<%= cidade.ativo === false ? 'true' : 'false' %>"
+                      >
+                      <button
+                        type="submit"
+                        class="mini-button <%= cidade.ativo === false ? 'success' : 'delete' %>"
+                      >
+                        <%= cidade.ativo === false ? 'Reativar cidade' : 'Desativar cidade' %>
+                      </button>
+                    </form>
+                  </div>
+                </article>
+              <% }) %>
+            </div>
           </section>
 
           <section class="panel">

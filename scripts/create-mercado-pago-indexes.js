@@ -7,6 +7,7 @@ const {
   AssinaturaTentativa,
   AuditoriaEvento,
   Configuracao,
+  CidadeEntrega,
   Funcionario,
   OAuthState,
   PaymentEvent,
@@ -69,6 +70,18 @@ const definitions = [
     model: Configuracao,
     key: { estabelecimentoId: 1 },
     options: { unique: true, name: "configuracao_estabelecimento_unico" },
+    expectedType: "objectId",
+  },
+  {
+    model: CidadeEntrega,
+    key: { estabelecimentoId: 1, nomeNormalizado: 1, uf: 1 },
+    options: { unique: true, name: "cidade_entrega_tenant_nome_uf_unico" },
+    expectedType: "objectId",
+  },
+  {
+    model: CidadeEntrega,
+    key: { estabelecimentoId: 1, ativo: 1, nome: 1 },
+    options: { name: "cidade_entrega_tenant_ativo_nome" },
     expectedType: "objectId",
   },
   {

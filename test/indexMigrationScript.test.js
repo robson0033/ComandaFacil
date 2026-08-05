@@ -71,6 +71,30 @@ function silentLog() {
   return { log() {}, error() {} };
 }
 
+test("índices controlados incluem isolamento e unicidade das cidades de entrega", () => {
+  const unico = definitions.find(item =>
+    item.options.name === "cidade_entrega_tenant_nome_uf_unico");
+  const consulta = definitions.find(item =>
+    item.options.name === "cidade_entrega_tenant_ativo_nome");
+
+  assert.ok(unico);
+  assert.deepEqual(unico.key, {
+    estabelecimentoId: 1,
+    nomeNormalizado: 1,
+    uf: 1,
+  });
+  assert.equal(unico.options.unique, true);
+  assert.equal(unico.expectedType, "objectId");
+
+  assert.ok(consulta);
+  assert.deepEqual(consulta.key, {
+    estabelecimentoId: 1,
+    ativo: 1,
+    nome: 1,
+  });
+  assert.equal(Boolean(consulta.options.unique), false);
+});
+
 test("índice controlado inclui hash único do token de acompanhamento", () => {
   const indice = definitions.find(item =>
     item.options.name === "pedido_acompanhamento_token_hash_unico");

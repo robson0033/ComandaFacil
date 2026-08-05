@@ -16,6 +16,7 @@ const {
   Mesa,
   Funcionario,
   Configuracao,
+  CidadeEntrega,
   Pedido,
   Avaliacao,
   PrintAgent,
@@ -94,6 +95,9 @@ const {
   text: publicText,
   validatePublicOrderBase,
 } = require("../utils/publicOrderValidation");
+const {
+  montarDadosCidadeEntrega,
+} = require("../services/cidadeEntregaService");
 
 function exigirMovimentacaoEstoqueConcluida(resultado) {
   if (resultado?.success
@@ -2106,6 +2110,7 @@ exports.admin = async (req, res) => {
       produtos,
       mesas,
       funcionarios,
+      cidadesEntrega,
       pedidos,
       pedidosArquivados,
     ] = await Promise.all([
@@ -2171,6 +2176,15 @@ exports.admin = async (req, res) => {
           })
             .select("-senha")
             .sort({ nome: 1 })
+            .lean()
+        : Promise.resolve([]),
+
+      podeConfiguracoes
+        ? CidadeEntrega.find({
+            estabelecimentoId:
+              idEstabelecimento,
+          })
+            .sort({ ativo: -1, nome: 1, uf: 1 })
             .lean()
         : Promise.resolve([]),
 
@@ -2813,6 +2827,11 @@ exports.admin = async (req, res) => {
         listaFuncionarios:
           podeFuncionarios
             ? funcionarios
+            : [],
+
+        cidadesEntrega:
+          podeConfiguracoes
+            ? cidadesEntrega
             : [],
 
         pedidos:
@@ -4551,6 +4570,197 @@ exports.excluirFuncionario = async (
       res,
       error,
       "Não foi possível excluir o funcionário.",
+    );
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| CIDADES E TAXAS DE ENTREGA
+|--------------------------------------------------------------------------
+*/
+
+function mensagemErroCidadeEntrega(error, fallback) {
+  if (error?.code === 11000) {
+    return "Esta cidade e UF já estão cadastradas para a loja.";
+  }
+  if (error?.code === "CIDADE_ENTREGA_INVALIDA") {
+    return error.message;
+  }
+  return fallback;
+}
+
+exports.criarCidadeEntrega = async (req, res) => {
+  try {
+    const idEstabelecimento = estabelecimentoId(req);
+    const dados = montarDadosCidadeEntrega(req.body);
+
+    const existente = await CidadeEntrega.exists({
+      estabelecimentoId: idEstabelecimento,
+      nomeNormalizado: dados.nomeNormalizado,
+      uf: dados.uf,
+    });
+
+    if (existente) {
+      return erroERedirecionar(
+        req,
+        res,
+        "configuracoes",
+        "Esta cidade e UF já estão cadastradas. Edite ou reative o registro existente.",
+      );
+    }
+
+    await CidadeEntrega.create({
+      estabelecimentoId: idEstabelecimento,
+      ...dados,
+      ativo: true,
+      desativadoEm: null,
+    });
+
+    return salvarERedirecionar(
+      req,
+      res,
+      "configuracoes",
+      "Cidade de entrega cadastrada.",
+    );
+  } catch (error) {
+    appLogger.error("delivery_city_create_failed", {
+      correlationId: req.correlationId,
+      code: error?.code || "DELIVERY_CITY_CREATE_FAILED",
+    });
+
+    return erroERedirecionar(
+      req,
+      res,
+      "configuracoes",
+      mensagemErroCidadeEntrega(error, "Não foi possível cadastrar a cidade de entrega."),
+    );
+  }
+};
+
+exports.editarCidadeEntrega = async (req, res) => {
+  try {
+    const idEstabelecimento = estabelecimentoId(req);
+
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return erroERedirecionar(
+        req,
+        res,
+        "configuracoes",
+        "Cidade de entrega não encontrada.",
+      );
+    }
+
+    const cidade = await CidadeEntrega.findOne({
+      _id: req.params.id,
+      estabelecimentoId: idEstabelecimento,
+    });
+
+    if (!cidade) {
+      return erroERedirecionar(
+        req,
+        res,
+        "configuracoes",
+        "Cidade de entrega não encontrada.",
+      );
+    }
+
+    const dados = montarDadosCidadeEntrega(req.body);
+    const duplicada = await CidadeEntrega.exists({
+      _id: { $ne: cidade._id },
+      estabelecimentoId: idEstabelecimento,
+      nomeNormalizado: dados.nomeNormalizado,
+      uf: dados.uf,
+    });
+
+    if (duplicada) {
+      return erroERedirecionar(
+        req,
+        res,
+        "configuracoes",
+        "Esta cidade e UF já estão cadastradas.",
+      );
+    }
+
+    cidade.nome = dados.nome;
+    cidade.nomeNormalizado = dados.nomeNormalizado;
+    cidade.uf = dados.uf;
+    cidade.taxaCentavos = dados.taxaCentavos;
+    await cidade.save();
+
+    return salvarERedirecionar(
+      req,
+      res,
+      "configuracoes",
+      "Cidade e taxa de entrega atualizadas.",
+    );
+  } catch (error) {
+    appLogger.error("delivery_city_update_failed", {
+      correlationId: req.correlationId,
+      code: error?.code || "DELIVERY_CITY_UPDATE_FAILED",
+    });
+
+    return erroERedirecionar(
+      req,
+      res,
+      "configuracoes",
+      mensagemErroCidadeEntrega(error, "Não foi possível atualizar a cidade de entrega."),
+    );
+  }
+};
+
+exports.alterarStatusCidadeEntrega = async (req, res) => {
+  try {
+    const idEstabelecimento = estabelecimentoId(req);
+    const valorAtivo = String(req.body?.ativo || "").trim().toLowerCase();
+
+    if (!mongoose.isValidObjectId(req.params.id) || !["true", "false"].includes(valorAtivo)) {
+      return erroERedirecionar(
+        req,
+        res,
+        "configuracoes",
+        "Situação da cidade de entrega inválida.",
+      );
+    }
+
+    const ativo = valorAtivo === "true";
+    const cidade = await CidadeEntrega.findOne({
+      _id: req.params.id,
+      estabelecimentoId: idEstabelecimento,
+    });
+
+    if (!cidade) {
+      return erroERedirecionar(
+        req,
+        res,
+        "configuracoes",
+        "Cidade de entrega não encontrada.",
+      );
+    }
+
+    cidade.ativo = ativo;
+    cidade.desativadoEm = ativo ? null : new Date();
+    await cidade.save();
+
+    return salvarERedirecionar(
+      req,
+      res,
+      "configuracoes",
+      ativo
+        ? "Cidade de entrega reativada."
+        : "Cidade de entrega desativada.",
+    );
+  } catch (error) {
+    appLogger.error("delivery_city_status_failed", {
+      correlationId: req.correlationId,
+      code: error?.code || "DELIVERY_CITY_STATUS_FAILED",
+    });
+
+    return erroERedirecionar(
+      req,
+      res,
+      "configuracoes",
+      "Não foi possível alterar a situação da cidade de entrega.",
     );
   }
 };

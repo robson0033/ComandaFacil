@@ -545,6 +545,61 @@ const Configuracao = mongoose.model(
   ),
 );
 
+const cidadeEntregaSchema = new mongoose.Schema(
+  {
+    ...base,
+    nome: {
+      type: String,
+      required: true,
+      trim: true,
+      minlength: 2,
+      maxlength: 120,
+    },
+    nomeNormalizado: {
+      type: String,
+      required: true,
+      trim: true,
+      lowercase: true,
+      maxlength: 120,
+    },
+    uf: {
+      type: String,
+      required: true,
+      trim: true,
+      uppercase: true,
+      enum: [
+        "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO",
+        "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI",
+        "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO",
+      ],
+    },
+    taxaCentavos: {
+      type: Number,
+      required: true,
+      min: 0,
+      max: 50_000,
+      validate: {
+        validator: Number.isSafeInteger,
+        message: "A taxa de entrega deve ser informada em centavos inteiros.",
+      },
+    },
+    ativo: { type: Boolean, default: true, index: true },
+    desativadoEm: { type: Date, default: null },
+  },
+  opts,
+);
+
+cidadeEntregaSchema.index(
+  { estabelecimentoId: 1, nomeNormalizado: 1, uf: 1 },
+  { unique: true, name: "cidade_entrega_tenant_nome_uf_unico" },
+);
+cidadeEntregaSchema.index(
+  { estabelecimentoId: 1, ativo: 1, nome: 1 },
+  { name: "cidade_entrega_tenant_ativo_nome" },
+);
+
+const CidadeEntrega = mongoose.model("CidadeEntrega", cidadeEntregaSchema);
+
 const Pedido = mongoose.model(
   "Pedido",
   new mongoose.Schema(
@@ -1433,6 +1488,7 @@ const OrderLookupVerification = mongoose.model("OrderLookupVerification", orderL
 // scripts/create-mercado-pago-indexes.js, após a verificação de duplicidades.
 for (const model of [
   Configuracao,
+  CidadeEntrega,
   Pedido,
   Assinatura,
   AssinaturaTentativa,
@@ -1486,6 +1542,7 @@ module.exports = {
   Mesa,
   Funcionario,
   Configuracao,
+  CidadeEntrega,
   Pedido,
   Avaliacao,
   Assinatura,
