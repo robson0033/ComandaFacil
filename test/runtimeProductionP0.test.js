@@ -95,6 +95,38 @@ test("produção exige storage externo e erros não mostram valores secretos", (
   );
 });
 
+
+test("produção aceita Resend por HTTPS sem exigir variáveis SMTP", () => {
+  const env = productionEnv({
+    EMAIL_PROVIDER: "resend",
+    RESEND_API_KEY: "re_1234567890abcdefghijklmnop",
+    EMAIL_FROM: "Comanda Fácil <nao-responda@mail.example>",
+    SMTP_HOST: "",
+    SMTP_PORT: "",
+    SMTP_USER: "",
+    SMTP_PASS: "",
+    SMTP_FROM: "",
+  });
+  const config = validateEnvironment(env);
+  assert.equal(config.emailProvider, "resend");
+
+  assert.throws(
+    () => validateEnvironment({ ...env, RESEND_API_KEY: "" }),
+    error => error instanceof EnvironmentValidationError
+      && error.invalidNames.includes("RESEND_API_KEY"),
+  );
+  assert.throws(
+    () => validateEnvironment({ ...env, EMAIL_FROM: "remetente-invalido" }),
+    error => error instanceof EnvironmentValidationError
+      && error.invalidNames.includes("EMAIL_FROM"),
+  );
+  assert.throws(
+    () => validateEnvironment({ ...env, EMAIL_PROVIDER: "desconhecido" }),
+    error => error instanceof EnvironmentValidationError
+      && error.invalidNames.includes("EMAIL_PROVIDER"),
+  );
+});
+
 test("MemoryStore é proibido em produção e fallback exige autorização explícita", () => {
   const production = validateEnvironment(productionEnv());
   assert.throws(

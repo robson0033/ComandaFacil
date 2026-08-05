@@ -23,6 +23,7 @@ function source(relativePath) {
   return fs.readFileSync(path.resolve(__dirname, "..", relativePath), "utf8");
 }
 
+
 function carregarEmailServiceComFakes({ sendMail, alertService }) {
   const modulePath = require.resolve("../src/services/emailService");
   const originalLoad = Module._load;
@@ -270,13 +271,17 @@ test("consulta de fila cobre estados vencidos sem reenviar trabalhos", () => {
   assert.doesNotMatch(serialized, /concluido|cancelado/);
 });
 
+
+
 test("e-mail aplica timeouts, detalha ESOCKET e resolve alerta após recuperação", async () => {
   const previousEnv = {
+    EMAIL_PROVIDER: process.env.EMAIL_PROVIDER,
     SMTP_HOST: process.env.SMTP_HOST,
     SMTP_PORT: process.env.SMTP_PORT,
     SMTP_USER: process.env.SMTP_USER,
     SMTP_PASS: process.env.SMTP_PASS,
   };
+  process.env.EMAIL_PROVIDER = "smtp";
   process.env.SMTP_HOST = "smtp.example.test";
   process.env.SMTP_PORT = "465";
   process.env.SMTP_USER = "mailer@example.test";
@@ -360,6 +365,105 @@ test("e-mail aplica timeouts, detalha ESOCKET e resolve alerta após recuperaç�
       else process.env[name] = value;
     }
   }
+});
+
+
+
+test("Resend envia por HTTPS, converte mensagem e preserva alertas seguros", async () => {
+  const calls = [];
+  const requests = [];
+  let fail = true;
+  const { emailService } = carregarEmailServiceComFakes({
+    sendMail: async () => {
+      throw new Error("SMTP não deve ser usado com Resend");
+    },
+    alertService: {
+      trigger(input) { calls.push(["trigger", input]); },
+      resolve(input) { calls.push(["resolve", input]); },
+    },
+  });
+  const env = {
+    EMAIL_PROVIDER: "resend",
+    RESEND_API_KEY: "re_chave_que_nao_pode_aparecer",
+    EMAIL_FROM: "Comanda Fácil <nao-responda@mail.example.test>",
+  };
+  const fetchFn = async (url, options) => {
+    requests.push({ url, options, body: JSON.parse(options.body) });
+    if (fail) {
+      return {
+        ok: false,
+        status: 422,
+        async json() {
+          return { name: "validation_error", message: "Remetente inválido." };
+        },
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      async json() { return { id: "email-resend-1" }; },
+    };
+  };
+
+  await assert.rejects(
+    emailService._testing.enviarComAlerta({
+      tipo: "password_recovery",
+      destinatario: "real@example.com",
+      env,
+      fetchFn,
+      mensagem: {
+        from: { name: "Loja via Comanda Fácil", address: "nao-responda@mail.example.test" },
+        to: "real@example.com",
+        replyTo: "loja@example.com",
+        subject: "Assunto",
+        text: "Texto",
+        html: "<p>Texto</p>",
+      },
+    }),
+    error => error.name === "ResendApiError" && error.responseCode === 422,
+  );
+
+  const failure = calls.find(([type]) => type === "trigger")?.[1];
+  assert.equal(failure.details.emailProvider, "resend");
+  assert.equal(failure.details.responseCode, 422);
+  assert.equal(failure.details.remoteAddress, "api.resend.com");
+  assert.equal(failure.details.remotePort, 443);
+  assert.doesNotMatch(JSON.stringify(failure), /re_chave_que_nao_pode_aparecer/);
+
+  fail = false;
+  const result = await emailService._testing.enviarComAlerta({
+    tipo: "password_recovery",
+    destinatario: "real@example.com",
+    env,
+    fetchFn,
+    mensagem: {
+      from: { name: "Loja via Comanda Fácil", address: "nao-responda@mail.example.test" },
+      to: "real@example.com",
+      replyTo: "loja@example.com",
+      subject: "Assunto",
+      text: "Texto",
+      html: "<p>Texto</p>",
+    },
+  });
+  assert.equal(result.messageId, "email-resend-1");
+  assert.equal(requests.at(-1).url, "https://api.resend.com/emails");
+  assert.equal(requests.at(-1).options.method, "POST");
+  assert.equal(
+    requests.at(-1).options.headers.Authorization,
+    "Bearer re_chave_que_nao_pode_aparecer",
+  );
+  assert.deepEqual(requests.at(-1).body, {
+    from: "Loja via Comanda Fácil <nao-responda@mail.example.test>",
+    to: ["real@example.com"],
+    subject: "Assunto",
+    html: "<p>Texto</p>",
+    text: "Texto",
+    reply_to: "loja@example.com",
+  });
+
+  const recovery = calls.find(([type]) => type === "resolve")?.[1];
+  assert.equal(recovery.details.emailProvider, "resend");
+  assert.equal(recovery.details.status, "delivery_recovered");
 });
 
 test("integrações do item 17 são isoladas nos pontos corretos", () => {

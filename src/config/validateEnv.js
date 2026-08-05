@@ -16,12 +16,21 @@ const REQUIRED_PRODUCTION = Object.freeze([
   "MP_CLIENT_SECRET",
   "MP_REDIRECT_URI",
   "TOKEN_ENCRYPTION_KEY",
-  "SMTP_HOST",
-  "SMTP_PORT",
-  "SMTP_USER",
-  "SMTP_PASS",
-  "SMTP_FROM",
 ]);
+
+const EMAIL_REQUIRED_BY_PROVIDER = Object.freeze({
+  smtp: Object.freeze([
+    "SMTP_HOST",
+    "SMTP_PORT",
+    "SMTP_USER",
+    "SMTP_PASS",
+    "SMTP_FROM",
+  ]),
+  resend: Object.freeze([
+    "RESEND_API_KEY",
+    "EMAIL_FROM",
+  ]),
+});
 
 class EnvironmentValidationError extends Error {
   constructor(invalidNames) {
@@ -107,9 +116,26 @@ function validateEnvironment(env = process.env) {
         invalid.push("STORAGE_EXTERNAL_BASE_URL");
       }
     }
-    const smtpPort = Number(env.SMTP_PORT);
-    if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
-      invalid.push("SMTP_PORT");
+    const emailProvider = String(env.EMAIL_PROVIDER || "smtp")
+      .trim().toLowerCase();
+    if (!Object.hasOwn(EMAIL_REQUIRED_BY_PROVIDER, emailProvider)) {
+      invalid.push("EMAIL_PROVIDER");
+    } else {
+      for (const name of EMAIL_REQUIRED_BY_PROVIDER[emailProvider]) {
+        if (!nonEmpty(env, name)) invalid.push(name);
+      }
+      if (emailProvider === "smtp") {
+        const smtpPort = Number(env.SMTP_PORT);
+        if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
+          invalid.push("SMTP_PORT");
+        }
+      } else {
+        const from = String(env.EMAIL_FROM || "").trim();
+        const fromAddress = from.match(/<([^>]+)>/)?.[1] || from;
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fromAddress)) {
+          invalid.push("EMAIL_FROM");
+        }
+      }
     }
     try {
       const redirect = new URL(env.MP_REDIRECT_URI);
@@ -151,12 +177,14 @@ function validateEnvironment(env = process.env) {
     mongoUri: env.CONNECTIONSTRING,
     sessionSecret,
     appUrl: appUrl.toString().replace(/\/+$/, ""),
+    emailProvider: String(env.EMAIL_PROVIDER || "smtp").trim().toLowerCase(),
     allowMemorySession: env.ALLOW_MEMORY_SESSION === "true",
   });
 }
 
 module.exports = {
   EnvironmentValidationError,
+  EMAIL_REQUIRED_BY_PROVIDER,
   REQUIRED_PRODUCTION,
   validateEnvironment,
 };

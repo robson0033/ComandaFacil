@@ -7,16 +7,54 @@ const { operationalAlerts } = require("./operationalAlertService");
 const SMTP_CONNECTION_TIMEOUT_MS = 15_000;
 const SMTP_GREETING_TIMEOUT_MS = 15_000;
 const SMTP_SOCKET_TIMEOUT_MS = 60_000;
+const RESEND_REQUEST_TIMEOUT_MS = 15_000;
+const RESEND_API_URL = "https://api.resend.com/emails";
 
-function criarTransportador() {
-  const host = String(process.env.SMTP_HOST || "").trim();
-  const porta = Number(process.env.SMTP_PORT || 587);
-  const usuario = String(process.env.SMTP_USER || "").trim();
-  const senha = String(process.env.SMTP_PASS || "");
+function criarErroConfiguracao(message, code) {
+  const error = new Error(message);
+  error.name = "EmailConfigurationError";
+  error.code = code;
+  return error;
+}
+
+function obterEmailProvider(env = process.env) {
+  const provider = String(env.EMAIL_PROVIDER || "smtp").trim().toLowerCase();
+  if (!new Set(["smtp", "resend"]).has(provider)) {
+    throw criarErroConfiguracao(
+      "EMAIL_PROVIDER deve ser smtp ou resend.",
+      "EMAIL_PROVIDER_INVALID",
+    );
+  }
+  return provider;
+}
+
+function obterRemetentePadrao(env = process.env) {
+  const provider = obterEmailProvider(env);
+  const value = provider === "resend"
+    ? env.EMAIL_FROM
+    : (env.SMTP_FROM || env.SMTP_USER);
+  const remetente = String(value || "").trim();
+  if (!remetente) {
+    throw criarErroConfiguracao(
+      provider === "resend"
+        ? "Configure EMAIL_FROM para enviar e-mails pela Resend."
+        : "Configure SMTP_FROM ou SMTP_USER para enviar e-mails.",
+      provider === "resend" ? "EMAIL_FROM_MISSING" : "SMTP_FROM_MISSING",
+    );
+  }
+  return remetente;
+}
+
+function criarTransportador(env = process.env) {
+  const host = String(env.SMTP_HOST || "").trim();
+  const porta = Number(env.SMTP_PORT || 587);
+  const usuario = String(env.SMTP_USER || "").trim();
+  const senha = String(env.SMTP_PASS || "");
 
   if (!host || !usuario || !senha) {
-    throw new Error(
+    throw criarErroConfiguracao(
       "Configure SMTP_HOST, SMTP_PORT, SMTP_USER e SMTP_PASS para enviar e-mails.",
+      "SMTP_CONFIGURATION_MISSING",
     );
   }
 
@@ -55,28 +93,171 @@ function chaveAlertaEmail(tipo) {
   return `email_delivery_failed:${String(tipo || "unknown").slice(0, 80)}`;
 }
 
-function diagnosticoSmtpSeguro(error) {
+function diagnosticoEmailSeguro(error) {
+  const cause = error?.cause || {};
   return {
     errorName: textoSeguro(error?.name || "Error", 80),
-    errorCode: textoSeguro(error?.code, 120),
-    errorErrno: textoSeguro(error?.errno, 120),
-    errorSyscall: textoSeguro(error?.syscall, 80),
+    errorCode: textoSeguro(error?.code || cause?.code, 120),
+    errorErrno: textoSeguro(error?.errno || cause?.errno, 120),
+    errorSyscall: textoSeguro(error?.syscall || cause?.syscall, 80),
     smtpCommand: textoSeguro(error?.command, 80),
-    responseCode: numeroSeguro(error?.responseCode),
-    remoteAddress: textoSeguro(error?.address, 160),
-    remotePort: numeroSeguro(error?.port),
+    responseCode: numeroSeguro(error?.responseCode || error?.statusCode),
+    remoteAddress: textoSeguro(error?.address || cause?.address, 160),
+    remotePort: numeroSeguro(error?.port || cause?.port),
     errorMessage: textoSeguro(error?.message || "Falha ao enviar e-mail.", 300),
   };
 }
 
-async function enviarComAlerta({ tipo, destinatario, mensagem }) {
+function formatarEndereco(value) {
+  if (typeof value === "string") return value.trim();
+  const address = String(value?.address || "").trim();
+  const name = String(value?.name || "").replace(/[\r\n]/g, " ").trim();
+  if (!address) return "";
+  return name ? `${name} <${address}>` : address;
+}
+
+function normalizarListaEnderecos(value) {
+  const input = Array.isArray(value) ? value : [value];
+  return input.map(formatarEndereco).filter(Boolean);
+}
+
+function montarPayloadResend(mensagem, env = process.env) {
+  const from = formatarEndereco(mensagem?.from) || obterRemetentePadrao(env);
+  const to = normalizarListaEnderecos(mensagem?.to);
+  const subject = String(mensagem?.subject || "").trim();
+
+  if (!from || to.length === 0 || !subject) {
+    throw criarErroConfiguracao(
+      "Mensagem de e-mail sem remetente, destinatário ou assunto.",
+      "EMAIL_MESSAGE_INVALID",
+    );
+  }
+
+  const payload = { from, to, subject };
+  if (mensagem?.html !== undefined) payload.html = String(mensagem.html);
+  if (mensagem?.text !== undefined) payload.text = String(mensagem.text);
+
+  const replyTo = normalizarListaEnderecos(
+    mensagem?.replyTo ?? mensagem?.reply_to,
+  );
+  if (replyTo.length === 1) payload.reply_to = replyTo[0];
+  else if (replyTo.length > 1) payload.reply_to = replyTo;
+
+  return payload;
+}
+
+async function lerRespostaJson(response) {
+  try {
+    if (typeof response?.json === "function") return await response.json();
+    if (typeof response?.text === "function") {
+      const text = await response.text();
+      return text ? JSON.parse(text) : {};
+    }
+  } catch {
+    return {};
+  }
+  return {};
+}
+
+function criarErroResend(response, body) {
+  const message = String(
+    body?.message || `A API de e-mail respondeu HTTP ${response?.status || 0}.`,
+  ).slice(0, 300);
+  const error = new Error(message);
+  error.name = "ResendApiError";
+  error.code = String(body?.name || "RESEND_API_ERROR").slice(0, 120);
+  error.responseCode = Number(response?.status) || null;
+  error.statusCode = Number(response?.status) || null;
+  error.command = "POST";
+  error.address = "api.resend.com";
+  error.port = 443;
+  return error;
+}
+
+async function enviarPorResend(
+  mensagem,
+  {
+    env = process.env,
+    fetchFn = globalThis.fetch,
+    timeoutMs = RESEND_REQUEST_TIMEOUT_MS,
+  } = {},
+) {
+  const apiKey = String(env.RESEND_API_KEY || "").trim();
+  if (!apiKey) {
+    throw criarErroConfiguracao(
+      "Configure RESEND_API_KEY para enviar e-mails pela Resend.",
+      "RESEND_API_KEY_MISSING",
+    );
+  }
+  if (typeof fetchFn !== "function") {
+    throw criarErroConfiguracao(
+      "Cliente HTTPS indisponível para envio de e-mail.",
+      "EMAIL_FETCH_UNAVAILABLE",
+    );
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  timer.unref?.();
+
+  try {
+    const response = await fetchFn(RESEND_API_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "User-Agent": "ComandaFacil/2.0",
+      },
+      body: JSON.stringify(montarPayloadResend(mensagem, env)),
+      signal: controller.signal,
+    });
+    const body = await lerRespostaJson(response);
+    if (!response?.ok) throw criarErroResend(response, body);
+
+    return {
+      messageId: String(body?.id || ""),
+      provider: "resend",
+    };
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error("Tempo limite da API de e-mail excedido.");
+      timeoutError.name = "EmailApiTimeoutError";
+      timeoutError.code = "RESEND_API_TIMEOUT";
+      timeoutError.command = "POST";
+      timeoutError.address = "api.resend.com";
+      timeoutError.port = 443;
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function enviarMensagem(mensagem, options = {}) {
+  const env = options.env || process.env;
+  const provider = obterEmailProvider(env);
+  if (provider === "resend") {
+    return enviarPorResend(mensagem, { ...options, env });
+  }
+  return criarTransportador(env).sendMail(mensagem);
+}
+
+async function enviarComAlerta({
+  tipo,
+  destinatario,
+  mensagem,
+  env = process.env,
+  fetchFn,
+}) {
   const emailType = String(tipo || "unknown").slice(0, 80);
   const recipientMasked = mascararEmail(destinatario);
   const alertKey = chaveAlertaEmail(emailType);
+  const configuredProvider = String(env.EMAIL_PROVIDER || "smtp")
+    .trim().toLowerCase().slice(0, 30);
 
   try {
-    const transportador = criarTransportador();
-    const resultado = await transportador.sendMail(mensagem);
+    const resultado = await enviarMensagem(mensagem, { env, fetchFn });
 
     operationalAlerts.resolve({
       event: "email_delivery_failed",
@@ -84,6 +265,7 @@ async function enviarComAlerta({ tipo, destinatario, mensagem }) {
       severity: "info",
       details: {
         emailType,
+        emailProvider: configuredProvider,
         recipientMasked,
         status: "delivery_recovered",
       },
@@ -97,8 +279,9 @@ async function enviarComAlerta({ tipo, destinatario, mensagem }) {
       severity: "critical",
       details: {
         emailType,
+        emailProvider: configuredProvider,
         recipientMasked,
-        ...diagnosticoSmtpSeguro(error),
+        ...diagnosticoEmailSeguro(error),
       },
     });
     throw error;
@@ -106,10 +289,7 @@ async function enviarComAlerta({ tipo, destinatario, mensagem }) {
 }
 
 async function enviarCodigoRecuperacao({ email, nome, codigo }) {
-  const remetente = String(
-    process.env.SMTP_FROM || process.env.SMTP_USER || "",
-  ).trim();
-
+  const remetente = obterRemetentePadrao();
   const nomeSeguro = String(nome || "cliente").trim();
 
   await enviarComAlerta({
@@ -145,7 +325,7 @@ async function enviarCodigoRecuperacao({ email, nome, codigo }) {
 }
 
 async function enviarCodigoConsultaPedidos({ email, codigo }) {
-  const remetente = String(process.env.SMTP_FROM || process.env.SMTP_USER || "").trim();
+  const remetente = obterRemetentePadrao();
   await enviarComAlerta({
     tipo: "order_lookup_verification",
     destinatario: email,
@@ -182,9 +362,7 @@ async function enviarConfirmacaoPedido({
   acompanhamentoUrl,
 }) {
   if (!emailValido(email)) return false;
-  const remetenteConfigurado = String(
-    process.env.SMTP_FROM || process.env.SMTP_USER || "",
-  ).trim();
+  const remetenteConfigurado = obterRemetentePadrao();
   const enderecoCentral = remetenteConfigurado.match(/<([^>]+)>/)?.[1]
     || remetenteConfigurado;
   const loja = limparCabecalho(nomeLoja, "Estabelecimento");
@@ -233,11 +411,19 @@ module.exports = {
   enviarCodigoConsultaPedidos,
   _testing: {
     criarTransportador,
-    diagnosticoSmtpSeguro,
+    diagnosticoSmtpSeguro: diagnosticoEmailSeguro,
+    diagnosticoEmailSeguro,
     enviarComAlerta,
+    enviarMensagem,
+    enviarPorResend,
+    montarPayloadResend,
+    obterEmailProvider,
+    obterRemetentePadrao,
     mascararEmail,
     SMTP_CONNECTION_TIMEOUT_MS,
     SMTP_GREETING_TIMEOUT_MS,
     SMTP_SOCKET_TIMEOUT_MS,
+    RESEND_REQUEST_TIMEOUT_MS,
+    RESEND_API_URL,
   },
 };
