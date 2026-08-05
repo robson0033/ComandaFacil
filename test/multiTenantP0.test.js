@@ -1,6 +1,8 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
 const models = require("../src/models/painelModels");
 const { Registro, registroModel } = require("../src/models/registroModel");
@@ -210,6 +212,62 @@ test("recuperação normaliza e faz uma consulta determinística por tipo de con
     registroModel.findOne = originals.ownerFindOne;
     models.Funcionario.findOne = originals.employeeFindOne;
   }
+});
+
+test("falha de e-mail invalida o código sem esconder o erro original", async () => {
+  const erroEnvio = Object.assign(new Error("SMTP indisponível"), {
+    code: "ESOCKET",
+  });
+  const updates = [];
+
+  await assert.rejects(
+    recuperacao._testing.enviarCodigoPersistido({
+      recuperacaoId: "507f191e810c19729de860ea",
+      email: "usuario@example.com",
+      nome: "Usuário",
+      codigo: "123456",
+      enviar: async () => { throw erroEnvio; },
+      RecuperacaoSenhaModel: {
+        async updateOne(filter, update) {
+          updates.push({ filter, update });
+          return { matchedCount: 1, modifiedCount: 1 };
+        },
+      },
+    }),
+    error => error === erroEnvio,
+  );
+
+  assert.deepEqual(updates, [{
+    filter: {
+      _id: "507f191e810c19729de860ea",
+      usado: false,
+    },
+    update: { $set: { usado: true } },
+  }]);
+
+  const controllerSource = fs.readFileSync(
+    path.resolve(__dirname, "../src/controllers/recuperacaoSenhaController.js"),
+    "utf8",
+  );
+  assert.match(
+    controllerSource,
+    /RecuperacaoSenha\.findOne\(\{\s*email,\s*usado: false,?\s*\}\)/,
+  );
+});
+
+test("envio bem-sucedido mantém o código ativo", async () => {
+  let updates = 0;
+  await recuperacao._testing.enviarCodigoPersistido({
+    recuperacaoId: "507f191e810c19729de860ea",
+    email: "usuario@example.com",
+    nome: "Usuário",
+    codigo: "123456",
+    enviar: async () => undefined,
+    RecuperacaoSenhaModel: {
+      async updateOne() { updates += 1; },
+    },
+  });
+  assert.equal(updates, 0);
 });
 
 test("reserva de código repete após colisão sem sobrescrever outra loja", async () => {

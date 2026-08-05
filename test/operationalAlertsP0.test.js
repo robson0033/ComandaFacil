@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
 const path = require("node:path");
+const Module = require("node:module");
 const test = require("node:test");
 
 const {
@@ -20,6 +21,41 @@ const {
 
 function source(relativePath) {
   return fs.readFileSync(path.resolve(__dirname, "..", relativePath), "utf8");
+}
+
+function carregarEmailServiceComFakes({ sendMail, alertService }) {
+  const modulePath = require.resolve("../src/services/emailService");
+  const originalLoad = Module._load;
+  const transportOptions = [];
+
+  Module._load = function patchedLoad(request, parent, isMain) {
+    if (parent?.filename === modulePath && request === "nodemailer") {
+      return {
+        createTransport(options) {
+          transportOptions.push(options);
+          return { sendMail };
+        },
+      };
+    }
+    if (
+      parent?.filename === modulePath
+      && request === "./operationalAlertService"
+    ) {
+      return { operationalAlerts: alertService };
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+
+  delete require.cache[modulePath];
+  try {
+    return {
+      emailService: require(modulePath),
+      transportOptions,
+    };
+  } finally {
+    Module._load = originalLoad;
+    delete require.cache[modulePath];
+  }
 }
 
 function silentLogger() {
@@ -232,6 +268,98 @@ test("consulta de fila cobre estados vencidos sem reenviar trabalhos", () => {
   assert.match(serialized, /processando/);
   assert.match(serialized, /resultado_desconhecido/);
   assert.doesNotMatch(serialized, /concluido|cancelado/);
+});
+
+test("e-mail aplica timeouts, detalha ESOCKET e resolve alerta após recuperação", async () => {
+  const previousEnv = {
+    SMTP_HOST: process.env.SMTP_HOST,
+    SMTP_PORT: process.env.SMTP_PORT,
+    SMTP_USER: process.env.SMTP_USER,
+    SMTP_PASS: process.env.SMTP_PASS,
+  };
+  process.env.SMTP_HOST = "smtp.example.test";
+  process.env.SMTP_PORT = "465";
+  process.env.SMTP_USER = "mailer@example.test";
+  process.env.SMTP_PASS = "senha-nao-exposta";
+
+  const calls = [];
+  let fail = true;
+  const socketError = Object.assign(new Error("connect ETIMEDOUT 203.0.113.10:465"), {
+    code: "ESOCKET",
+    errno: "ETIMEDOUT",
+    syscall: "connect",
+    command: "CONN",
+    address: "203.0.113.10",
+    port: 465,
+  });
+
+  const { emailService, transportOptions } = carregarEmailServiceComFakes({
+    sendMail: async () => {
+      if (fail) throw socketError;
+      return { messageId: "message-1" };
+    },
+    alertService: {
+      trigger(input) { calls.push(["trigger", input]); },
+      resolve(input) { calls.push(["resolve", input]); },
+    },
+  });
+
+  try {
+    await assert.rejects(
+      emailService._testing.enviarComAlerta({
+        tipo: "password_recovery",
+        destinatario: "real@example.com",
+        mensagem: { to: "real@example.com" },
+      }),
+      error => error === socketError,
+    );
+
+    assert.equal(transportOptions[0].secure, true);
+    assert.equal(
+      transportOptions[0].connectionTimeout,
+      emailService._testing.SMTP_CONNECTION_TIMEOUT_MS,
+    );
+    assert.equal(
+      transportOptions[0].greetingTimeout,
+      emailService._testing.SMTP_GREETING_TIMEOUT_MS,
+    );
+    assert.equal(
+      transportOptions[0].socketTimeout,
+      emailService._testing.SMTP_SOCKET_TIMEOUT_MS,
+    );
+
+    const failure = calls.find(([type]) => type === "trigger")?.[1];
+    assert.equal(failure.event, "email_delivery_failed");
+    assert.equal(failure.details.recipientMasked, "r***@example.com");
+    assert.equal(failure.details.errorCode, "ESOCKET");
+    assert.equal(failure.details.errorErrno, "ETIMEDOUT");
+    assert.equal(failure.details.errorSyscall, "connect");
+    assert.equal(failure.details.smtpCommand, "CONN");
+    assert.equal(failure.details.remotePort, 465);
+    assert.doesNotMatch(JSON.stringify(failure), /senha-nao-exposta/);
+
+    fail = false;
+    const result = await emailService._testing.enviarComAlerta({
+      tipo: "password_recovery",
+      destinatario: "real@example.com",
+      mensagem: { to: "real@example.com" },
+    });
+    assert.equal(result.messageId, "message-1");
+
+    const recovery = calls.find(([type]) => type === "resolve")?.[1];
+    assert.equal(recovery.event, "email_delivery_failed");
+    assert.equal(recovery.key, failure.key);
+    assert.equal(recovery.details.status, "delivery_recovered");
+
+    process.env.SMTP_PORT = "587";
+    emailService._testing.criarTransportador();
+    assert.equal(transportOptions.at(-1).secure, false);
+  } finally {
+    for (const [name, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
 });
 
 test("integrações do item 17 são isoladas nos pontos corretos", () => {

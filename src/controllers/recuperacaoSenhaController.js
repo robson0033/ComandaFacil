@@ -49,6 +49,32 @@ function compararHash(valor, hashSalvo) {
   return crypto.timingSafeEqual(recebido, salvo);
 }
 
+async function enviarCodigoPersistido({
+  recuperacaoId,
+  email,
+  nome,
+  codigo,
+  enviar = enviarCodigoRecuperacao,
+  RecuperacaoSenhaModel = RecuperacaoSenha,
+}) {
+  try {
+    await enviar({ email, nome, codigo });
+  } catch (erroEnvio) {
+    try {
+      await RecuperacaoSenhaModel.updateOne(
+        { _id: recuperacaoId, usado: false },
+        { $set: { usado: true } },
+      );
+    } catch (erroInvalidacao) {
+      appLogger.error(
+        "Erro ao invalidar recuperação após falha de e-mail:",
+        erroInvalidacao,
+      );
+    }
+    throw erroEnvio;
+  }
+}
+
 async function localizarUsuario(email) {
   const proprietario = await registroModel.findOne({ email });
 
@@ -110,7 +136,10 @@ exports.solicitarCodigo = async (req, res) => {
       });
     }
 
-    const ultimaSolicitacao = await RecuperacaoSenha.findOne({ email })
+    const ultimaSolicitacao = await RecuperacaoSenha.findOne({
+      email,
+      usado: false,
+    })
       .sort({ criadoEm: -1 })
       .lean();
 
@@ -133,7 +162,7 @@ exports.solicitarCodigo = async (req, res) => {
 
     const codigo = gerarCodigo();
 
-    await RecuperacaoSenha.create({
+    const recuperacaoCriada = await RecuperacaoSenha.create({
       email,
       tipoUsuario: usuarioEncontrado.tipoUsuario,
       usuarioId: usuarioEncontrado.usuario._id,
@@ -141,7 +170,8 @@ exports.solicitarCodigo = async (req, res) => {
       expiraEm: new Date(Date.now() + DEZ_MINUTOS),
     });
 
-    await enviarCodigoRecuperacao({
+    await enviarCodigoPersistido({
+      recuperacaoId: recuperacaoCriada._id,
       email,
       nome: usuarioEncontrado.nome,
       codigo,
@@ -334,3 +364,7 @@ exports.salvarNovaSenha = async (req, res) => {
     return res.status(500).render("404");
   }
 };
+
+exports._testing = Object.freeze({
+  enviarCodigoPersistido,
+});

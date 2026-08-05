@@ -1,7 +1,12 @@
 "use strict";
 
 const nodemailer = require("nodemailer");
+const { sanitizeString } = require("../utils/logger");
 const { operationalAlerts } = require("./operationalAlertService");
+
+const SMTP_CONNECTION_TIMEOUT_MS = 15_000;
+const SMTP_GREETING_TIMEOUT_MS = 15_000;
+const SMTP_SOCKET_TIMEOUT_MS = 60_000;
 
 function criarTransportador() {
   const host = String(process.env.SMTP_HOST || "").trim();
@@ -19,6 +24,9 @@ function criarTransportador() {
     host,
     port: porta,
     secure: porta === 465,
+    connectionTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+    greetingTimeout: SMTP_GREETING_TIMEOUT_MS,
+    socketTimeout: SMTP_SOCKET_TIMEOUT_MS,
     auth: {
       user: usuario,
       pass: senha,
@@ -33,22 +41,64 @@ function mascararEmail(value) {
   return `${local.slice(0, 1)}***@${domain.slice(0, 120)}`;
 }
 
+function textoSeguro(value, maxLength = 160) {
+  const sanitized = sanitizeString(String(value || ""), maxLength);
+  return sanitized || null;
+}
+
+function numeroSeguro(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function chaveAlertaEmail(tipo) {
+  return `email_delivery_failed:${String(tipo || "unknown").slice(0, 80)}`;
+}
+
+function diagnosticoSmtpSeguro(error) {
+  return {
+    errorName: textoSeguro(error?.name || "Error", 80),
+    errorCode: textoSeguro(error?.code, 120),
+    errorErrno: textoSeguro(error?.errno, 120),
+    errorSyscall: textoSeguro(error?.syscall, 80),
+    smtpCommand: textoSeguro(error?.command, 80),
+    responseCode: numeroSeguro(error?.responseCode),
+    remoteAddress: textoSeguro(error?.address, 160),
+    remotePort: numeroSeguro(error?.port),
+    errorMessage: textoSeguro(error?.message || "Falha ao enviar e-mail.", 300),
+  };
+}
+
 async function enviarComAlerta({ tipo, destinatario, mensagem }) {
+  const emailType = String(tipo || "unknown").slice(0, 80);
+  const recipientMasked = mascararEmail(destinatario);
+  const alertKey = chaveAlertaEmail(emailType);
+
   try {
     const transportador = criarTransportador();
-    return await transportador.sendMail(mensagem);
+    const resultado = await transportador.sendMail(mensagem);
+
+    operationalAlerts.resolve({
+      event: "email_delivery_failed",
+      key: alertKey,
+      severity: "info",
+      details: {
+        emailType,
+        recipientMasked,
+        status: "delivery_recovered",
+      },
+    });
+
+    return resultado;
   } catch (error) {
     operationalAlerts.trigger({
       event: "email_delivery_failed",
-      key: `email_delivery_failed:${String(tipo || "unknown").slice(0, 80)}`,
+      key: alertKey,
       severity: "critical",
       details: {
-        emailType: String(tipo || "unknown").slice(0, 80),
-        recipientMasked: mascararEmail(destinatario),
-        errorName: String(error?.name || "Error").slice(0, 80),
-        errorCode: String(error?.code || "").slice(0, 120) || null,
-        smtpCommand: String(error?.command || "").slice(0, 80) || null,
-        responseCode: Number(error?.responseCode || 0) || null,
+        emailType,
+        recipientMasked,
+        ...diagnosticoSmtpSeguro(error),
       },
     });
     throw error;
@@ -182,6 +232,12 @@ module.exports = {
   enviarCodigoRecuperacao,
   enviarCodigoConsultaPedidos,
   _testing: {
+    criarTransportador,
+    diagnosticoSmtpSeguro,
+    enviarComAlerta,
     mascararEmail,
+    SMTP_CONNECTION_TIMEOUT_MS,
+    SMTP_GREETING_TIMEOUT_MS,
+    SMTP_SOCKET_TIMEOUT_MS,
   },
 };
