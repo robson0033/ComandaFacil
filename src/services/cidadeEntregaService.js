@@ -83,6 +83,67 @@ function converterTaxaEntregaParaCentavos(value) {
   return centavos;
 }
 
+function validarTaxaEntregaCentavos(value) {
+  const centavos = Number(value);
+
+  if (
+    !Number.isSafeInteger(centavos)
+    || centavos < 0
+    || centavos > TAXA_ENTREGA_MAXIMA_CENTAVOS
+  ) {
+    throw criarErroValidacao(
+      "A taxa de entrega configurada é inválida.",
+      "TAXA_ENTREGA_CONFIGURACAO_INVALIDA",
+    );
+  }
+
+  return centavos;
+}
+
+function converterValorReaisParaCentavos(value) {
+  const valor = Number(value);
+
+  if (!Number.isFinite(valor) || valor < 0) {
+    throw criarErroValidacao(
+      "O subtotal do pedido é inválido.",
+      "SUBTOTAL_PEDIDO_INVALIDO",
+    );
+  }
+
+  const centavos = Math.round((valor + Number.EPSILON) * 100);
+  if (!Number.isSafeInteger(centavos)) {
+    throw criarErroValidacao(
+      "O subtotal do pedido é inválido.",
+      "SUBTOTAL_PEDIDO_INVALIDO",
+    );
+  }
+
+  return centavos;
+}
+
+function calcularTotaisPedidoComEntrega({
+  subtotalProdutos,
+  taxaEntregaCentavos = 0,
+} = {}) {
+  const subtotalCentavos = converterValorReaisParaCentavos(subtotalProdutos);
+  const taxaCentavos = validarTaxaEntregaCentavos(taxaEntregaCentavos);
+  const totalCentavos = subtotalCentavos + taxaCentavos;
+
+  if (!Number.isSafeInteger(totalCentavos)) {
+    throw criarErroValidacao(
+      "O total do pedido é inválido.",
+      "TOTAL_PEDIDO_INVALIDO",
+    );
+  }
+
+  return {
+    subtotalProdutos: subtotalCentavos / 100,
+    taxaEntregaCentavos: taxaCentavos,
+    taxaEntrega: taxaCentavos / 100,
+    total: totalCentavos / 100,
+  };
+}
+
 function montarDadosCidadeEntrega(input = {}) {
   const nome = validarNomeCidadeEntrega(input.nome);
 
@@ -98,9 +159,12 @@ module.exports = {
   NOME_CIDADE_MAXIMO,
   TAXA_ENTREGA_MAXIMA_CENTAVOS,
   UFS_BRASIL,
+  calcularTotaisPedidoComEntrega,
   converterTaxaEntregaParaCentavos,
+  converterValorReaisParaCentavos,
   montarDadosCidadeEntrega,
   normalizarNomeCidadeEntrega,
   normalizarUf,
   validarNomeCidadeEntrega,
+  validarTaxaEntregaCentavos,
 };

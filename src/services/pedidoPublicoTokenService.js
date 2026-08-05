@@ -119,6 +119,11 @@ function serializarPedidoPublico(pedido) {
       nome: String(item.nome || "Item").slice(0, 160),
       quantidade: Number(item.quantidade || 0),
     })),
+    subtotalProdutos: Number(
+      pedido.subtotalProdutos
+      || Math.max(0, Number(pedido.total || 0) - Number(pedido.taxaEntregaCentavos || 0) / 100),
+    ),
+    taxaEntregaCentavos: Number(pedido.taxaEntregaCentavos || 0),
     total: Number(pedido.total || 0),
     previsao: pedido.previsaoEntrega || null,
     mensagem: mensagemPublica(pedido.status),

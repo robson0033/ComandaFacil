@@ -662,6 +662,24 @@
   font-size: 22px;
 }
 
+.order-total-breakdown {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 8px;
+}
+
+.order-total-breakdown span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--cinza-600);
+  font-size: 12px;
+}
+
+.order-total-breakdown b {
+  color: var(--cinza-800);
+}
+
 .order-actions {
   display: flex;
   gap: 8px;
@@ -3781,6 +3799,8 @@
             pedido.numeroEntrega,
             pedido.bairroEntrega,
             pedido.referenciaEntrega,
+            pedido.cidadeEntregaNome,
+            pedido.cidadeEntregaUf,
             pedido.enderecoEntrega
           ].filter(Boolean).join(' ').toLowerCase() %>"
         >
@@ -3828,6 +3848,13 @@
             </div>
 
             <% if (pedido.canal === 'delivery') { %>
+              <div>
+                <strong>Cidade:</strong>
+                <%= pedido.cidadeEntregaNome
+                  ? `${pedido.cidadeEntregaNome}${pedido.cidadeEntregaUf ? ` - ${pedido.cidadeEntregaUf}` : ''}`
+                  : 'Não informado'
+                %>
+              </div>
               <div><strong>Rua:</strong> <%= pedido.ruaEntrega || pedido.enderecoEntrega || 'Não informado' %></div>
               <div><strong>Número:</strong> <%= pedido.numeroEntrega || 'Não informado' %></div>
               <div><strong>Bairro:</strong> <%= pedido.bairroEntrega || 'Não informado' %></div>
@@ -3930,6 +3957,19 @@
 
           <div class="order-footer">
             <div class="order-total">
+              <% if (pedido.canal === 'delivery') {
+                const taxaEntregaPedido = Number(pedido.taxaEntregaCentavos || 0) / 100;
+                const subtotalProdutosPedido = Number(
+                  pedido.subtotalProdutos
+                  || Math.max(0, Number(pedido.total || 0) - taxaEntregaPedido)
+                );
+              %>
+                <div class="order-total-breakdown">
+                  <span>Subtotal <b><%= formatarMoeda(subtotalProdutosPedido) %></b></span>
+                  <span>Taxa de entrega <b><%= formatarMoeda(taxaEntregaPedido) %></b></span>
+                </div>
+              <% } %>
+
               <span>Total do pedido</span>
 
               <strong>
@@ -8002,6 +8042,8 @@ function buildOrderSearchText(pedido = {}) {
     pedido.bairroEntrega,
     pedido.referencia,
     pedido.referenciaEntrega,
+    pedido.cidadeEntrega,
+    pedido.cidadeEntregaUf,
     pedido.origem?.texto,
     pedido.canal,
   ].filter(Boolean).join(' '));
@@ -8663,6 +8705,7 @@ function criarCardPedido(
     ` : ''}
 
     ${pedido.canal === 'delivery' ? `
+      <div style="margin-top:7px;"><strong>Cidade:</strong> ${escaparHtml(pedido.cidadeEntrega ? `${pedido.cidadeEntrega}${pedido.cidadeEntregaUf ? ` - ${pedido.cidadeEntregaUf}` : ''}` : 'Não informado')}</div>
       <div style="margin-top:7px;"><strong>Rua:</strong> ${escaparHtml(pedido.rua || pedido.endereco || 'Não informado')}</div>
       <div style="margin-top:7px;"><strong>Número:</strong> ${escaparHtml(pedido.numeroEndereco || 'Não informado')}</div>
       <div style="margin-top:7px;"><strong>Bairro:</strong> ${escaparHtml(pedido.bairro || 'Não informado')}</div>
@@ -8693,6 +8736,13 @@ function criarCardPedido(
 
     <div class="order-footer">
       <div class="order-total">
+        ${pedido.canal === 'delivery' ? `
+          <div class="order-total-breakdown">
+            <span>Subtotal <b>${formatarMoedaPedido(Number(pedido.subtotalProdutos || Math.max(0, Number(pedido.total || 0) - Number(pedido.taxaEntrega || 0))))}</b></span>
+            <span>Taxa de entrega <b>${formatarMoedaPedido(Number(pedido.taxaEntrega || 0))}</b></span>
+          </div>
+        ` : ''}
+
         <span>Total do pedido</span>
 
         <strong>

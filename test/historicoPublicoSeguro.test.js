@@ -178,6 +178,8 @@ test("serialização pública aplica lista permitida e remove campos internos", 
     pagamentoStatus: "pago",
     canal: "delivery",
     itens: [{ nome: "Lanche", quantidade: 2, observacao: "interno" }],
+    subtotalProdutos: 20,
+    taxaEntregaCentavos: 500,
     total: 25,
     previsaoEntrega: "40 minutos",
     telefoneCliente: "999999999",
@@ -189,8 +191,10 @@ test("serialização pública aplica lista permitida e remove campos internos", 
   });
   assert.deepEqual(Object.keys(publico), [
     "codigoPublico", "data", "status", "pagamentoStatus", "formaEntrega",
-    "itens", "total", "previsao", "mensagem",
+    "itens", "subtotalProdutos", "taxaEntregaCentavos", "total", "previsao", "mensagem",
   ]);
+  assert.equal(publico.subtotalProdutos, 20);
+  assert.equal(publico.taxaEntregaCentavos, 500);
   assert.deepEqual(
     Object.keys(publico.itens[0]),
     ["produtoId", "nome", "quantidade"],

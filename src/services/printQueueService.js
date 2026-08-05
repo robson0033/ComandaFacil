@@ -181,7 +181,15 @@ async function montarSnapshotValidado({
       numeroEndereco: text(pedido.numeroEntrega, 40),
       bairro: text(pedido.bairroEntrega, 160),
       referencia: text(pedido.referenciaEntrega, 300),
+      cidadeEntrega: text(pedido.cidadeEntregaNome, 120),
+      cidadeEntregaUf: text(pedido.cidadeEntregaUf, 2),
       observacao: text(pedido.observacao, 1_000),
+      subtotalProdutos: number(
+        pedido.subtotalProdutos
+        || Math.max(0, number(pedido.total) - number(pedido.taxaEntregaCentavos) / 100),
+      ),
+      taxaEntregaCentavos: Math.max(0, Math.trunc(number(pedido.taxaEntregaCentavos))),
+      taxaEntrega: number(pedido.taxaEntregaCentavos) / 100,
       total: number(pedido.total),
       status: text(pedido.status || "novo", 30),
       pagamentoStatus: text(pedido.pagamentoStatus || "pendente", 30),

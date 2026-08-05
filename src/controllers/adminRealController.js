@@ -96,7 +96,9 @@ const {
   validatePublicOrderBase,
 } = require("../utils/publicOrderValidation");
 const {
+  calcularTotaisPedidoComEntrega,
   montarDadosCidadeEntrega,
+  validarTaxaEntregaCentavos,
 } = require("../services/cidadeEntregaService");
 
 function exigirMovimentacaoEstoqueConcluida(resultado) {
@@ -5117,8 +5119,23 @@ exports.obterPedidoParaImpressao = async (
           pedido.telefoneCliente || "",
         endereco:
           pedido.enderecoEntrega || "",
+        rua: pedido.ruaEntrega || "",
+        numeroEndereco: pedido.numeroEntrega || "",
+        bairro: pedido.bairroEntrega || "",
+        referencia: pedido.referenciaEntrega || "",
+        cidadeEntrega: pedido.cidadeEntregaNome || "",
+        cidadeEntregaUf: pedido.cidadeEntregaUf || "",
         observacao:
           pedido.observacao || "",
+        subtotalProdutos:
+          Number(
+            pedido.subtotalProdutos
+            || Math.max(0, Number(pedido.total || 0) - Number(pedido.taxaEntregaCentavos || 0) / 100),
+          ),
+        taxaEntregaCentavos:
+          Number(pedido.taxaEntregaCentavos || 0),
+        taxaEntrega:
+          Number(pedido.taxaEntregaCentavos || 0) / 100,
         total:
           Number(pedido.total || 0),
         status:
@@ -5604,6 +5621,8 @@ exports.arquivarPedido = async (req, res) => {
           numeroEndereco: pedido.numeroEntrega || '',
           bairro: pedido.bairroEntrega || '',
           referencia: pedido.referenciaEntrega || '',
+          cidadeEntrega: pedido.cidadeEntregaNome || '',
+          cidadeEntregaUf: pedido.cidadeEntregaUf || '',
 
           formaPagamento:
             pedido.formaPagamento ||
@@ -5675,6 +5694,18 @@ exports.arquivarPedido = async (req, res) => {
             pedido.observacao ||
             '',
 
+          subtotalProdutos:
+            Number(
+              pedido.subtotalProdutos
+              || Math.max(0, Number(pedido.total || 0) - Number(pedido.taxaEntregaCentavos || 0) / 100)
+            ),
+
+          taxaEntregaCentavos:
+            Number(pedido.taxaEntregaCentavos || 0),
+
+          taxaEntrega:
+            Number(pedido.taxaEntregaCentavos || 0) / 100,
+
           total:
             Number(
               pedido.total || 0
@@ -5735,7 +5766,7 @@ exports.catalogoPublico = async (req, res) => {
       estabelecimento: configuracao,
     });
 
-    const [produtos, avaliacoesAgregadas] = await Promise.all([
+    const [produtos, avaliacoesAgregadas, cidadesEntrega] = await Promise.all([
       acessoVenda.permitido
         ? buscarProdutosPublicosDoEstabelecimento(
           configuracao.estabelecimentoId,
@@ -5746,6 +5777,15 @@ exports.catalogoPublico = async (req, res) => {
         { $match: { estabelecimentoId: configuracao.estabelecimentoId } },
         { $group: { _id: "$produtoId", media: { $avg: "$nota" }, quantidade: { $sum: 1 } } },
       ]) : Promise.resolve([]),
+      acessoVenda.permitido
+        ? CidadeEntrega.find({
+          estabelecimentoId: configuracao.estabelecimentoId,
+          ativo: true,
+        })
+          .select("nome uf taxaCentavos")
+          .sort({ nome: 1, uf: 1 })
+          .lean()
+        : Promise.resolve([]),
     ]);
 
     const avaliacoesPorProduto = Object.fromEntries(
@@ -5760,6 +5800,12 @@ exports.catalogoPublico = async (req, res) => {
       configuracao,
       produtos,
       avaliacoesPorProduto,
+      cidadesEntrega: cidadesEntrega.map(cidade => ({
+        id: String(cidade._id),
+        nome: cidade.nome,
+        uf: cidade.uf,
+        taxaCentavos: Number(cidade.taxaCentavos || 0),
+      })),
       lojaDisponivel: acessoVenda.permitido,
     });
   } catch (error) {
@@ -6792,6 +6838,53 @@ exports.criarPedidoCatalogo =
         });
       }
 
+      const cidadeEntregaId = String(
+        req.body.cidadeEntregaId || "",
+      ).trim();
+      let cidadeEntregaSelecionada = null;
+
+      if (canal === "delivery" && !mongoose.isValidObjectId(cidadeEntregaId)) {
+        return res.status(400).json({
+          success: false,
+          code: "CIDADE_ENTREGA_OBRIGATORIA",
+          message: "Selecione uma cidade atendida pelo estabelecimento.",
+        });
+      }
+
+      if (canal === "delivery") {
+        cidadeEntregaSelecionada = await CidadeEntrega.findOne({
+          _id: cidadeEntregaId,
+          estabelecimentoId: configuracao.estabelecimentoId,
+          ativo: true,
+        })
+          .select("_id nome uf taxaCentavos")
+          .lean();
+
+        if (!cidadeEntregaSelecionada) {
+          return res.status(409).json({
+            success: false,
+            code: "CIDADE_ENTREGA_INDISPONIVEL",
+            message: "A cidade selecionada não está disponível para entrega.",
+          });
+        }
+
+        try {
+          validarTaxaEntregaCentavos(cidadeEntregaSelecionada.taxaCentavos);
+        } catch (error) {
+          appLogger.error("delivery_city_fee_invalid", {
+            correlationId: req.correlationId,
+            estabelecimentoId: String(configuracao.estabelecimentoId),
+            cidadeEntregaId,
+            code: error?.code || "TAXA_ENTREGA_CONFIGURACAO_INVALIDA",
+          });
+          return res.status(409).json({
+            success: false,
+            code: "TAXA_ENTREGA_INDISPONIVEL",
+            message: "A taxa da cidade selecionada está indisponível. Escolha outra cidade ou fale com a loja.",
+          });
+        }
+      }
+
       const itensRecebidos =
         Array.isArray(req.body.itens)
           ? req.body.itens
@@ -7035,6 +7128,16 @@ exports.criarPedidoCatalogo =
         });
       }
 
+      const resumoFinanceiro = calcularTotaisPedidoComEntrega({
+        subtotalProdutos: total,
+        taxaEntregaCentavos: canal === "delivery"
+          ? cidadeEntregaSelecionada.taxaCentavos
+          : 0,
+      });
+      const subtotalProdutos = resumoFinanceiro.subtotalProdutos;
+      const taxaEntregaCentavos = resumoFinanceiro.taxaEntregaCentavos;
+      total = resumoFinanceiro.total;
+
       if (
         precisaTroco &&
         trocoParaRecebido < total
@@ -7066,9 +7169,20 @@ exports.criarPedidoCatalogo =
           numeroEntrega: canal === "delivery" ? numeroEntrega : "",
           bairroEntrega: canal === "delivery" ? bairroEntrega : "",
           referenciaEntrega: canal === "delivery" ? referenciaEntrega : "",
+          cidadeEntregaId: canal === "delivery"
+            ? cidadeEntregaSelecionada._id
+            : null,
+          cidadeEntregaNome: canal === "delivery"
+            ? cidadeEntregaSelecionada.nome
+            : "",
+          cidadeEntregaUf: canal === "delivery"
+            ? cidadeEntregaSelecionada.uf
+            : "",
 
           itens,
           observacao,
+          subtotalProdutos,
+          taxaEntregaCentavos,
           total,
           custo,
 
@@ -7120,8 +7234,9 @@ exports.criarPedidoCatalogo =
           pedido.acompanhamentoTokenExpiraEm,
 
         canal,
-
-        total,
+        subtotalProdutos: Number(pedido.subtotalProdutos ?? subtotalProdutos),
+        taxaEntregaCentavos: Number(pedido.taxaEntregaCentavos ?? taxaEntregaCentavos),
+        total: Number(pedido.total ?? total),
       });
     } catch (error) {
       appLogger.error(
@@ -7198,6 +7313,11 @@ function serializarConsultaPublica(pedido, avaliados = new Set()) {
       quantidade: Math.max(1, Number(item.quantidade) || 1),
       avaliado: item.produtoId ? avaliados.has(String(item.produtoId)) : false,
     })),
+    subtotalProdutos: Number(
+      pedido.subtotalProdutos
+      || Math.max(0, Number(pedido.total || 0) - Number(pedido.taxaEntregaCentavos || 0) / 100),
+    ),
+    taxaEntregaCentavos: Number(pedido.taxaEntregaCentavos || 0),
     total: Number(pedido.total || 0),
     previsao: pedido.previsaoEntrega || null,
     enderecoResumido: pedido.canal === "delivery"
@@ -7240,7 +7360,7 @@ exports.consultarPedidoPublico = async (req, res) => {
         : { codigoPublicoFinal: codigoRecebido }),
     };
     const pedidos = await Pedido.find(filtro)
-      .select("codigoPublico createdAt status pagamentoStatus canal itens.produtoId itens.nome itens.quantidade total previsaoEntrega enderecoEntrega estabelecimentoId")
+      .select("codigoPublico createdAt status pagamentoStatus canal itens.produtoId itens.nome itens.quantidade subtotalProdutos taxaEntregaCentavos total previsaoEntrega enderecoEntrega estabelecimentoId")
       .sort({ createdAt: -1 }).limit(2).lean();
     if (!pedidos.length) return generic();
     if (!completo && pedidos.length > 1) {
@@ -7379,7 +7499,7 @@ exports.listarConsultaPedidos = async (req, res) => {
     ...match,
     excluido: { $ne: true },
     createdAt: { $gte: new Date(Date.now() - 90 * 86400000) },
-  }).select("_id createdAt status pagamentoStatus canal itens.produtoId itens.nome itens.quantidade total previsaoEntrega formaPagamento pagoEm")
+  }).select("_id createdAt status pagamentoStatus canal itens.produtoId itens.nome itens.quantidade subtotalProdutos taxaEntregaCentavos total previsaoEntrega formaPagamento pagoEm")
     .sort({ createdAt: -1 }).limit(50).lean();
   return res.json({ ok: true, pedidos: orders.map(serializarPedidoPublico) });
 };

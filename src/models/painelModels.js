@@ -635,6 +635,13 @@ const Pedido = mongoose.model(
       numeroEntrega: { type: String, default: "", trim: true, maxlength: 40 },
       bairroEntrega: { type: String, default: "", trim: true, maxlength: 120 },
       referenciaEntrega: { type: String, default: "", trim: true, maxlength: 240 },
+      cidadeEntregaId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "CidadeEntrega",
+        default: null,
+      },
+      cidadeEntregaNome: { type: String, default: "", trim: true, maxlength: 120 },
+      cidadeEntregaUf: { type: String, default: "", trim: true, uppercase: true, maxlength: 2 },
       acompanhamentoTokenHash: {
         type: String,
         select: false,
@@ -765,6 +772,23 @@ const Pedido = mongoose.model(
         default: "",
         trim: true,
         maxlength: 500,
+      },
+
+      subtotalProdutos: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+
+      taxaEntregaCentavos: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 50_000,
+        validate: {
+          validator: Number.isSafeInteger,
+          message: "A taxa de entrega do pedido deve ser informada em centavos inteiros.",
+        },
       },
 
       total: {

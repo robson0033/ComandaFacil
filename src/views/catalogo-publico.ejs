@@ -926,6 +926,34 @@
       color: #176e42;
     }
 
+    .checkout-summary {
+      grid-column: 1 / -1;
+      display: grid;
+      gap: 9px;
+      padding: 15px 16px;
+      border: 1px solid #eadfd8;
+      border-radius: 15px;
+      background: #fff8f3;
+    }
+
+    .checkout-summary-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      color: #6f5a50;
+      font-size: 14px;
+      font-weight: 750;
+    }
+
+    .checkout-summary-row.total {
+      padding-top: 10px;
+      border-top: 1px solid #eadfd8;
+      color: var(--text);
+      font-size: 17px;
+      font-weight: 900;
+    }
+
     .addon-modal {
       position: fixed; inset: 0; z-index: 130; display: none;
       place-items: center; padding: 18px; background: rgba(22,9,6,.68);
@@ -1477,6 +1505,28 @@
           </select>
         </div>
 
+        <div class="form-field full delivery-address-field" id="cidadeEntregaField">
+          <label for="cidadeEntregaId">Cidade atendida</label>
+          <select
+            id="cidadeEntregaId"
+            name="cidadeEntregaId"
+            required
+          >
+            <option value="">Selecione a cidade</option>
+            <% for (const cidade of (cidadesEntrega || [])) { %>
+              <option
+                value="<%= cidade.id %>"
+                data-taxa-centavos="<%= cidade.taxaCentavos %>"
+              >
+                <%= cidade.nome %> - <%= cidade.uf %> — <%= (Number(cidade.taxaCentavos || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) %>
+              </option>
+            <% } %>
+          </select>
+          <% if (!(cidadesEntrega || []).length) { %>
+            <small>Esta loja ainda não cadastrou cidades para entrega.</small>
+          <% } %>
+        </div>
+
         <div class="form-field full delivery-address-field" id="enderecoField">
           <label for="ruaEntrega">Rua</label>
           <input id="ruaEntrega" name="ruaEntrega" maxlength="180" placeholder="Nome da rua" required>
@@ -1517,6 +1567,21 @@
             maxlength="500"
             placeholder="Alguma observação adicional?"
           ></textarea>
+        </div>
+
+        <div class="checkout-summary" aria-live="polite">
+          <div class="checkout-summary-row">
+            <span>Subtotal dos produtos</span>
+            <strong id="orderSubtotal">R$ 0,00</strong>
+          </div>
+          <div class="checkout-summary-row" id="orderDeliveryFeeRow">
+            <span>Taxa de entrega</span>
+            <strong id="orderDeliveryFee">Selecione a cidade</strong>
+          </div>
+          <div class="checkout-summary-row total">
+            <span>Total do pedido</span>
+            <strong id="orderTotal">R$ 0,00</strong>
+          </div>
         </div>
 
         <div
@@ -1761,6 +1826,17 @@
     const canalPedido =
       document.querySelector("#canalPedido");
 
+    const cidadeEntregaId =
+      document.querySelector("#cidadeEntregaId");
+
+    const orderSubtotal = document.querySelector("#orderSubtotal");
+    const orderDeliveryFeeRow = document.querySelector("#orderDeliveryFeeRow");
+    const orderDeliveryFee = document.querySelector("#orderDeliveryFee");
+    const orderTotal = document.querySelector("#orderTotal");
+
+    const cidadesEntregaDisponiveis =
+      <%- safeJsonForHtml((cidadesEntrega || []).length > 0) %>;
+
     const enderecoField =
       document.querySelector("#enderecoField");
 
@@ -1948,6 +2024,42 @@
       );
     }
 
+    function taxaEntregaSelecionadaCentavos() {
+      if (canalPedido?.value !== "delivery") return 0;
+      const taxa = Number(
+        cidadeEntregaId?.selectedOptions?.[0]?.dataset?.taxaCentavos,
+      );
+      return Number.isSafeInteger(taxa) && taxa >= 0 ? taxa : 0;
+    }
+
+    function resumoFinanceiroPedido() {
+      const subtotalCentavos = Math.max(
+        0,
+        Math.round((subtotal() + Number.EPSILON) * 100),
+      );
+      const taxaEntregaCentavos = taxaEntregaSelecionadaCentavos();
+      return {
+        subtotal: subtotalCentavos / 100,
+        taxaEntrega: taxaEntregaCentavos / 100,
+        total: (subtotalCentavos + taxaEntregaCentavos) / 100,
+      };
+    }
+
+    function atualizarResumoFinanceiroPedido() {
+      const resumo = resumoFinanceiroPedido();
+      const delivery = canalPedido?.value === "delivery";
+      const cidadeSelecionada = Boolean(cidadeEntregaId?.value);
+
+      if (orderSubtotal) orderSubtotal.textContent = currency(resumo.subtotal);
+      if (orderDeliveryFeeRow) orderDeliveryFeeRow.classList.toggle("hidden", !delivery);
+      if (orderDeliveryFee) {
+        orderDeliveryFee.textContent = delivery && !cidadeSelecionada
+          ? "Selecione a cidade"
+          : currency(resumo.taxaEntrega);
+      }
+      if (orderTotal) orderTotal.textContent = currency(resumo.total);
+    }
+
     function renderCart() {
       cartList.replaceChildren();
 
@@ -2011,6 +2123,7 @@
       cartSubtotal.textContent =
         currency(subtotal());
 
+      atualizarResumoFinanceiroPedido();
       atualizarBotoesPedido();
     }
 
@@ -2528,6 +2641,8 @@
       sidebarCart.classList.remove(
         "open"
       );
+
+      atualizarResumoFinanceiroPedido();
     }
 
     function closeModal() {
@@ -2618,23 +2733,33 @@
     });
 
     function atualizarEndereco() {
-      const delivery =
+      let delivery =
         canalPedido.value ===
         "delivery";
+
+      if (delivery && !cidadesEntregaDisponiveis) {
+        canalPedido.value = "retirada";
+        delivery = false;
+        formMessage.className = "form-message error";
+        formMessage.textContent =
+          "Esta loja ainda não cadastrou cidades para entrega. Selecione retirada no local.";
+      }
 
       document.querySelectorAll(".delivery-address-field").forEach(field => {
         field.classList.toggle("hidden", !delivery);
       });
 
-      [ruaEntrega, numeroEntrega, bairroEntrega].forEach(input => {
+      [cidadeEntregaId, ruaEntrega, numeroEntrega, bairroEntrega].forEach(input => {
         if (input) input.required = delivery;
       });
 
       if (!delivery) {
-        [ruaEntrega, numeroEntrega, bairroEntrega, referenciaEntrega].forEach(input => {
+        [cidadeEntregaId, ruaEntrega, numeroEntrega, bairroEntrega, referenciaEntrega].forEach(input => {
           if (input) input.value = "";
         });
       }
+
+      atualizarResumoFinanceiroPedido();
     }
 
     checkoutBtn.addEventListener(
@@ -2667,6 +2792,11 @@
     canalPedido.addEventListener(
       "change",
       atualizarEndereco
+    );
+
+    cidadeEntregaId.addEventListener(
+      "change",
+      atualizarResumoFinanceiroPedido
     );
 
     mobileCartToggle.addEventListener(
@@ -3005,6 +3135,7 @@
           cliente: String(formData.get("cliente") || "").trim(),
           telefone: String(formData.get("telefone") || "").trim(),
           canal: String(formData.get("canal") || ""),
+          cidadeEntregaId: String(formData.get("cidadeEntregaId") || "").trim(),
           ruaEntrega: String(formData.get("ruaEntrega") || "").trim(),
           numeroEntrega: String(formData.get("numeroEntrega") || "").trim(),
           bairroEntrega: String(formData.get("bairroEntrega") || "").trim(),
