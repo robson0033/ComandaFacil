@@ -52,6 +52,61 @@ function regraPrecoCategoria(categoria = {}) {
   return regra;
 }
 
+function tamanhosPizzaCategoria(categoria = {}) {
+  return (Array.isArray(categoria.configuracaoPizza?.tamanhos)
+    ? categoria.configuracaoPizza.tamanhos
+    : [])
+    .filter(tamanho => tamanho?.ativo !== false && tamanho?._id && String(tamanho.nome || "").trim())
+    .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0));
+}
+
+function resolverTamanhoPizza(categoria = {}, itemRecebido = {}) {
+  const tamanhos = tamanhosPizzaCategoria(categoria);
+  if (!tamanhos.length) return null;
+
+  const tamanhoId = String(
+    itemRecebido.tamanhoPizzaId
+      || itemRecebido.tamanhoId
+      || itemRecebido.tamanhoPizza?._id
+      || itemRecebido.tamanhoPizza?.id
+      || "",
+  ).trim();
+
+  const tamanho = tamanhos.find(item => String(item._id) === tamanhoId);
+  if (!tamanho) {
+    throw criarErroPizza(
+      "Escolha um tamanho de pizza válido.",
+      "PIZZA_TAMANHO_INVALIDO",
+    );
+  }
+  return tamanho;
+}
+
+function precoProdutoPizzaCentavos(produto = {}, tamanho = null) {
+  if (!tamanho) return dinheiroParaCentavos(produto.preco);
+  const tamanhoId = String(tamanho._id || tamanho.id || "");
+  const precoTamanho = (Array.isArray(produto.precosPizza) ? produto.precosPizza : [])
+    .find(item => String(item?.tamanhoId || "") === tamanhoId);
+  if (!precoTamanho) {
+    throw criarErroPizza(
+      `O tamanho ${String(tamanho.nome || "selecionado")} não possui preço para ${String(produto.nome || "esta pizza")}.`,
+      "PIZZA_TAMANHO_SEM_PRECO",
+    );
+  }
+  return dinheiroParaCentavos(precoTamanho.preco);
+}
+
+function resolverTamanhoEPrecoPizza({ itemRecebido, produto, categoria }) {
+  if (String(categoria?.tipoProduto || "normal") !== "pizza") {
+    return { tamanho: null, precoBase: Number(produto?.preco || 0) };
+  }
+  const tamanho = resolverTamanhoPizza(categoria, itemRecebido);
+  return {
+    tamanho,
+    precoBase: centavosParaDinheiro(precoProdutoPizzaCentavos(produto, tamanho)),
+  };
+}
+
 function normalizarIdsSabores(itemRecebido = {}) {
   const sabores = Array.isArray(itemRecebido.saboresPizza)
     ? itemRecebido.saboresPizza
@@ -103,8 +158,17 @@ function mesclarFichaTecnicaMetade(produtos = []) {
   }));
 }
 
-function calcularMaiorPrecoCategoriaCentavos(produtosCategoria = []) {
-  const precos = produtosCategoria.map(produto => dinheiroParaCentavos(produto.preco));
+function calcularMaiorPrecoCategoriaCentavos(produtosCategoria = [], tamanho = null) {
+  const precos = produtosCategoria.flatMap(produto => {
+    try {
+      return [precoProdutoPizzaCentavos(produto, tamanho)];
+    } catch (error) {
+      // Um sabor pode não ser vendido em determinado tamanho.
+      // Nesse caso ele não participa do cálculo do maior preço daquele tamanho.
+      if (error?.code === "PIZZA_TAMANHO_SEM_PRECO") return [];
+      throw error;
+    }
+  });
   if (!precos.length) {
     throw criarErroPizza(
       "Não foi possível calcular o maior preço da categoria de pizzas.",
@@ -150,9 +214,15 @@ function montarPizzaMeioAMeio({
   }
 
   const regraPrecoPizza = regraPrecoCategoria(categoria);
-  const precosSaboresCentavos = sabores.map(produto => dinheiroParaCentavos(produto.preco));
+  const tamanho = resolverTamanhoPizza(categoria, itemRecebido);
+  const precosSaboresCentavos = sabores.map(produto =>
+    precoProdutoPizzaCentavos(produto, tamanho),
+  );
   const precoBaseCentavos = regraPrecoPizza === REGRAS_PRECO_PIZZA.MAIOR_PRECO_CATEGORIA
-    ? calcularMaiorPrecoCategoriaCentavos(produtosPorCategoria.get(categoriaId) || [])
+    ? calcularMaiorPrecoCategoriaCentavos(
+        produtosPorCategoria.get(categoriaId) || [],
+        tamanho,
+      )
     : Math.max(...precosSaboresCentavos);
 
   const custoUnitarioSnapshot = sabores.reduce(
@@ -175,7 +245,13 @@ function montarPizzaMeioAMeio({
     regraPrecoPizza,
     precoBaseCentavos,
     precoBase: centavosParaDinheiro(precoBaseCentavos),
-    nome: `Pizza 1/2 ${saboresPizza[0].nome} + 1/2 ${saboresPizza[1].nome}`.slice(0, 160),
+    nome: `Pizza 1/2 ${saboresPizza[0].nome} + 1/2 ${saboresPizza[1].nome}${tamanho ? ` (${String(tamanho.nome || "")})` : ""}`.slice(0, 160),
+    tamanhoPizza: tamanho
+      ? {
+          tamanhoId: tamanho._id,
+          nome: String(tamanho.nome || "").slice(0, 50),
+        }
+      : null,
     custoUnitarioSnapshot: Number(custoUnitarioSnapshot.toFixed(4)),
     fichaTecnicaSnapshot: mesclarFichaTecnicaMetade(sabores),
   };
@@ -189,5 +265,9 @@ module.exports = {
   dinheiroParaCentavos,
   montarPizzaMeioAMeio,
   normalizarIdsSabores,
+  precoProdutoPizzaCentavos,
   regraPrecoCategoria,
+  resolverTamanhoEPrecoPizza,
+  resolverTamanhoPizza,
+  tamanhosPizzaCategoria,
 };

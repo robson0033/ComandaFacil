@@ -112,6 +112,7 @@ const {
 const {
   montarPizzaMeioAMeio,
   normalizarIdsSabores,
+  resolverTamanhoEPrecoPizza,
 } = require("../services/pizzaMeioAMeioService");
 
 function exigirMovimentacaoEstoqueConcluida(resultado) {
@@ -3096,7 +3097,108 @@ function valorBooleanoFormulario(value) {
   );
 }
 
-function dadosCategoriaCatalogo(body = {}) {
+function listaFormulario(value) {
+  if (value === undefined || value === null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function normalizarTamanhosCategoriaPizza(body = {}, tamanhosAnteriores = []) {
+  const nomes = listaFormulario(body.categoriaPizzaTamanhoNome);
+  const ids = listaFormulario(body.categoriaPizzaTamanhoId);
+  if (nomes.length > 12) {
+    throw erroValidacao("Cadastre no máximo 12 tamanhos por categoria de pizza.");
+  }
+
+  const anteriores = new Map(
+    (Array.isArray(tamanhosAnteriores) ? tamanhosAnteriores : []).map(tamanho => [
+      String(tamanho?._id || ""),
+      tamanho,
+    ]),
+  );
+  const nomesVistos = new Set();
+  const tamanhos = [];
+
+  for (let indice = 0; indice < nomes.length; indice += 1) {
+    const nome = String(nomes[indice] || "").trim();
+    const idRecebido = String(ids[indice] || "").trim();
+    if (!nome && !idRecebido) continue;
+    if (!nome || nome.length > 50) {
+      throw erroValidacao("Cada tamanho de pizza deve ter um nome de 1 a 50 caracteres.");
+    }
+
+    const chaveNome = nome.toLocaleLowerCase("pt-BR");
+    if (nomesVistos.has(chaveNome)) {
+      throw erroValidacao("Não repita o mesmo tamanho de pizza.");
+    }
+    nomesVistos.add(chaveNome);
+
+    let tamanhoId = null;
+    if (idRecebido) {
+      if (!mongoose.isValidObjectId(idRecebido) || !anteriores.has(idRecebido)) {
+        throw erroValidacao("Um tamanho de pizza informado é inválido.");
+      }
+      tamanhoId = anteriores.get(idRecebido)._id;
+    } else {
+      tamanhoId = new mongoose.Types.ObjectId();
+    }
+
+    tamanhos.push({
+      _id: tamanhoId,
+      nome,
+      ordem: tamanhos.length,
+      ativo: true,
+    });
+  }
+
+  return tamanhos;
+}
+
+function tamanhosAtivosDaCategoria(categoria = {}) {
+  return (Array.isArray(categoria.configuracaoPizza?.tamanhos)
+    ? categoria.configuracaoPizza.tamanhos
+    : [])
+    .filter(tamanho => tamanho?.ativo !== false && tamanho?._id)
+    .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0));
+}
+
+function normalizarPrecosPizzaProduto(body = {}, categoria = {}) {
+  if (String(categoria.tipoProduto || "normal") !== "pizza") return [];
+  const tamanhos = tamanhosAtivosDaCategoria(categoria);
+  if (!tamanhos.length) return [];
+
+  const ids = listaFormulario(body.produtoPizzaTamanhoId);
+  const precos = listaFormulario(body.produtoPizzaTamanhoPreco);
+  if (ids.length !== precos.length) {
+    throw erroValidacao("Informe o preço de todos os tamanhos da pizza.");
+  }
+
+  const mapaPrecos = new Map();
+  for (let indice = 0; indice < ids.length; indice += 1) {
+    const tamanhoId = String(ids[indice] || "").trim();
+    if (!tamanhoId || mapaPrecos.has(tamanhoId)) {
+      throw erroValidacao("Os tamanhos e preços da pizza são inválidos.");
+    }
+    const numero = Number(String(precos[indice] ?? "").replace(",", "."));
+    if (!Number.isFinite(numero) || numero < 0 || numero > 100_000) {
+      throw erroValidacao("Informe um preço válido para cada tamanho da pizza.");
+    }
+    mapaPrecos.set(tamanhoId, numero);
+  }
+
+  return tamanhos.map(tamanho => {
+    const tamanhoId = String(tamanho._id);
+    if (!mapaPrecos.has(tamanhoId)) {
+      throw erroValidacao(`Informe o preço da pizza no tamanho ${tamanho.nome}.`);
+    }
+    return {
+      tamanhoId: tamanho._id,
+      tamanhoNome: String(tamanho.nome || "").slice(0, 50),
+      preco: mapaPrecos.get(tamanhoId),
+    };
+  });
+}
+
+function dadosCategoriaCatalogo(body = {}, categoriaAtual = null) {
   const tipoProduto = body.tipoProduto === "pizza"
     ? "pizza"
     : "normal";
@@ -3110,6 +3212,12 @@ function dadosCategoriaCatalogo(body = {}) {
   const regraPrecoMeioAMeio = regrasPermitidas.has(regraRecebida)
     ? regraRecebida
     : "maior_sabor_escolhido";
+  const tamanhos = tipoProduto === "pizza"
+    ? normalizarTamanhosCategoriaPizza(
+        body,
+        categoriaAtual?.configuracaoPizza?.tamanhos || [],
+      )
+    : [];
 
   return {
     tipoProduto,
@@ -3117,6 +3225,7 @@ function dadosCategoriaCatalogo(body = {}) {
       permiteMeioAMeio: tipoProduto === "pizza"
         && valorBooleanoFormulario(body.permiteMeioAMeio),
       regraPrecoMeioAMeio,
+      tamanhos,
     },
   };
 }
@@ -3163,7 +3272,7 @@ exports.criarCategoria = async (
 
       categoria.nome = nome;
       if (categoria.tipo === "catalogo") {
-        const dadosCatalogo = dadosCategoriaCatalogo(req.body);
+        const dadosCatalogo = dadosCategoriaCatalogo(req.body, categoria);
         categoria.tipoProduto = dadosCatalogo.tipoProduto;
         categoria.configuracaoPizza = dadosCatalogo.configuracaoPizza;
       } else {
@@ -3171,6 +3280,7 @@ exports.criarCategoria = async (
         categoria.configuracaoPizza = {
           permiteMeioAMeio: false,
           regraPrecoMeioAMeio: "maior_sabor_escolhido",
+          tamanhos: [],
         };
       }
 
@@ -3193,6 +3303,7 @@ exports.criarCategoria = async (
           configuracaoPizza: {
             permiteMeioAMeio: false,
             regraPrecoMeioAMeio: "maior_sabor_escolhido",
+            tamanhos: [],
           },
         };
 
@@ -3609,12 +3720,12 @@ exports.criarProduto = async (
     }
 
     const categoriaValida =
-      await Categoria.exists({
+      await Categoria.findOne({
         _id: req.body.categoriaId,
         estabelecimentoId:
           idEstabelecimento,
         tipo: "catalogo",
-      });
+      }).lean();
 
     if (!categoriaValida) {
       return erroERedirecionar(
@@ -3634,6 +3745,15 @@ exports.criarProduto = async (
       idEstabelecimento,
     );
 
+    const precosPizza = normalizarPrecosPizzaProduto(req.body, categoriaValida);
+    const precoBaseRecebido = Number(req.body.preco || 0);
+    const precoProduto = precosPizza.length
+      ? Number(precosPizza[0].preco)
+      : precoBaseRecebido;
+    if (!Number.isFinite(precoProduto) || precoProduto < 0 || precoProduto > 100_000) {
+      throw erroValidacao("Informe um preço válido para o produto.");
+    }
+
     novaImagem = await armazenarUploadImagem(
       req.file,
       "produto",
@@ -3651,9 +3771,8 @@ exports.criarProduto = async (
       ).trim(),
       categoriaId:
         req.body.categoriaId,
-      preco: Number(
-        req.body.preco || 0,
-      ),
+      preco: precoProduto,
+      precosPizza,
       custo: Number(
         req.body.custo || 0,
       ),
@@ -3744,12 +3863,12 @@ exports.editarProduto = async (
     }
 
     const categoriaValida =
-      await Categoria.exists({
+      await Categoria.findOne({
         _id: produto.categoriaId,
         estabelecimentoId:
           estabelecimentoId(req),
         tipo: "catalogo",
-      });
+      }).lean();
 
     if (!categoriaValida) {
       return erroERedirecionar(
@@ -3760,10 +3879,18 @@ exports.editarProduto = async (
       );
     }
 
-    produto.preco = Number(
-      req.body.preco ??
-        produto.preco,
+    const precosPizza = normalizarPrecosPizzaProduto(req.body, categoriaValida);
+    const precoBaseRecebido = Number(
+      req.body.preco ?? produto.preco,
     );
+    const precoProduto = precosPizza.length
+      ? Number(precosPizza[0].preco)
+      : precoBaseRecebido;
+    if (!Number.isFinite(precoProduto) || precoProduto < 0 || precoProduto > 100_000) {
+      throw erroValidacao("Informe um preço válido para o produto.");
+    }
+    produto.preco = precoProduto;
+    produto.precosPizza = precosPizza;
 
     produto.custo = Number(
       req.body.custo ??
@@ -6198,6 +6325,11 @@ exports.statusProdutosCatalogo = async (req, res) => {
         id: String(produto._id),
         nome: produto.nome,
         preco: Number(produto.preco || 0),
+        precosPizza: (produto.precosPizza || []).map(item => ({
+          tamanhoId: String(item.tamanhoId || ""),
+          tamanhoNome: String(item.tamanhoNome || ""),
+          preco: Number(item.preco || 0),
+        })),
         imagem: produto.imagem || "",
         categoria: produto.categoriaId
           ? {
@@ -6210,6 +6342,13 @@ exports.statusProdutosCatalogo = async (req, res) => {
                 produto.categoriaId.configuracaoPizza?.regraPrecoMeioAMeio
                 || "maior_sabor_escolhido",
               ),
+              tamanhos: (produto.categoriaId.configuracaoPizza?.tamanhos || [])
+                .filter(tamanho => tamanho?.ativo !== false)
+                .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0))
+                .map(tamanho => ({
+                  id: String(tamanho._id || ""),
+                  nome: String(tamanho.nome || ""),
+                })),
             }
           : null,
         adicionais: (produto.adicionais || [])
@@ -7307,7 +7446,7 @@ exports.criarPedidoCatalogo =
               categoriaId: { $in: idsCategoriasProdutos },
               ativo: true,
             })
-              .select("_id nome preco custo categoriaId fichaTecnica adicionais imagem")
+              .select("_id nome preco precosPizza custo categoriaId fichaTecnica adicionais imagem")
               .lean()
           : Promise.resolve([]),
       ]);
@@ -7386,6 +7525,11 @@ exports.criarPedidoCatalogo =
             return false;
           }
           const produto = produtosMap.get(String(item?.produtoId || ""));
+          const categoria = produto
+            ? categoriasMap.get(String(produto.categoriaId || ""))
+            : null;
+          // Pizza é validada dentro do loop, pois o preço depende do tamanho escolhido.
+          if (String(categoria?.tipoProduto || "normal") === "pizza") return false;
           const precoRecebido = Number(item?.preco);
           return produto
             && Number.isFinite(precoRecebido)
@@ -7463,9 +7607,39 @@ exports.criarPedidoCatalogo =
           });
         }
 
-        const precoBase = pizzaMeioAMeio
+        const categoriaProduto = pizzaMeioAMeio?.categoria
+          || categoriasMap.get(String(produto.categoriaId || ""));
+        let tamanhoPizzaSelecionado = pizzaMeioAMeio?.tamanhoPizza || null;
+        let precoBase = pizzaMeioAMeio
           ? pizzaMeioAMeio.precoBase
           : Number(produto.preco || 0);
+
+        if (!pizzaMeioAMeio && String(categoriaProduto?.tipoProduto || "normal") === "pizza") {
+          try {
+            const selecaoPizza = resolverTamanhoEPrecoPizza({
+              itemRecebido,
+              produto,
+              categoria: categoriaProduto,
+            });
+            precoBase = selecaoPizza.precoBase;
+            tamanhoPizzaSelecionado = selecaoPizza.tamanho
+              ? {
+                  tamanhoId: selecaoPizza.tamanho._id,
+                  nome: String(selecaoPizza.tamanho.nome || "").slice(0, 50),
+                }
+              : null;
+          } catch (error) {
+            if (error?.statusCode === 422) {
+              return res.status(422).json({
+                success: false,
+                code: error.code || "PIZZA_TAMANHO_INVALIDO",
+                message: error.message,
+              });
+            }
+            throw error;
+          }
+        }
+
         const precoRecebido = Number(itemRecebido.preco);
         if (
           Number.isFinite(precoRecebido)
@@ -7485,7 +7659,7 @@ exports.criarPedidoCatalogo =
               : [{
                   id: String(produto._id),
                   nome: produto.nome,
-                  preco: Number(produto.preco || 0),
+                  preco: Number(precoBase || 0),
                   imagem: produto.imagem || "",
                 }],
           });
@@ -7557,9 +7731,14 @@ exports.criarPedidoCatalogo =
               custoCalculado: item.custoCalculado,
             }));
 
+        const nomeItemBase = pizzaMeioAMeio ? pizzaMeioAMeio.nome : produto.nome;
+        const nomeItem = !pizzaMeioAMeio && tamanhoPizzaSelecionado?.nome
+          ? `${nomeItemBase} (${tamanhoPizzaSelecionado.nome})`.slice(0, 160)
+          : nomeItemBase;
+
         itens.push({
           produtoId: produto._id,
-          nome: pizzaMeioAMeio ? pizzaMeioAMeio.nome : produto.nome,
+          nome: nomeItem,
           quantidade,
           preco,
           subtotal,
@@ -7571,7 +7750,11 @@ exports.criarPedidoCatalogo =
           pizzaMeioAMeio: Boolean(pizzaMeioAMeio),
           saboresPizza: pizzaMeioAMeio?.saboresPizza || [],
           regraPrecoPizza: pizzaMeioAMeio?.regraPrecoPizza || "",
-          precoBasePizza: pizzaMeioAMeio?.precoBase ?? null,
+          precoBasePizza: String(categoriaProduto?.tipoProduto || "normal") === "pizza"
+            ? precoBase
+            : null,
+          tamanhoPizzaId: tamanhoPizzaSelecionado?.tamanhoId || null,
+          tamanhoPizzaNome: tamanhoPizzaSelecionado?.nome || "",
           custoUnitarioSnapshot: custoUnitario,
           fichaTecnicaSnapshotCriado: true,
           fichaTecnicaSnapshot,

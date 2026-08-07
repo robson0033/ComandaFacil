@@ -3251,6 +3251,65 @@
       display: none;
     }
 
+    .pizza-size-manager {
+      grid-column: 1 / -1;
+      padding: 12px;
+      border: 1px solid var(--cinza-300);
+      border-radius: 12px;
+      background: #fffaf5;
+    }
+
+    .pizza-size-list,
+    .product-pizza-price-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 9px;
+    }
+
+    .pizza-size-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 42px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .product-pizza-price-row {
+      display: grid;
+      grid-template-columns: minmax(120px, 1fr) minmax(120px, 180px);
+      gap: 8px;
+      align-items: center;
+    }
+
+    .product-pizza-price-row strong {
+      color: var(--cinza-800);
+      font-size: 13px;
+    }
+
+    .pizza-size-remove {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+      background: #fde2e2;
+      color: #a32121;
+      font-size: 20px;
+      font-weight: 900;
+    }
+
+    .product-pizza-prices-admin {
+      display: grid;
+      gap: 5px;
+      margin-top: 10px;
+      padding: 9px;
+      border-radius: 10px;
+      background: #f8fafc;
+    }
+
+    .product-pizza-prices-admin span {
+      font-size: 11px;
+      font-weight: 750;
+      color: var(--cinza-700);
+    }
+
     @media (max-width: 1180px) {
       .category-edit-form {
         grid-template-columns:
@@ -5306,6 +5365,17 @@
                   </option>
                 </select>
               </div>
+
+              <div class="pizza-size-manager">
+                <strong>Tamanhos de pizza</strong>
+                <small style="display:block;color:var(--cinza-500);margin-top:4px;">
+                  Cadastre os tamanhos usados nesta categoria, por exemplo: Pequena, Média, Grande e Família. Depois, informe o preço de cada tamanho ao cadastrar ou editar cada pizza.
+                </small>
+                <div class="pizza-size-list" data-pizza-size-list></div>
+                <button type="button" class="mini-button edit" data-add-pizza-size style="margin-top:9px;">
+                  + Adicionar tamanho
+                </button>
+              </div>
             </div>
           </form>
 
@@ -5340,6 +5410,12 @@
                     <% if (permiteMeioAMeio) { %>
                       <span class="category-badge enabled">
                         Meio a meio
+                      </span>
+                    <% } %>
+
+                    <% if (categoriaPizza && categoria.configuracaoPizza?.tamanhos?.length) { %>
+                      <span class="category-summary-rule">
+                        <%= categoria.configuracaoPizza.tamanhos.filter(t => t.ativo !== false).map(t => t.nome).join(' • ') %>
                       </span>
                     <% } %>
 
@@ -5451,6 +5527,34 @@
                             </option>
                           </select>
                         </div>
+
+                        <div class="pizza-size-manager">
+                          <strong>Tamanhos de pizza</strong>
+                          <small style="display:block;color:var(--cinza-500);margin-top:4px;">
+                            Os clientes escolherão um destes tamanhos ao comprar a pizza. Se você adicionar um tamanho novo, edite as pizzas desta categoria e informe o preço dele.
+                          </small>
+                          <div class="pizza-size-list" data-pizza-size-list>
+                            <% (categoria.configuracaoPizza?.tamanhos || [])
+                              .filter(tamanho => tamanho.ativo !== false)
+                              .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0))
+                              .forEach(tamanho => { %>
+                              <div class="pizza-size-row">
+                                <input type="hidden" name="categoriaPizzaTamanhoId[]" value="<%= tamanho._id %>">
+                                <input
+                                  name="categoriaPizzaTamanhoNome[]"
+                                  value="<%= tamanho.nome %>"
+                                  maxlength="50"
+                                  placeholder="Ex.: Grande"
+                                  required
+                                >
+                                <button type="button" class="pizza-size-remove" data-remove-pizza-size title="Remover tamanho">×</button>
+                              </div>
+                            <% }) %>
+                          </div>
+                          <button type="button" class="mini-button edit" data-add-pizza-size style="margin-top:9px;">
+                            + Adicionar tamanho
+                          </button>
+                        </div>
                       </div>
 
                       <button type="submit" class="mini-button edit">
@@ -5534,7 +5638,11 @@
 
                   <div class="product-meta">
                     <strong>
-                      <%= formatarMoeda(produto.preco) %>
+                      <% if (produto.categoriaId?.tipoProduto === 'pizza' && produto.precosPizza?.length) { %>
+                        A partir de <%= formatarMoeda(Math.min(...produto.precosPizza.map(item => Number(item.preco || 0)))) %>
+                      <% } else { %>
+                        <%= formatarMoeda(produto.preco) %>
+                      <% } %>
                     </strong>
 
                     <span
@@ -5557,6 +5665,18 @@
                           + <%= adicional.nome %>
                           (<%= formatarMoeda(adicional.preco) %>)
                         </span>
+                      <% }) %>
+                    </div>
+                  <% } %>
+
+                  <% if (produto.categoriaId?.tipoProduto === 'pizza' && produto.precosPizza?.length) { %>
+                    <div class="product-pizza-prices-admin">
+                      <% produto.precosPizza.forEach(item => {
+                        const tamanhoAtual = (produto.categoriaId?.configuracaoPizza?.tamanhos || [])
+                          .find(tamanho => String(tamanho._id) === String(item.tamanhoId));
+                        const nomeTamanhoAtual = tamanhoAtual?.nome || item.tamanhoNome;
+                      %>
+                        <span>🍕 <%= nomeTamanhoAtual %>: <%= formatarMoeda(item.preco) %></span>
                       <% }) %>
                     </div>
                   <% } %>
@@ -7044,6 +7164,7 @@
         method="POST"
         enctype="multipart/form-data"
         class="form-grid"
+        data-product-form
       >
             <input type="hidden" name="_csrf" value="<%= csrfToken %>">
         <div class="field">
@@ -7064,6 +7185,7 @@
           <select
             id="produtoCategoria"
             name="categoriaId"
+            data-product-category
             required
           >
             <option value="">
@@ -7078,17 +7200,26 @@
           </select>
         </div>
 
-        <div class="field">
+        <div class="field" data-base-price-field>
           <label for="produtoPreco">Preço</label>
 
           <input
             type="number"
             id="produtoPreco"
             name="preco"
+            data-base-price
             min="0"
             step="0.01"
             required
           >
+        </div>
+
+        <div class="field full hidden" data-product-pizza-prices>
+          <label>Preços por tamanho</label>
+          <small style="color:var(--cinza-500);">
+            Informe quanto custa este sabor em cada tamanho cadastrado na categoria.
+          </small>
+          <div class="product-pizza-price-list" data-product-pizza-price-list></div>
         </div>
 
         <div class="field">
@@ -7203,6 +7334,11 @@
           method="POST"
           enctype="multipart/form-data"
           class="form-grid"
+          data-product-form
+          data-existing-pizza-prices='<%= safeJsonForHtml((produto.precosPizza || []).map(item => ({
+            tamanhoId: String(item.tamanhoId || ""),
+            preco: Number(item.preco || 0)
+          }))) %>'
         >
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <div class="field">
@@ -7216,7 +7352,7 @@
 
           <div class="field">
             <label>Categoria</label>
-            <select name="categoriaId" required>
+            <select name="categoriaId" data-product-category required>
               <% listaCategoriasCatalogo.forEach(categoria => { %>
                 <option
                   value="<%= categoria._id %>"
@@ -7231,16 +7367,25 @@
             </select>
           </div>
 
-          <div class="field">
+          <div class="field" data-base-price-field>
             <label>Preço</label>
             <input
               type="number"
               name="preco"
+              data-base-price
               min="0"
               step="0.01"
               value="<%= produto.preco %>"
               required
             >
+          </div>
+
+          <div class="field full hidden" data-product-pizza-prices>
+            <label>Preços por tamanho</label>
+            <small style="color:var(--cinza-500);">
+              Atualize o preço deste sabor para cada tamanho.
+            </small>
+            <div class="product-pizza-price-list" data-product-pizza-price-list></div>
           </div>
 
           <div class="field">
@@ -10713,6 +10858,21 @@ if (podeReceberNotificacoes) {
       custoUnitario: Number(item.custoUnitario || 0),
     }))) %>;
 
+    const categoriasCatalogoPizzaAdmin = <%- safeJsonForHtml((listaCategoriasCatalogo || []).map(categoria => ({
+      id: String(categoria._id),
+      tipoProduto: String(categoria.tipoProduto || 'normal'),
+      tamanhos: (categoria.configuracaoPizza?.tamanhos || [])
+        .filter(tamanho => tamanho.ativo !== false)
+        .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0))
+        .map(tamanho => ({
+          id: String(tamanho._id),
+          nome: String(tamanho.nome || ''),
+        })),
+    }))) %>;
+    const categoriasCatalogoPizzaAdminMap = new Map(
+      categoriasCatalogoPizzaAdmin.map(categoria => [categoria.id, categoria]),
+    );
+
     function unidadeNormalizada(unidade) {
       const valor = String(unidade || '').toLowerCase();
       if (['kg', 'quilo', 'quilos'].includes(valor)) return 'kg';
@@ -11196,6 +11356,115 @@ if (podeReceberNotificacoes) {
         submitter.disabled = true;
         submitter.setAttribute('aria-disabled', 'true');
       }
+    });
+
+    function criarLinhaTamanhoPizza({ id = '', nome = '' } = {}) {
+      const row = document.createElement('div');
+      row.className = 'pizza-size-row';
+      row.innerHTML = `
+        <input type="hidden" name="categoriaPizzaTamanhoId[]" value="${escaparHtml(id)}">
+        <input name="categoriaPizzaTamanhoNome[]" maxlength="50" placeholder="Ex.: Grande" value="${escaparHtml(nome)}" required>
+        <button type="button" class="pizza-size-remove" data-remove-pizza-size title="Remover tamanho">×</button>
+      `;
+      return row;
+    }
+
+    document.querySelectorAll('[data-add-pizza-size]').forEach(button => {
+      button.addEventListener('click', () => {
+        const form = button.closest('form');
+        const list = form?.querySelector('[data-pizza-size-list]');
+        if (!list) return;
+        if (list.querySelectorAll('.pizza-size-row').length >= 12) {
+          window.alert('Você pode cadastrar no máximo 12 tamanhos por categoria.');
+          return;
+        }
+        list.appendChild(criarLinhaTamanhoPizza());
+        list.lastElementChild?.querySelector('input[name="categoriaPizzaTamanhoNome[]"]')?.focus();
+      });
+    });
+
+    document.addEventListener('click', event => {
+      const button = event.target.closest('[data-remove-pizza-size]');
+      if (button) button.closest('.pizza-size-row')?.remove();
+    });
+
+    function precosPizzaExistentesDoForm(form) {
+      try {
+        const itens = JSON.parse(form?.dataset?.existingPizzaPrices || '[]');
+        return new Map((Array.isArray(itens) ? itens : []).map(item => [
+          String(item.tamanhoId || ''),
+          Number(item.preco || 0),
+        ]));
+      } catch {
+        return new Map();
+      }
+    }
+
+    function renderizarPrecosPizzaProduto(form) {
+      const select = form.querySelector('[data-product-category]');
+      const categoria = categoriasCatalogoPizzaAdminMap.get(String(select?.value || ''));
+      const tamanhos = categoria?.tipoProduto === 'pizza'
+        ? (categoria.tamanhos || [])
+        : [];
+      const painel = form.querySelector('[data-product-pizza-prices]');
+      const lista = form.querySelector('[data-product-pizza-price-list]');
+      const campoBase = form.querySelector('[data-base-price-field]');
+      const inputBase = form.querySelector('[data-base-price]');
+      if (!painel || !lista || !campoBase || !inputBase) return;
+
+      const usaPrecosPorTamanho = tamanhos.length > 0;
+      painel.classList.toggle('hidden', !usaPrecosPorTamanho);
+      campoBase.classList.toggle('hidden', usaPrecosPorTamanho);
+      inputBase.disabled = usaPrecosPorTamanho;
+      inputBase.required = !usaPrecosPorTamanho;
+
+      if (!usaPrecosPorTamanho) {
+        lista.replaceChildren();
+        return;
+      }
+
+      const precosExistentes = precosPizzaExistentesDoForm(form);
+      const valoresAtuais = new Map(
+        [...lista.querySelectorAll('[data-pizza-product-price]')].map(input => [
+          String(input.dataset.tamanhoId || ''),
+          input.value,
+        ]),
+      );
+      lista.replaceChildren();
+
+      tamanhos.forEach(tamanho => {
+        const row = document.createElement('div');
+        row.className = 'product-pizza-price-row';
+        const label = document.createElement('strong');
+        label.textContent = tamanho.nome;
+        const hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = 'produtoPizzaTamanhoId[]';
+        hidden.value = tamanho.id;
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.name = 'produtoPizzaTamanhoPreco[]';
+        input.min = '0';
+        input.step = '0.01';
+        input.required = true;
+        input.placeholder = 'Preço';
+        input.dataset.pizzaProductPrice = 'true';
+        input.dataset.tamanhoId = tamanho.id;
+        const valorAtual = valoresAtuais.get(tamanho.id);
+        const valorExistente = precosExistentes.get(tamanho.id);
+        if (valorAtual !== undefined && valorAtual !== '') input.value = valorAtual;
+        else if (valorExistente !== undefined) input.value = String(valorExistente);
+        row.append(label, hidden, input);
+        lista.appendChild(row);
+      });
+    }
+
+    document.querySelectorAll('[data-product-form]').forEach(form => {
+      renderizarPrecosPizzaProduto(form);
+      form.querySelector('[data-product-category]')?.addEventListener(
+        'change',
+        () => renderizarPrecosPizzaProduto(form),
+      );
     });
 
     function atualizarConfiguracaoPizzaCategoria(form) {

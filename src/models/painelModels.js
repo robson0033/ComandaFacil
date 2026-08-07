@@ -57,6 +57,28 @@ const Categoria = mongoose.model(
           ],
           default: "maior_sabor_escolhido",
         },
+        tamanhos: {
+          type: [
+            {
+              nome: {
+                type: String,
+                required: true,
+                trim: true,
+                maxlength: 50,
+              },
+              ordem: {
+                type: Number,
+                default: 0,
+                min: 0,
+              },
+              ativo: {
+                type: Boolean,
+                default: true,
+              },
+            },
+          ],
+          default: [],
+        },
       },
     },
     opts,
@@ -172,6 +194,29 @@ const Produto = mongoose.model(
           },
         },
       ],
+
+      precosPizza: {
+        type: [
+          {
+            tamanhoId: {
+              type: mongoose.Schema.Types.ObjectId,
+              required: true,
+            },
+            tamanhoNome: {
+              type: String,
+              required: true,
+              trim: true,
+              maxlength: 50,
+            },
+            preco: {
+              type: Number,
+              required: true,
+              min: 0,
+            },
+          },
+        ],
+        default: [],
+      },
 
       ativo: { type: Boolean, default: true },
     },
@@ -830,6 +875,16 @@ const Pedido = mongoose.model(
             type: Number,
             default: null,
             min: 0,
+          },
+          tamanhoPizzaId: {
+            type: mongoose.Schema.Types.ObjectId,
+            default: null,
+          },
+          tamanhoPizzaNome: {
+            type: String,
+            default: "",
+            trim: true,
+            maxlength: 50,
           },
           custoUnitarioSnapshot: { type: Number, default: 0, min: 0 },
           fichaTecnicaSnapshotCriado: {
