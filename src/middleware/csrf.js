@@ -230,6 +230,12 @@ function createAnonymousSameOriginProtection({
       return res.status(405).send("Método não permitido.");
     }
 
+    /*
+     * Rotas públicas (catálogo/mesa) não podem depender da sessão do painel.
+     * O proprietário pode sair da conta sem derrubar o catálogo aberto em
+     * outra aba ou no celular do cliente. Para essas rotas anônimas, a
+     * proteção é feita por origem permitida + rate limit das próprias rotas.
+     */
     const originRaw = req.get?.("origin");
     const hasOrigin = typeof originRaw === "string"
       ? Boolean(originRaw.trim())
@@ -241,15 +247,10 @@ function createAnonymousSameOriginProtection({
     if (hasOrigin && String(originRaw).trim() === "null") code = "ORIGIN_NULL";
     else if (!sourceOrigin) code = hasOrigin ? "ORIGIN_MALFORMADA" : "ORIGIN_AUSENTE";
     else if (!allowed.has(sourceOrigin)) code = "ORIGIN_NAO_AUTORIZADA";
-    else if (!req.session) code = "SESSION_REQUIRED";
-    else {
-      const tokenStatus = csrfTokenStatus(req);
-      if (tokenStatus !== "VALIDO") code = tokenStatus;
-    }
 
     if (!code) return next();
 
-    logger.warn?.("anonymous_csrf_blocked", {
+    logger.warn?.("anonymous_origin_blocked", {
       correlationId: req.correlationId,
       code,
       method,
@@ -263,7 +264,7 @@ function createAnonymousSameOriginProtection({
         success: false,
         ok: false,
         code,
-        message: "Atualize a página e tente novamente.",
+        message: "A origem da solicitação não foi autorizada.",
         correlationId: req.correlationId,
       });
     }

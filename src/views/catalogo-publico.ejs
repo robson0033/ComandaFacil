@@ -1099,7 +1099,297 @@
         display: none;
       }
     }
+
+    @media (max-width: 760px) {
+      .hero-inner {
+        padding: 24px 16px 88px;
+      }
+
+      .hero-main {
+        align-items: flex-start;
+      }
+
+      .hero-avatar {
+        width: 82px;
+        height: 82px;
+        flex-basis: 82px;
+        border-radius: 24px;
+      }
+
+      .hero-title {
+        font-size: 30px;
+      }
+
+      .toolbar-wrap {
+        margin-top: -36px;
+        padding: 0 12px;
+      }
+
+      .content-shell {
+        padding: 0 12px;
+      }
+
+      .categories {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+      }
+
+      .cat-btn {
+        flex: 0 0 auto;
+      }
+
+      .mobile-cart-toggle {
+        display: inline-flex;
+      }
+
+      .sidebar {
+        position: fixed;
+        inset: 0;
+        z-index: 80;
+        display: none;
+        align-items: flex-end;
+        padding: 16px;
+        background: rgba(18, 9, 6, 0.64);
+        backdrop-filter: blur(5px);
+      }
+
+      .sidebar.open {
+        display: flex;
+      }
+
+      .sidebar-panel {
+        width: 100%;
+        max-height: 92vh;
+        overflow: auto;
+      }
+
+      .order-form {
+        grid-template-columns: 1fr;
+      }
+
+      .pizza-mode-options,
+      .pizza-select-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .combined-payment-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .form-field.full,
+      .send-order-btn,
+      .form-message {
+        grid-column: auto;
+      }
+    }
   
+
+    /* COMANDAFACIL: CARDS MOBILE VERTICAIS 2 COLUNAS v2 - INICIO */
+    /*
+     * Ajuste somente visual para celular.
+     * Mantém os cards VERTICAIS, com imagem em cima, e 2 por linha.
+     * Não altera carrinho, pedidos, pagamentos, pizza meio a meio ou backend.
+     */
+    @media (max-width: 760px) {
+      .section {
+        margin-top: 14px !important;
+      }
+    
+      .section-head {
+        align-items: center !important;
+        gap: 8px !important;
+        margin-bottom: 9px !important;
+      }
+    
+      .section-head h2 {
+        font-size: 18px !important;
+        line-height: 1.15 !important;
+      }
+    
+      .section-count {
+        flex: 0 0 auto !important;
+        font-size: 10px !important;
+      }
+    
+      .grid {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 8px !important;
+        align-items: stretch !important;
+      }
+    
+      .grid > .product-card {
+        display: flex !important;
+        flex-direction: column !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+        border-radius: 13px !important;
+        box-shadow: 0 5px 14px rgba(65, 29, 14, 0.08) !important;
+        transform: none !important;
+      }
+    
+      .grid > .product-card:hover {
+        transform: none !important;
+      }
+    
+      .grid > .product-card .product-cover {
+        width: 100% !important;
+        height: 104px !important;
+        min-height: 104px !important;
+        max-height: 104px !important;
+        overflow: hidden !important;
+      }
+    
+      .grid > .product-card .product-cover img {
+        display: block !important;
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover !important;
+      }
+    
+      .grid > .product-card .product-cover-placeholder {
+        width: 100% !important;
+        height: 104px !important;
+        min-height: 104px !important;
+        display: grid !important;
+        place-items: center !important;
+        font-size: 31px !important;
+      }
+    
+      .grid > .product-card .product-body {
+        display: flex !important;
+        flex: 1 1 auto !important;
+        flex-direction: column !important;
+        min-width: 0 !important;
+        padding: 7px 8px 8px !important;
+      }
+    
+      .grid > .product-card .product-category {
+        overflow: hidden !important;
+        font-size: 7.5px !important;
+        line-height: 1.1 !important;
+        letter-spacing: .45px !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+      }
+    
+      .grid > .product-card .pizza-half-badge {
+        max-width: 100% !important;
+        margin-top: 3px !important;
+        padding: 3px 5px !important;
+        overflow: hidden !important;
+        font-size: 7px !important;
+        line-height: 1.1 !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+      }
+    
+      .grid > .product-card .product-name {
+        margin: 3px 0 0 !important;
+        overflow: hidden !important;
+        font-size: 12px !important;
+        line-height: 1.15 !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+      }
+    
+      .grid > .product-card .product-name + div {
+        margin-top: 2px !important;
+        overflow: hidden !important;
+        font-size: 7.5px !important;
+        line-height: 1.15 !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+      }
+    
+      .grid > .product-card .product-desc {
+        min-height: 23px !important;
+        max-height: 23px !important;
+        margin: 3px 0 0 !important;
+        display: -webkit-box !important;
+        overflow: hidden !important;
+        -webkit-box-orient: vertical !important;
+        -webkit-line-clamp: 2 !important;
+        font-size: 8px !important;
+        line-height: 1.4 !important;
+      }
+    
+      .grid > .product-card .product-foot {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 4px !important;
+        margin-top: auto !important;
+        padding-top: 6px !important;
+      }
+    
+      .grid > .product-card .product-price {
+        flex: 0 1 auto !important;
+        min-width: 0 !important;
+        font-size: 12px !important;
+        line-height: 1 !important;
+        white-space: nowrap !important;
+      }
+    
+      .grid > .product-card .product-foot > div:last-child {
+        min-width: 0 !important;
+      }
+    
+      .grid > .product-card .add-btn {
+        min-height: 28px !important;
+        padding: 0 6px !important;
+        border-radius: 8px !important;
+        font-size: 7.5px !important;
+        line-height: 1 !important;
+        box-shadow: none !important;
+        white-space: nowrap !important;
+      }
+    }
+    
+    /* Celulares estreitos: continua com DUAS colunas. */
+    @media (max-width: 360px) {
+      .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 6px !important;
+      }
+    
+      .grid > .product-card .product-cover,
+      .grid > .product-card .product-cover-placeholder {
+        height: 92px !important;
+        min-height: 92px !important;
+        max-height: 92px !important;
+      }
+    
+      .grid > .product-card .product-body {
+        padding: 6px 6px 7px !important;
+      }
+    
+      .grid > .product-card .product-name {
+        font-size: 11px !important;
+      }
+    
+      .grid > .product-card .product-desc {
+        min-height: 21px !important;
+        max-height: 21px !important;
+        font-size: 7.5px !important;
+      }
+    
+      .grid > .product-card .product-price {
+        font-size: 11px !important;
+      }
+    
+      .grid > .product-card .add-btn {
+        min-height: 26px !important;
+        padding: 0 5px !important;
+        font-size: 7px !important;
+      }
+    }
+    /* COMANDAFACIL: CARDS MOBILE VERTICAIS 2 COLUNAS v2 - FIM */
+
+
+
 </style>
 </head>
 
@@ -3885,209 +4175,7 @@
 
 
 
-/* COMANDAFACIL: CARDS MOBILE VERTICAIS 2 COLUNAS v2 - INICIO */
-/*
- * Ajuste somente visual para celular.
- * Mantém os cards VERTICAIS, com imagem em cima, e 2 por linha.
- * Não altera carrinho, pedidos, pagamentos, pizza meio a meio ou backend.
- */
-@media (max-width: 760px) {
-  .section {
-    margin-top: 14px !important;
-  }
 
-  .section-head {
-    align-items: center !important;
-    gap: 8px !important;
-    margin-bottom: 9px !important;
-  }
-
-  .section-head h2 {
-    font-size: 18px !important;
-    line-height: 1.15 !important;
-  }
-
-  .section-count {
-    flex: 0 0 auto !important;
-    font-size: 10px !important;
-  }
-
-  .grid {
-    display: grid !important;
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    gap: 8px !important;
-    align-items: stretch !important;
-  }
-
-  .grid > .product-card {
-    display: flex !important;
-    flex-direction: column !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    min-height: 0 !important;
-    overflow: hidden !important;
-    border-radius: 13px !important;
-    box-shadow: 0 5px 14px rgba(65, 29, 14, 0.08) !important;
-    transform: none !important;
-  }
-
-  .grid > .product-card:hover {
-    transform: none !important;
-  }
-
-  .grid > .product-card .product-cover {
-    width: 100% !important;
-    height: 104px !important;
-    min-height: 104px !important;
-    max-height: 104px !important;
-    overflow: hidden !important;
-  }
-
-  .grid > .product-card .product-cover img {
-    display: block !important;
-    width: 100% !important;
-    height: 100% !important;
-    object-fit: cover !important;
-  }
-
-  .grid > .product-card .product-cover-placeholder {
-    width: 100% !important;
-    height: 104px !important;
-    min-height: 104px !important;
-    display: grid !important;
-    place-items: center !important;
-    font-size: 31px !important;
-  }
-
-  .grid > .product-card .product-body {
-    display: flex !important;
-    flex: 1 1 auto !important;
-    flex-direction: column !important;
-    min-width: 0 !important;
-    padding: 7px 8px 8px !important;
-  }
-
-  .grid > .product-card .product-category {
-    overflow: hidden !important;
-    font-size: 7.5px !important;
-    line-height: 1.1 !important;
-    letter-spacing: .45px !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
-  }
-
-  .grid > .product-card .pizza-half-badge {
-    max-width: 100% !important;
-    margin-top: 3px !important;
-    padding: 3px 5px !important;
-    overflow: hidden !important;
-    font-size: 7px !important;
-    line-height: 1.1 !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
-  }
-
-  .grid > .product-card .product-name {
-    margin: 3px 0 0 !important;
-    overflow: hidden !important;
-    font-size: 12px !important;
-    line-height: 1.15 !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
-  }
-
-  .grid > .product-card .product-name + div {
-    margin-top: 2px !important;
-    overflow: hidden !important;
-    font-size: 7.5px !important;
-    line-height: 1.15 !important;
-    text-overflow: ellipsis !important;
-    white-space: nowrap !important;
-  }
-
-  .grid > .product-card .product-desc {
-    min-height: 23px !important;
-    max-height: 23px !important;
-    margin: 3px 0 0 !important;
-    display: -webkit-box !important;
-    overflow: hidden !important;
-    -webkit-box-orient: vertical !important;
-    -webkit-line-clamp: 2 !important;
-    font-size: 8px !important;
-    line-height: 1.4 !important;
-  }
-
-  .grid > .product-card .product-foot {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    gap: 4px !important;
-    margin-top: auto !important;
-    padding-top: 6px !important;
-  }
-
-  .grid > .product-card .product-price {
-    flex: 0 1 auto !important;
-    min-width: 0 !important;
-    font-size: 12px !important;
-    line-height: 1 !important;
-    white-space: nowrap !important;
-  }
-
-  .grid > .product-card .product-foot > div:last-child {
-    min-width: 0 !important;
-  }
-
-  .grid > .product-card .add-btn {
-    min-height: 28px !important;
-    padding: 0 6px !important;
-    border-radius: 8px !important;
-    font-size: 7.5px !important;
-    line-height: 1 !important;
-    box-shadow: none !important;
-    white-space: nowrap !important;
-  }
-}
-
-/* Celulares estreitos: continua com DUAS colunas. */
-@media (max-width: 360px) {
-  .grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    gap: 6px !important;
-  }
-
-  .grid > .product-card .product-cover,
-  .grid > .product-card .product-cover-placeholder {
-    height: 92px !important;
-    min-height: 92px !important;
-    max-height: 92px !important;
-  }
-
-  .grid > .product-card .product-body {
-    padding: 6px 6px 7px !important;
-  }
-
-  .grid > .product-card .product-name {
-    font-size: 11px !important;
-  }
-
-  .grid > .product-card .product-desc {
-    min-height: 21px !important;
-    max-height: 21px !important;
-    font-size: 7.5px !important;
-  }
-
-  .grid > .product-card .product-price {
-    font-size: 11px !important;
-  }
-
-  .grid > .product-card .add-btn {
-    min-height: 26px !important;
-    padding: 0 5px !important;
-    font-size: 7px !important;
-  }
-}
-/* COMANDAFACIL: CARDS MOBILE VERTICAIS 2 COLUNAS v2 - FIM */
 </style>
 
 <button type="button" id="openMyOrders">📦 Meus pedidos</button>
