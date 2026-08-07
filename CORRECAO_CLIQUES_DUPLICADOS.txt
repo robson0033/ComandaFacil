@@ -1,0 +1,25 @@
+CORREÇÃO APLICADA
+
+Problema corrigido:
+- vários cliques em Salvar/Cadastrar disparavam vários POSTs multipart;
+- o primeiro clique não mostrava retorno visual imediato;
+- produtos podiam ser criados repetidamente no cadastro.
+
+Arquivos alterados:
+- src/views/admin-real.ejs
+- test/adminPanelProductRegressionP0.test.js
+
+Comportamento novo:
+- o primeiro submit marca o formulário como em processamento imediatamente;
+- todos os botões submit do formulário são desativados;
+- o texto muda para "Salvando...";
+- novos cliques, Enter e novos eventos submit são ignorados enquanto a requisição está ativa;
+- em erro, o botão volta ao estado original;
+- em sucesso, o botão permanece bloqueado até o recarregamento da seção;
+- a edição continua usando /admin/produtos/:id/editar e não chama Produto.create.
+
+Validação executada neste ambiente:
+- node --check nos arquivos JavaScript principais: aprovado;
+- teste específico adminPanelProductRegressionP0.test.js: 10/10 aprovado.
+
+A suíte completa não pôde ser executada porque o ZIP não inclui node_modules e este ambiente não possui as dependências instaladas. Execute npm install e node --test test/*.test.js no seu computador antes do deploy.

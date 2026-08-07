@@ -1,0 +1,27 @@
+CORREÇÃO DA IMPRESSÃO DE PEDIDOS DO COMANDA FÁCIL
+
+Causa encontrada:
+O servidor salvava uma hash SHA-256 em impressoraChave e enviava essa hash no campo
+impressoraId do protocolo v2. O agente valida o protocolo exigindo um identificador
+canônico:
+
+- USB:  usb:<nome da impressora em minúsculas>
+- Rede: rede:<ip>:<porta>
+
+Por isso a impressão de teste funcionava (ela já usava o identificador canônico),
+mas trabalhos manuais e automáticos vindos do sistema eram rejeitados antes da
+impressão.
+
+Correção:
+- impressoraChave continua como hash apenas para índices/idempotência no MongoDB;
+- o envelope enviado ao agente usa calcularImpressoraId(impressora);
+- ACKs e reconciliação comparam o mesmo identificador canônico;
+- trabalhos antigos também podem ser processados porque o identificador é derivado
+  do snapshot da impressora salvo no PrintJob.
+
+Após publicar:
+1. mantenha PRINT_PROTOCOL_V2_ENABLED=true;
+2. reinicie o serviço Render;
+3. feche e abra o agente 1.2.0;
+4. confirme agente conectado e impressora selecionada;
+5. crie um pedido novo e teste impressão manual e automática.

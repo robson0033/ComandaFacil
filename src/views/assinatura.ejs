@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Plano ComandaFácil</title>
+<link rel="icon" href="/assets/imgs/comanda.png" type="image/x-png">
+<link rel="stylesheet" href="/assets/css/admin-loading.css">
+<style nonce="<%= cspNonce %>">
+*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:#f7f4f1;color:#24100c}.wrap{max-width:1080px;margin:auto;padding:36px 18px}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:26px}.brand{font-size:28px;font-weight:900}.back{color:#a51f1f;text-decoration:none;font-weight:800;border:0;background:none;cursor:pointer;font:inherit}.hero{padding:32px;border-radius:24px;background:linear-gradient(135deg,#24100c,#651111 60%,#e96b13);color:#fff;box-shadow:0 24px 60px #65111130}.hero h1{margin:0 0 10px;font-size:clamp(28px,5vw,48px)}.hero p{max-width:680px;line-height:1.6;color:#f7dfd3}.status{display:inline-flex;margin-top:12px;padding:9px 14px;border-radius:999px;background:#ffffff18;font-weight:800}.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:22px}.card{background:#fff;border:1px solid #eadfd7;border-radius:20px;padding:24px;box-shadow:0 14px 35px #3f1e0d12}.card h2{margin:0 0 8px}.price{font-size:34px;font-weight:900;margin:16px 0}.price small{font-size:14px;color:#666}.features{display:grid;gap:10px;margin:18px 0;color:#555}.btn{width:100%;border:0;border-radius:12px;padding:14px 18px;background:linear-gradient(135deg,#c62828,#e96b13);color:#fff;font-weight:900;cursor:pointer;font-size:16px}.btn.pix{background:#218c55}.pixbox{margin-top:20px;text-align:center}.pixbox img{max-width:260px;border:10px solid white;box-shadow:0 10px 30px #0002}.copy{width:100%;min-height:90px;margin-top:12px;padding:12px;border:1px solid #ddd;border-radius:10px;resize:none}.pix-expiration{margin:14px 0;font-weight:800}.pix-countdown{display:block;margin-top:4px;font-size:28px;color:#218c55}.pix-countdown.ending{color:#a51f1f}.pix-expired{display:grid;gap:10px;margin-top:12px}.pix-expired[hidden]{display:none}.msg{padding:12px;border-radius:10px;margin-bottom:14px;background:#fde2e2;color:#8b1e1e}@media(max-width:760px){.grid{grid-template-columns:1fr}.top{align-items:flex-start}.hero{padding:24px}}@media(prefers-reduced-motion:reduce){.pix-countdown{transition:none}}
+</style><style nonce="<%= cspNonce %>">.btn.cancel{margin-top:14px;background:#7d2525}.attempt{margin-top:18px;border-color:#e0b4a1}.attempt dl{display:grid;grid-template-columns:auto 1fr;gap:8px 16px}.attempt dt{font-weight:800}.attempt dd{margin:0}</style></head>
+<body><main class="wrap" data-payment-config-ok="<%= !integracaoMercadoPago || integracaoMercadoPago.ok ? 'true' : 'false' %>"><div class="top"><div class="brand">🍔 ComandaFácil</div><nav style="display:flex;gap:16px;align-items:center"><strong>Assinatura</strong><form action="/login/logout" method="POST"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="back" type="submit">Sair</button></form></nav></div>
+<% if(errors?.length){ errors.forEach(e=>{ %><div class="msg"><%= e %></div><% }) } %>
+<% if (typeof integracaoMercadoPago !== 'undefined' && integracaoMercadoPago && !integracaoMercadoPago.ok) { %>
+<div class="msg" style="background:#fff3cd;color:#754c00">A integração de pagamento ainda não está disponível. Confira as variáveis do Mercado Pago no servidor. Nenhuma credencial é exibida nesta tela.</div>
+<% } %>
+<section class="hero"><h1>Plano Profissional</h1><p>Use todos os módulos gratuitamente por 7 dias. Depois, escolha cobrança automática no cartão ou renovação mensal pelo Pix.</p><div class="status">Status: <%= assinatura.status %><% if (diasRestantes > 0) { %> — <%= diasRestantes %> dia(s) grátis restante(s)<% } %></div></section>
+<% if (diasRestantes > 0) { %><div class="msg" style="margin-top:16px;background:#e8f7ee;color:#176b3a">Você pode iniciar o pagamento sem perder o período gratuito. O acesso só será bloqueado quando o teste realmente terminar e não houver pagamento aprovado.</div><% } %>
+<% if (typeof tentativaAtiva !== 'undefined' && tentativaAtiva) { %>
+<section class="card attempt" data-active-attempt>
+  <h2>Tentativa de pagamento em andamento</h2>
+  <dl>
+    <dt>Método</dt><dd><%= tentativaAtiva.metodo === 'cartao' ? 'Cartão' : 'Pix' %></dd>
+    <dt>Status</dt><dd><%= tentativaAtiva.status %></dd>
+    <dt>Criada em</dt><dd><%= tentativaAtiva.createdAt ? new Date(tentativaAtiva.createdAt).toLocaleString('pt-BR') : 'Não informado' %></dd>
+    <% if (tentativaAtiva.expiresAt) { %><dt>Expira em</dt><dd><%= new Date(tentativaAtiva.expiresAt).toLocaleString('pt-BR') %></dd><% } %>
+  </dl>
+  <% if (tentativaAtiva.cancelavel) { %>
+    <input type="hidden" data-cancel-csrf value="<%= csrfToken %>">
+    <button class="btn cancel" type="button" data-cancel-attempt><%= tentativaAtiva.status === 'pending' || tentativaAtiva.status === 'processing' ? 'Descartar tentativa de cartão' : 'Cancelar assinatura no Mercado Pago' %></button>
+  <% } %>
+</section>
+<% } %>
+<div class="grid">
+<article class="card"><h2>Cartão de crédito</h2><p>Cobrança recorrente automática todos os meses.</p><div class="price"><%= valorPlano.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) %> <small>/mês</small></div><div class="features"><span>✓ Renovação automática</span><span>✓ Acesso contínuo</span><span>✓ Gestão pela conta Mercado Pago</span></div><form action="/assinatura/cartao" method="POST" data-subscription-payment="cartao"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="btn" type="button" data-payment-button <%= (integracaoMercadoPago && !integracaoMercadoPago.ok) || tentativaAtiva ? 'disabled aria-disabled="true"' : '' %>>Assinar com cartão</button></form></article>
+<article class="card"><h2>Pix mensal</h2><p>Gere um Pix e renove manualmente por 30 dias.</p><div class="price"><%= valorPlano.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}) %> <small>/30 dias</small></div><div class="features"><span>✓ QR Code e Copia e Cola</span><span>✓ Confirmação automática</span><span>✓ Sem renovação automática</span></div><form action="/assinatura/pix" method="POST" data-subscription-payment="pix"><input type="hidden" name="_csrf" value="<%= csrfToken %>"><button class="btn pix" type="button" data-payment-button <%= (integracaoMercadoPago && !integracaoMercadoPago.ok) || tentativaAtiva ? 'disabled aria-disabled="true"' : '' %>>Gerar Pix</button></form></article>
+</div>
+<% if(pix){ %><section class="card pixbox" data-pix-expires-at="<%= pix.expiresAt %>"><h2 data-pix-title>Escaneie para pagar</h2><% if(pix.qrCodeBase64){ %><img data-pix-qr src="<%= safePublicUrl(`data:image/png;base64,${pix.qrCodeBase64}`, { allowDataImage: true }) %>" alt="QR Code Pix"><% } %><p class="pix-expiration" data-pix-expiration-label>Este Pix expira em:<span class="pix-countdown" data-pix-countdown>--:--</span></p><textarea class="copy" readonly id="pixCode"><%= pix.copiaCola %></textarea><button class="btn pix" id="copyPixCode" type="button">Copiar código Pix</button><div class="pix-expired" data-pix-expired hidden><strong>Pix expirado</strong><span>Este código não pode mais ser utilizado. Gere uma nova cobrança para continuar.</span><button class="btn pix" type="button" data-generate-new-pix>Gerar novo Pix</button></div></section><% } %>
+</main><%- include('includes/admin-loading') %><script src="/js/adminLoading.js" nonce="<%= cspNonce %>"></script><script nonce="<%= cspNonce %>">
+let pixExpirationTimer = null;
+function clearPixExpirationTimer() {
+  if (pixExpirationTimer !== null) clearInterval(pixExpirationTimer);
+  pixExpirationTimer = null;
+}
+function enableSubscriptionPaymentButtons() {
+  if (document.querySelector('main.wrap')?.dataset.paymentConfigOk !== 'true') return;
+  document.querySelectorAll('[data-payment-button]').forEach(paymentButton => {
+    paymentButton.disabled = false;
+    paymentButton.removeAttribute('aria-disabled');
+    if (paymentButton.dataset.paymentOriginalText) {
+      paymentButton.textContent = paymentButton.dataset.paymentOriginalText;
+      delete paymentButton.dataset.paymentOriginalText;
+    }
+  });
+}
+function expirePixBox(pixBox) {
+  clearPixExpirationTimer();
+  pixBox.dataset.pixExpired = 'true';
+  const countdown = pixBox.querySelector('[data-pix-countdown]');
+  if (countdown) countdown.textContent = '00:00';
+  const label = pixBox.querySelector('[data-pix-expiration-label]');
+  if (label) label.firstChild.textContent = 'Este Pix expirou. ';
+  const image = pixBox.querySelector('[data-pix-qr]');
+  if (image) { image.hidden = true; image.removeAttribute('src'); }
+  const code = pixBox.querySelector('#pixCode');
+  if (code) { code.value = ''; code.hidden = true; }
+  const copyButton = pixBox.querySelector('#copyPixCode');
+  if (copyButton) { copyButton.disabled = true; copyButton.hidden = true; }
+  const expired = pixBox.querySelector('[data-pix-expired]');
+  if (expired) expired.hidden = false;
+  document.querySelector('[data-active-attempt]')?.remove();
+  enableSubscriptionPaymentButtons();
+}
+function startPixExpiration(pixBox, expiresAt) {
+  clearPixExpirationTimer();
+  const expirationTime = new Date(String(expiresAt || '')).getTime();
+  if (!Number.isFinite(expirationTime)) { expirePixBox(pixBox); return; }
+  pixBox.dataset.pixExpiresAt = new Date(expirationTime).toISOString();
+  const updateCountdown = () => {
+    const remainingMs = expirationTime - Date.now();
+    const countdown = pixBox.querySelector('[data-pix-countdown]');
+    if (remainingMs <= 0) { expirePixBox(pixBox); return; }
+    const remainingSeconds = Math.ceil(remainingMs / 1000);
+    const minutes = Math.floor(remainingSeconds / 60);
+    const seconds = remainingSeconds % 60;
+    if (countdown) {
+      countdown.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+      countdown.classList.toggle('ending', remainingMs <= 30000);
+    }
+  };
+  updateCountdown();
+  if (pixBox.dataset.pixExpired !== 'true') pixExpirationTimer = setInterval(updateCountdown, 1000);
+}
+function renderSubscriptionPix(payload) {
+  clearPixExpirationTimer();
+  let pixBox = document.querySelector('.pixbox');
+  if (!pixBox) {
+    pixBox = document.createElement('section');
+    pixBox.className = 'card pixbox';
+    document.querySelector('main.wrap')?.append(pixBox);
+  }
+  pixBox.replaceChildren();
+  delete pixBox.dataset.pixExpired;
+  const title = document.createElement('h2'); title.dataset.pixTitle = ''; title.textContent = 'Escaneie para pagar';
+  const image = document.createElement('img'); image.dataset.pixQr = ''; image.alt = 'QR Code Pix'; image.src = `data:image/png;base64,${payload.qrCodeBase64}`;
+  const expirationLabel = document.createElement('p'); expirationLabel.className = 'pix-expiration'; expirationLabel.dataset.pixExpirationLabel = ''; expirationLabel.textContent = 'Este Pix expira em:';
+  const countdown = document.createElement('span'); countdown.className = 'pix-countdown'; countdown.dataset.pixCountdown = ''; expirationLabel.append(countdown);
+  const code = document.createElement('textarea'); code.className = 'copy'; code.readOnly = true; code.id = 'pixCode'; code.value = payload.qrCode;
+  const copyButton = document.createElement('button'); copyButton.className = 'btn pix'; copyButton.id = 'copyPixCode'; copyButton.type = 'button'; copyButton.textContent = 'Copiar código Pix';
+  const expired = document.createElement('div'); expired.className = 'pix-expired'; expired.dataset.pixExpired = ''; expired.hidden = true;
+  const expiredTitle = document.createElement('strong'); expiredTitle.textContent = 'Pix expirado';
+  const expiredText = document.createElement('span'); expiredText.textContent = 'Este código não pode mais ser utilizado. Gere uma nova cobrança para continuar.';
+  const newButton = document.createElement('button'); newButton.className = 'btn pix'; newButton.type = 'button'; newButton.dataset.generateNewPix = ''; newButton.textContent = 'Gerar novo Pix';
+  expired.append(expiredTitle, expiredText, newButton);
+  pixBox.append(title, image, expirationLabel, code, copyButton, expired);
+  startPixExpiration(pixBox, payload.expiresAt);
+}
+document.addEventListener('click', async event => {
+  const copyButton = event.target.closest('#copyPixCode');
+  if (copyButton) {
+    const pixBox = copyButton.closest('.pixbox');
+    const expirationTime = new Date(String(pixBox?.dataset.pixExpiresAt || '')).getTime();
+    if (!pixBox || !Number.isFinite(expirationTime) || Date.now() >= expirationTime) { if (pixBox) expirePixBox(pixBox); return; }
+    const code = pixBox.querySelector('#pixCode');
+    if (!code?.value) return;
+    await navigator.clipboard.writeText(code.value);
+    copyButton.textContent = 'Código copiado';
+    return;
+  }
+  if (event.target.closest('[data-generate-new-pix]')) {
+    document.querySelector('form[data-subscription-payment="pix"] [data-payment-button]')?.click();
+  }
+});
+const initialPixBox = document.querySelector('.pixbox');
+if (initialPixBox) startPixExpiration(initialPixBox, initialPixBox.dataset.pixExpiresAt);
+window.addEventListener('pagehide', clearPixExpirationTimer, { once: true });
+let cancelInFlight = false;
+document.querySelector('[data-cancel-attempt]')?.addEventListener('click', async event => {
+  const button = event.currentTarget;
+  if (cancelInFlight || button.dataset.submitting === 'true') return;
+  if (!window.confirm('Esta tentativa de checkout será descartada no sistema. Não use mais o link antigo.')) return;
+  const originalText = button.textContent;
+  cancelInFlight = true;
+  button.dataset.submitting = 'true';
+  button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
+  button.textContent = 'Cancelando...';
+  try {
+    const csrfToken = String(document.querySelector('[data-cancel-csrf]')?.value || '').trim();
+    if (!csrfToken) throw new Error('A página expirou. Atualize e tente novamente.');
+    const response = await window.AdminLoading.run(() => fetch('/assinatura/tentativa-ativa/cancelar', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        Accept: 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRF-Token': csrfToken,
+      },
+    }), window.AdminLoading.messages.cancel);
+    const payload = await response.clone().json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(payload.message || 'Não foi possível cancelar a tentativa.');
+      error.correlationId = payload.correlationId;
+      throw error;
+    }
+    document.querySelector('[data-active-attempt]')?.remove();
+    if (document.querySelector('main.wrap')?.dataset.paymentConfigOk === 'true') {
+      document.querySelectorAll('[data-payment-button]').forEach(paymentButton => {
+        paymentButton.disabled = false;
+        paymentButton.removeAttribute('aria-disabled');
+      });
+    }
+    const box = document.createElement('div');
+    box.className = 'msg';
+    box.style.background = '#e8f7ee';
+    box.style.color = '#176b3a';
+    box.textContent = payload.message || 'Tentativa cancelada.';
+    document.querySelector('main.wrap')?.prepend(box);
+  } catch (error) {
+    cancelInFlight = false;
+    delete button.dataset.submitting;
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+    button.textContent = originalText;
+    const box = document.createElement('div');
+    box.className = 'msg';
+    const code = error.correlationId ? ` Código: ${error.correlationId}` : '';
+    box.textContent = `${error.message || 'Não foi possível cancelar.'}${code}`;
+    document.querySelector('main.wrap')?.prepend(box);
+  }
+});
+document.querySelectorAll('form[data-subscription-payment]').forEach(form => form.addEventListener('submit', event => event.preventDefault()));
+document.querySelectorAll('[data-payment-button]').forEach(paymentButton => paymentButton.addEventListener('click', async event => {
+  const form = event.currentTarget.closest('form[data-subscription-payment]');
+  if (!(form instanceof HTMLFormElement)) return;
+  const paymentMethod = form.dataset.subscriptionPayment;
+  if (!paymentMethod) return;
+  if (form.dataset.submitting === 'true') return;
+  if (paymentMethod === 'pix') clearPixExpirationTimer();
+
+  const button = event.currentTarget;
+  const originalText = button?.textContent || '';
+  form.dataset.submitting = 'true';
+  if (button) {
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    button.textContent = 'Processando...';
+  }
+
+  try {
+    const csrfToken = String(form.querySelector('input[name="_csrf"]')?.value || '').trim();
+    if (!csrfToken) throw new Error('A página expirou. Atualize e tente novamente.');
+    const response = await window.AdminLoading.run(() => fetch(form.action, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        Accept: 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRF-Token': csrfToken,
+      },
+    }), window.AdminLoading.messages.payment);
+    const payload = await response.clone().json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(payload.message || 'Não foi possível iniciar o pagamento.');
+      error.code = payload.code;
+      error.correlationId = payload.correlationId;
+      throw error;
+    }
+
+    if (paymentMethod === 'cartao') {
+      const redirectUrl = new URL(String(payload.checkoutUrl || ''));
+      const host = redirectUrl.hostname.toLowerCase();
+      const allowed = redirectUrl.protocol === 'https:' && (
+        host === 'mercadopago.com' || host.endsWith('.mercadopago.com') ||
+        host === 'mercadopago.com.br' || host.endsWith('.mercadopago.com.br') ||
+        host === 'mercadopago.com.ar' || host.endsWith('.mercadopago.com.ar')
+      );
+      if (!allowed) throw new Error('O servidor retornou um endereço de pagamento inválido.');
+      window.location.assign(redirectUrl.toString());
+      return;
+    }
+
+    renderSubscriptionPix(payload);
+    delete form.dataset.submitting;
+    document.querySelectorAll('[data-payment-button]').forEach(paymentButton => {
+      paymentButton.disabled = true;
+      paymentButton.setAttribute('aria-disabled', 'true');
+    });
+    button.dataset.paymentOriginalText = originalText;
+    button.removeAttribute('aria-busy');
+    button.textContent = 'Pix aguardando pagamento';
+  } catch (error) {
+    delete form.dataset.submitting;
+    if (button) {
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+      button.textContent = originalText;
+    }
+    const box = document.createElement('div');
+    box.className = 'msg';
+    const code = error.correlationId ? ` Código: ${error.correlationId}` : '';
+    box.textContent = `${error.message || 'Não foi possível concluir.'}${code}`;
+    document.querySelector('main.wrap')?.prepend(box);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+}));
+</script></body></html>

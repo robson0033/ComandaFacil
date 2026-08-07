@@ -1,0 +1,40 @@
+CORREÇÃO PIX / QR CODE / WEBHOOK
+Data: 01/08/2026
+
+Correções aplicadas:
+
+1. Webhook Mercado Pago
+- A validação agora usa o parâmetro query `data.id` como identificador assinado.
+- `body.data.id` continua sendo conferido quando presente.
+- `body.id` não é mais comparado com o ID do pagamento, pois pode identificar o evento/notificação.
+- Divergência real entre query `data.id` e body `data.id` continua sendo recusada.
+- Mantida a validação HMAC e nenhuma notificação com assinatura inválida é aceita.
+
+2. Geração do QR Code Pix
+- Erro de aceite dos termos agora retorna código e mensagem específicos.
+- O frontend trata JSON inválido e falha de geração sem ficar preso em “Enviando pedido...”.
+- Como o pedido já foi criado, o carrinho é limpo para evitar envio duplicado.
+- O sucesso comum do pedido não é mais exibido antes do QR Code no fluxo Pix.
+- O modal Pix passa a ser a tela principal até a confirmação do pagamento.
+
+3. Contas Mercado Pago já conectadas
+- A configuração agora mostra “Revisar e aceitar os termos” quando não há aceite registrado.
+- Mesmo contas com aceite antigo podem abrir “Consultar ou renovar termos”.
+- O aceite pode ser registrado sem desconectar e reconectar a conta Mercado Pago.
+
+Arquivos alterados:
+- src/controllers/pagamentoController.js
+- src/views/catalogo-publico.ejs
+- src/views/admin-real.ejs
+- test/mercadoPagoP0.test.js
+
+Verificações realizadas:
+- node --check src/controllers/pagamentoController.js: aprovado
+- node --check test/mercadoPagoP0.test.js: aprovado
+- verificações isoladas da extração do webhook: aprovadas
+
+Limitação do ambiente:
+- A suíte completa não pôde ser executada porque o registro interno de pacotes não disponibilizou yargs-parser@18.1.3 durante npm ci.
+- Nenhum banco foi acessado.
+- Nenhum índice foi aplicado.
+- Não houve deploy, commit ou push.

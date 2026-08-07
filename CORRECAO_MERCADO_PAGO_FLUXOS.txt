@@ -1,0 +1,34 @@
+CORREÇÃO DOS FLUXOS MERCADO PAGO
+
+1. O botão "Conectar minha conta Mercado Pago" não depende mais de submit HTML.
+   O painel faz POST same-origin com CSRF, recebe uma URL de autorização validada
+   e só então navega para auth.mercadopago.com.
+
+2. Assinatura por cartão e Pix agora usam fetch same-origin com CSRF e JSON.
+   Isso evita recarregamento silencioso e mostra erro específico no navegador.
+
+3. A configuração de assinatura foi separada da configuração OAuth.
+   Ausência de credenciais OAuth não bloqueia a cobrança da assinatura, e o
+   contrário também não ocorre.
+
+4. Antes de criar uma cobrança, o access token principal é validado em /users/me
+   e o ID retornado precisa corresponder a MERCADO_PAGO_PLATFORM_USER_ID.
+
+5. Os logs informam apenas código, status e nomes de variáveis ausentes; nunca
+   imprimem access token, client secret, webhook secret ou token de loja.
+
+Variáveis de assinatura:
+- APP_URL
+- MERCADO_PAGO_ACCESS_TOKEN
+- MERCADO_PAGO_PLATFORM_USER_ID
+- MERCADO_PAGO_WEBHOOK_SECRET
+
+Variáveis OAuth das lojas:
+- APP_URL
+- MP_CLIENT_ID
+- MP_CLIENT_SECRET
+- MP_REDIRECT_URI
+- TOKEN_ENCRYPTION_KEY
+
+MP_REDIRECT_URI deve ser exatamente:
+https://comandafacil-2kot.onrender.com/admin/mercado-pago/callback

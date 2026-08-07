@@ -1,0 +1,16 @@
+CORREÇÃO: arquivamento com agente/impressora offline
+
+- Trabalhos automáticos continuam aguardando o agente; nada é enviado enquanto o agente estiver desconectado.
+- Ao arquivar um pedido com o agente desconectado, jobs pendentes ou presos (entregando, recebido, processando, enviado ou resultado_desconhecido) são cancelados.
+- O arquivamento só é bloqueado quando o agente está conectado e existe um trabalho realmente ativo com lease válido.
+- O controller informa ao serviço de arquivamento o estado real do agente.
+- Nenhuma proteção de CSRF, autenticação, permissão ou isolamento multi-tenant foi removida.
+
+Arquivos alterados:
+- src/services/pedidoArquivamentoService.js
+- src/controllers/adminRealController.js
+- test/pedidoSoftDeleteP0.test.js
+
+Validação feita neste ambiente:
+- node --check nos dois arquivos JavaScript alterados: aprovado.
+- A suíte Node não pôde ser executada porque o ZIP não contém node_modules/mongoose neste ambiente.

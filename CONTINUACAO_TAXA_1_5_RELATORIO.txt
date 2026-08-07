@@ -1,0 +1,49 @@
+CONTINUAÇÃO LOCAL — TAXA PIX 1,5%
+
+Auditoria realizada sobre o projeto enviado.
+
+Já estava implementado:
+- serviço central platformFeeService.js;
+- cálculo em centavos;
+- application_fee no pagamento Pix;
+- snapshot financeiro na tentativa e no pedido;
+- aceite obrigatório dos termos;
+- bloqueio backend da rota OAuth sem aceite;
+- modal de termos;
+- campos e modelo de aceite;
+- processamento idempotente na confirmação;
+- tratamento básico de estorno/reconciliação;
+- exibição dos adicionais atuais em item.adicionais.
+
+Correções concluídas nesta continuação:
+1. O bloco da taxa estava inserido dentro do modal de cadastro de estoque.
+   Ele foi removido dali e colocado dentro da página Relatórios.
+2. O relatório da taxa agora considera somente formaPagamento=pix_online,
+   evitando misturar Pix manual/offline sem split.
+3. Criado test/platformFeeFlow.test.js com cinco verificações focadas:
+   - cálculo de R$ 30,00 -> R$ 0,45;
+   - application_fee no backend sem aumentar transaction_amount;
+   - OAuth protegido por aceite;
+   - taxa dentro de Relatórios;
+   - adicionais visíveis nos cards.
+
+Verificações executadas:
+- node --test test/platformFeeFlow.test.js: 5 aprovados, 0 falhas;
+- node --check src/controllers/pagamentoController.js: aprovado;
+- node --check src/controllers/adminRealController.js: aprovado;
+- node --check src/services/platformFeeService.js: aprovado.
+
+Limitação do ambiente:
+- npm ci não concluiu porque o registro interno não disponibilizou o pacote
+  yargs-parser@18.1.3. Por isso a suíte completa e a compilação EJS não puderam
+  ser executadas neste ambiente.
+
+Antes de produção:
+- instalar dependências no ambiente Node 24.18.1 LTS;
+- rodar node --test test/*.test.js;
+- compilar todos os EJS;
+- executar o dry-run do script de índices;
+- confirmar no Mercado Pago que a aplicação está habilitada para marketplace/split;
+- homologar um Pix real de baixo valor e conferir application_fee e repasse.
+
+Nenhum banco foi acessado. Nenhum índice foi aplicado. Não houve deploy, commit ou push.

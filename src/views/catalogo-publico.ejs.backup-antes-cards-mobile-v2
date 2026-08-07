@@ -1,0 +1,4531 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+
+  <title><%= configuracao.nomeEstabelecimento %> | Cardápio</title>
+  <link rel="icon" href="/assets/imgs/comanda.png" type="image/x-png">
+
+  <style nonce="<%= cspNonce %>">
+    :root {
+      --bg: #f7f4f1;
+      --card: #ffffff;
+      --text: #23140f;
+      --muted: #756762;
+      --line: #eadfd7;
+      --dark: #25110d;
+      --dark-2: #431712;
+      --orange: #f27613;
+      --orange-2: #ff8a1d;
+      --green: #1f9254;
+      --red: #dc3030;
+      --shadow: 0 14px 35px rgba(43, 19, 8, 0.12);
+      --shadow-strong: 0 22px 50px rgba(43, 19, 8, 0.18);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, Arial, sans-serif;
+    }
+
+    body.modal-open {
+      overflow: hidden;
+    }
+
+    button,
+    input,
+    textarea,
+    select {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .botao-whatsapp {
+      position: fixed;
+      left: 18px;
+      bottom: 18px;
+      z-index: 95;
+      width: 58px;
+      height: 58px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #25d366, #128c4a);
+      color: #fff;
+      text-decoration: none;
+      box-shadow:
+        0 16px 34px rgba(18, 140, 74, 0.34),
+        0 0 0 0 rgba(37, 211, 102, 0.35);
+      transition:
+        transform 0.2s ease,
+        filter 0.2s ease,
+        box-shadow 0.2s ease;
+      animation: whatsappPulse 2.2s infinite;
+    }
+
+    .botao-whatsapp:hover {
+      transform: translateY(-3px) scale(1.04);
+      filter: brightness(0.96);
+      box-shadow:
+        0 20px 40px rgba(18, 140, 74, 0.42),
+        0 0 0 8px rgba(37, 211, 102, 0.12);
+    }
+
+    .botao-whatsapp:focus-visible {
+      outline: 3px solid rgba(37, 211, 102, 0.35);
+      outline-offset: 4px;
+    }
+
+    .botao-whatsapp svg {
+      width: 31px;
+      height: 31px;
+      fill: currentColor;
+    }
+
+    .botao-whatsapp-texto {
+      position: absolute;
+      left: 68px;
+      min-width: max-content;
+      padding: 8px 11px;
+      border-radius: 9px;
+      background: #163d29;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 850;
+      line-height: 1;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(-7px);
+      transition: 0.2s ease;
+      box-shadow: 0 8px 20px rgba(16, 58, 36, 0.22);
+    }
+
+    .botao-whatsapp:hover .botao-whatsapp-texto,
+    .botao-whatsapp:focus-visible .botao-whatsapp-texto {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    @keyframes whatsappPulse {
+      0%,
+      100% {
+        box-shadow:
+          0 16px 34px rgba(18, 140, 74, 0.34),
+          0 0 0 0 rgba(37, 211, 102, 0.28);
+      }
+
+      50% {
+        box-shadow:
+          0 16px 34px rgba(18, 140, 74, 0.34),
+          0 0 0 10px rgba(37, 211, 102, 0);
+      }
+    }
+
+    @media (max-width: 600px) {
+      .botao-whatsapp {
+        left: 13px;
+        bottom: 13px;
+        width: 54px;
+        height: 54px;
+      }
+
+      .botao-whatsapp-texto {
+        display: none;
+      }
+    }
+
+    img {
+      display: block;
+      max-width: 100%;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      color: #fff;
+      background:
+        linear-gradient(90deg, rgba(22, 7, 5, 0.9), rgba(84, 10, 12, 0.76), rgba(233, 107, 19, 0.62)),
+        url("/assets/imgs/template1.png") center / cover no-repeat;
+    }
+
+    .hero-inner {
+      max-width: 1360px;
+      margin: auto;
+      padding: 34px 22px 105px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 420px;
+      gap: 30px;
+      align-items: center;
+    }
+
+    .hero-main {
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      min-width: 0;
+    }
+
+    .hero-avatar {
+      width: 116px;
+      height: 116px;
+      flex: 0 0 116px;
+      overflow: hidden;
+      border: 4px solid rgba(255, 255, 255, 0.92);
+      border-radius: 34px;
+      background: rgba(255, 255, 255, 0.1);
+      box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
+    }
+
+    .hero-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .hero-avatar-placeholder {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      place-items: center;
+      font-size: 54px;
+    }
+
+    .hero-copy {
+      min-width: 0;
+    }
+
+    .hero-title {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(38px, 5vw, 64px);
+      line-height: 1;
+      letter-spacing: -1.8px;
+    }
+
+    .hero-subtitle {
+      margin-top: 12px;
+      color: #ffc56d;
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .hero-description {
+      max-width: 700px;
+      margin: 14px 0 0;
+      color: #f5ddd0;
+      font-size: 16px;
+      line-height: 1.65;
+    }
+
+    .store-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 46px;
+      margin-top: 15px;
+      padding: 8px 14px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(8px);
+    }
+
+    .status-dot {
+      width: 11px;
+      height: 11px;
+      flex: 0 0 11px;
+      border-radius: 50%;
+      background: #9ca3af;
+      box-shadow: 0 0 0 5px rgba(156, 163, 175, 0.16);
+    }
+
+    .store-status.open .status-dot {
+      background: #23c875;
+      box-shadow: 0 0 0 5px rgba(35, 200, 117, 0.2);
+    }
+
+    .store-status.closed .status-dot {
+      background: #ff5252;
+      box-shadow: 0 0 0 5px rgba(255, 82, 82, 0.2);
+    }
+
+    .store-status strong,
+    .store-status small {
+      display: block;
+    }
+
+    .store-status small {
+      margin-top: 3px;
+      color: #efd9ce;
+      font-size: 12px;
+    }
+
+    .hero-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 11px;
+      margin-top: 16px;
+    }
+
+    .hero-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 44px;
+      padding: 0 15px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 750;
+      text-decoration: none;
+      backdrop-filter: blur(8px);
+    }
+
+    .hero-side {
+      position: relative;
+      min-height: 275px;
+    }
+
+    .hero-food {
+      width: 100%;
+      height: 275px;
+      overflow: hidden;
+      border-radius: 30px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .hero-food img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .hero-food-placeholder {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      place-items: center;
+      font-size: 96px;
+    }
+
+    .made-badge {
+      position: absolute;
+      left: -30px;
+      bottom: 18px;
+      z-index: 2;
+      max-width: 215px;
+      padding: 16px 18px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 20px;
+      background: linear-gradient(135deg, rgba(116, 24, 9, 0.94), rgba(245, 117, 17, 0.82));
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.2);
+      backdrop-filter: blur(10px);
+    }
+
+    .made-badge strong {
+      color: #ffd36e;
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+
+    .made-badge p {
+      margin: 7px 0 0;
+      color: #fff1e6;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .toolbar-wrap {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      margin-top: -48px;
+      padding: 0 18px;
+    }
+
+    .toolbar {
+      max-width: 1360px;
+      margin: auto;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 18px 45px rgba(43, 19, 8, 0.12);
+      backdrop-filter: blur(12px);
+    }
+
+    .search {
+      width: 100%;
+      min-height: 54px;
+      padding: 0 18px;
+      border: 1px solid #ddd4ce;
+      border-radius: 17px;
+      background: #fff;
+      color: var(--text);
+      font-size: 16px;
+      outline: none;
+    }
+
+    .search:focus {
+      border-color: var(--orange);
+      box-shadow: 0 0 0 4px rgba(242, 118, 19, 0.1);
+    }
+
+    .content-shell {
+      max-width: 1360px;
+      margin: 22px auto 60px;
+      padding: 0 18px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 350px;
+      gap: 28px;
+      align-items: start;
+    }
+
+    .categories {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 11px;
+      margin-bottom: 28px;
+    }
+
+    .cat-btn {
+      min-height: 48px;
+      padding: 0 18px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: #3c241c;
+      font-size: 15px;
+      font-weight: 850;
+      transition: 0.2s;
+    }
+
+    .cat-btn.active {
+      border-color: transparent;
+      background: linear-gradient(135deg, #2a110d, #4c2017);
+      color: #fff;
+      box-shadow: 0 14px 28px rgba(43, 19, 8, 0.2);
+    }
+
+    .section {
+      margin-top: 24px;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .section-head h2 {
+      margin: 0;
+      font-size: 28px;
+    }
+
+    .section-count {
+      color: #8a776f;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 22px;
+    }
+
+    .product-card {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: var(--card);
+      box-shadow: var(--shadow);
+      transition: 0.22s;
+    }
+
+    .product-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-strong);
+    }
+
+    .product-cover {
+      height: 210px;
+      overflow: hidden;
+      background: linear-gradient(135deg, #f7ead6, #efd2c1);
+    }
+
+    .product-cover img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .product-cover-placeholder {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      place-items: center;
+      font-size: 62px;
+    }
+
+    .product-body {
+      padding: 17px;
+    }
+
+    .product-category {
+      color: #b83a1e;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+    }
+
+    .product-name {
+      margin: 7px 0 8px;
+      font-size: 19px;
+    }
+
+    .product-desc {
+      min-height: 60px;
+      margin: 0;
+      color: #6e615d;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .product-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .product-price {
+      color: var(--green);
+      font-size: 19px;
+      font-weight: 900;
+    }
+
+    .add-btn {
+      min-height: 44px;
+      padding: 0 16px;
+      border: 0;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--orange), var(--orange-2));
+      color: #fff;
+      font-size: 14px;
+      font-weight: 900;
+      box-shadow: 0 12px 24px rgba(242, 118, 19, 0.25);
+    }
+
+    .add-btn:disabled {
+      opacity: 0.58;
+      cursor: not-allowed;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 100px;
+    }
+
+    .cart-card {
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 24px;
+      background: linear-gradient(180deg, #381510, #421611);
+      color: #fff;
+      box-shadow: 0 18px 42px rgba(43, 19, 8, 0.22);
+    }
+
+    .cart-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 22px 20px 16px;
+    }
+
+    .cart-head h2 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .cart-badge {
+      min-width: 28px;
+      height: 28px;
+      padding: 0 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: var(--orange);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .cart-empty {
+      margin: 0 16px 16px;
+      padding: 22px 14px;
+      border: 1px dashed rgba(255, 255, 255, 0.17);
+      border-radius: 18px;
+      color: #d9c0b5;
+      text-align: center;
+      line-height: 1.55;
+    }
+
+    .cart-list {
+      max-height: 340px;
+      overflow: auto;
+      padding: 0 16px;
+      display: grid;
+      gap: 11px;
+    }
+
+    .cart-item {
+      display: grid;
+      grid-template-columns: 54px minmax(0, 1fr);
+      gap: 11px;
+      padding: 11px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 17px;
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .cart-thumb {
+      width: 54px;
+      height: 54px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      border-radius: 13px;
+      background: rgba(255, 255, 255, 0.08);
+      font-size: 26px;
+    }
+
+    .cart-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .cart-name {
+      margin: 0 0 5px;
+      font-size: 14px;
+    }
+
+    .cart-price {
+      color: #fbe6dc;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .cart-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 7px;
+    }
+
+    .qty-box {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.18);
+    }
+
+    .qty-btn,
+    .remove-btn {
+      border: 0;
+      color: #fff;
+    }
+
+    .qty-btn {
+      width: 29px;
+      height: 29px;
+      border-radius: 50%;
+      background: transparent;
+      font-size: 18px;
+    }
+
+    .qty-number {
+      min-width: 18px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .remove-btn {
+      width: 31px;
+      height: 31px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .cart-note-wrap {
+      padding: 15px 16px 0;
+    }
+
+    .cart-note-wrap label {
+      display: block;
+      margin-bottom: 7px;
+      color: #f1d2c3;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .cart-note {
+      width: 100%;
+      min-height: 76px;
+      resize: vertical;
+      padding: 12px 13px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 15px;
+      background: rgba(255, 255, 255, 0.05);
+      color: #fff;
+      outline: none;
+    }
+
+    .cart-footer {
+      padding: 16px;
+    }
+
+    .cart-subtotal {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 14px;
+      font-weight: 850;
+    }
+
+    .checkout-btn {
+      width: 100%;
+      min-height: 52px;
+      border: 0;
+      border-radius: 16px;
+      background: linear-gradient(135deg, var(--orange), var(--orange-2));
+      color: #fff;
+      font-size: 16px;
+      font-weight: 900;
+      box-shadow: 0 16px 30px rgba(242, 118, 19, 0.25);
+    }
+
+    .checkout-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .mobile-cart-toggle {
+      position: fixed;
+      right: 13px;
+      bottom: 73px;
+      z-index: 70;
+      min-height: 54px;
+      padding: 0 18px;
+      display: none;
+      align-items: center;
+      gap: 9px;
+      border: 0;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--orange), var(--orange-2));
+      color: #fff;
+      font-weight: 900;
+      box-shadow: 0 18px 35px rgba(242, 118, 19, 0.32);
+    }
+
+    .mobile-cart-count {
+      min-width: 24px;
+      height: 24px;
+      padding: 0 7px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.18);
+      font-size: 12px;
+    }
+
+    .empty-state {
+      padding: 60px 24px;
+      border: 1px dashed #d7c7bd;
+      border-radius: 24px;
+      background: #fff;
+      color: #7d706a;
+      text-align: center;
+    }
+
+    .footer {
+      padding: 26px 18px;
+      background: #21120d;
+      color: #ddcbc4;
+      text-align: center;
+      font-size: 14px;
+    }
+
+    .order-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: none;
+      place-items: center;
+      padding: 18px;
+      background: rgba(22, 9, 6, 0.68);
+      backdrop-filter: blur(7px);
+    }
+
+    .order-modal.open {
+      display: grid;
+    }
+
+    .order-modal-card {
+      width: min(650px, 100%);
+      max-height: 92vh;
+      overflow: auto;
+      border-radius: 25px;
+      background: #fff;
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.3);
+    }
+
+    .modal-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 22px 22px 15px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .modal-head h2 {
+      margin: 0;
+      font-size: 23px;
+    }
+
+    .modal-head p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .modal-close {
+      width: 42px;
+      height: 42px;
+      border: 0;
+      border-radius: 50%;
+      background: #f4efec;
+      color: var(--text);
+      font-size: 24px;
+    }
+
+    .order-form {
+      padding: 20px 22px 24px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+    }
+
+    .form-field {
+      display: grid;
+      gap: 7px;
+    }
+
+    .form-field.full {
+      grid-column: 1 / -1;
+    }
+
+    .form-field label {
+      font-size: 13px;
+      font-weight: 850;
+    }
+
+    .form-field input,
+    .form-field select,
+    .form-field textarea {
+      width: 100%;
+      min-height: 48px;
+      padding: 10px 13px;
+      border: 1px solid #ddd4ce;
+      border-radius: 13px;
+      outline: none;
+    }
+
+    .form-field textarea {
+      min-height: 90px;
+      resize: vertical;
+    }
+
+    .form-field input:focus,
+    .form-field select:focus,
+    .form-field textarea:focus {
+      border-color: var(--orange);
+      box-shadow: 0 0 0 4px rgba(242, 118, 19, 0.1);
+    }
+
+    .combined-payment-panel {
+      grid-column: 1 / -1;
+      padding: 15px;
+      border: 1px solid #eadfd8;
+      border-radius: 15px;
+      background: #fff8f3;
+      box-shadow: inset 0 0 0 1px rgba(242, 118, 19, 0.03);
+    }
+
+    .combined-payment-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .combined-payment-note {
+      grid-column: 1 / -1;
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .calculated-payment-value {
+      background: #f4efec;
+      color: #2b201b;
+      font-weight: 850;
+    }
+
+    .send-order-btn {
+      grid-column: 1 / -1;
+      min-height: 52px;
+      border: 0;
+      border-radius: 15px;
+      background: linear-gradient(135deg, var(--orange), var(--orange-2));
+      color: #fff;
+      font-size: 16px;
+      font-weight: 900;
+    }
+
+    .send-order-btn:disabled {
+      opacity: 0.65;
+      cursor: wait;
+    }
+
+    .form-message {
+      grid-column: 1 / -1;
+      display: none;
+      padding: 12px 14px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 750;
+    }
+
+    .form-message.error {
+      display: block;
+      background: #ffe1e1;
+      color: #9d1c1c;
+    }
+
+    .form-message.success {
+      display: block;
+      background: #dff7e9;
+      color: #176e42;
+    }
+
+    .checkout-summary {
+      grid-column: 1 / -1;
+      display: grid;
+      gap: 9px;
+      padding: 15px 16px;
+      border: 1px solid #eadfd8;
+      border-radius: 15px;
+      background: #fff8f3;
+    }
+
+    .checkout-summary-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      color: #6f5a50;
+      font-size: 14px;
+      font-weight: 750;
+    }
+
+    .checkout-summary-row.total {
+      padding-top: 10px;
+      border-top: 1px solid #eadfd8;
+      color: var(--text);
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .addon-modal {
+      position: fixed; inset: 0; z-index: 130; display: none;
+      place-items: center; padding: 18px; background: rgba(22,9,6,.68);
+      backdrop-filter: blur(7px);
+    }
+    .addon-modal.open { display: grid; }
+    .addon-card { width: min(560px,100%); max-height: 90vh; overflow:auto; padding:22px; border-radius:24px; background:#fff; box-shadow:0 28px 80px rgba(0,0,0,.3); }
+    .addon-head { display:flex; justify-content:space-between; gap:14px; align-items:flex-start; margin-bottom:16px; }
+    .addon-head h2 { margin:0; font-size:22px; }
+    .addon-head p { margin:5px 0 0; color:var(--muted); font-size:13px; }
+    .addon-list { display:grid; gap:10px; }
+    .addon-option { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:13px; border:1px solid var(--line); border-radius:14px; background:#fffaf6; }
+    .addon-option label { display:flex; align-items:center; gap:9px; font-weight:800; }
+    .addon-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:17px; }
+    .addon-actions button { min-height:48px; border-radius:13px; font-weight:900; }
+    .addon-cancel { border:1px solid var(--line); background:#fff; }
+    .addon-confirm { border:0; color:#fff; background:linear-gradient(135deg,var(--orange),var(--orange-2)); }
+    .cart-addons { margin-top:5px; color:#f3cdbc; font-size:11px; line-height:1.45; }
+    .pizza-half-badge {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      margin-top: 8px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: #fff1e4;
+      color: #9a460c;
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .pizza-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 135;
+      display: none;
+      place-items: center;
+      padding: 18px;
+      background: rgba(22, 9, 6, .68);
+      backdrop-filter: blur(7px);
+    }
+    .pizza-modal.open { display: grid; }
+    .pizza-card {
+      width: min(620px, 100%);
+      max-height: 92vh;
+      overflow: auto;
+      padding: 22px;
+      border-radius: 24px;
+      background: #fff;
+      box-shadow: 0 28px 80px rgba(0,0,0,.3);
+    }
+    .pizza-mode-options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 16px 0;
+    }
+    .pizza-mode-option {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 50px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fffaf6;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .pizza-select-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .pizza-price-preview {
+      margin-top: 16px;
+      padding: 15px;
+      border: 1px solid #f1d6c2;
+      border-radius: 14px;
+      background: #fff5ec;
+    }
+    .pizza-price-preview strong {
+      display: block;
+      margin-top: 5px;
+      color: #7e2c12;
+      font-size: 24px;
+    }
+    .pizza-rule-note {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .cart-pizza-flavors {
+      margin-top: 5px;
+      color: #ffd7c4;
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: pre-line;
+    }
+    @media (max-width: 1180px) {
+      .content-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: static;
+      }
+
+      .hero-inner {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-side {
+        display: none;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .hero-inner {
+        padding: 24px 16px 88px;
+      }
+
+      .hero-main {
+        align-items: flex-start;
+      }
+
+      .hero-avatar {
+        width: 82px;
+        height: 82px;
+        flex-basis: 82px;
+        border-radius: 24px;
+      }
+
+      .hero-title {
+        font-size: 30px;
+      }
+
+      .toolbar-wrap {
+        margin-top: -36px;
+        padding: 0 12px;
+      }
+
+      .content-shell {
+        padding: 0 12px;
+      }
+
+      .categories {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+      }
+
+      .cat-btn {
+        flex: 0 0 auto;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .mobile-cart-toggle {
+        display: inline-flex;
+      }
+
+      .sidebar {
+        position: fixed;
+        inset: 0;
+        z-index: 80;
+        display: none;
+        align-items: flex-end;
+        padding: 16px;
+        background: rgba(18, 9, 6, 0.64);
+        backdrop-filter: blur(5px);
+      }
+
+      .sidebar.open {
+        display: flex;
+      }
+
+      .sidebar-panel {
+        width: 100%;
+        max-height: 92vh;
+        overflow: auto;
+      }
+
+      .order-form {
+        grid-template-columns: 1fr;
+      }
+
+      .pizza-mode-options,
+      .pizza-select-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .combined-payment-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .form-field.full,
+      .send-order-btn,
+      .form-message {
+        grid-column: auto;
+      }
+    }
+  
+
+/* COMANDAFACIL: CARDS MOBILE COMPACTOS v1 - INICIO */
+/* Cards mobile VERTICAIS e compactos. Somente apresentação. */
+@media (max-width: 760px) {
+  .section {
+    margin-top: 16px;
+  }
+
+  .section-head {
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .section-head h2 {
+    font-size: 19px;
+    line-height: 1.15;
+  }
+
+  .section-count {
+    flex: 0 0 auto;
+    font-size: 10px;
+  }
+
+  /* Dois cards verticais por linha no celular. */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .product-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border-radius: 14px;
+    box-shadow: 0 6px 18px rgba(65, 29, 14, 0.08);
+  }
+
+  .product-card:hover {
+    transform: none;
+  }
+
+  .product-cover {
+    width: 100%;
+    height: 118px;
+    min-height: 118px;
+  }
+
+  .product-cover img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+  }
+
+  .product-cover-placeholder {
+    height: 118px;
+    min-height: 118px;
+    font-size: 34px;
+  }
+
+  .product-body {
+    min-width: 0;
+    padding: 8px 9px 9px;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+  }
+
+  .product-category {
+    overflow: hidden;
+    font-size: 8px;
+    letter-spacing: .55px;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pizza-half-badge {
+    max-width: 100%;
+    margin-top: 4px;
+    padding: 3px 5px;
+    overflow: hidden;
+    font-size: 7.5px;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .product-name {
+    margin: 4px 0 0;
+    overflow: hidden;
+    font-size: 13px;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .product-name + div {
+    margin-top: 3px !important;
+    overflow: hidden;
+    font-size: 8.5px !important;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .product-desc {
+    min-height: 0;
+    margin-top: 4px;
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    font-size: 9px;
+    line-height: 1.28;
+  }
+
+  .product-foot {
+    align-items: center;
+    gap: 5px;
+    margin-top: auto;
+    padding-top: 7px;
+  }
+
+  .product-price {
+    font-size: 13px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .product-foot > div:last-child {
+    min-width: 0;
+  }
+
+  .add-btn {
+    min-height: 31px;
+    padding: 0 7px;
+    border-radius: 9px;
+    font-size: 8.5px;
+    line-height: 1.05;
+    box-shadow: none;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 390px) {
+  .grid {
+    gap: 8px;
+  }
+
+  .product-cover,
+  .product-cover-placeholder {
+    height: 105px;
+    min-height: 105px;
+  }
+
+  .product-body {
+    padding: 7px 7px 8px;
+  }
+
+  .product-name {
+    font-size: 12px;
+  }
+
+  .product-desc {
+    font-size: 8.5px;
+  }
+
+  .product-price {
+    font-size: 12px;
+  }
+
+  .add-btn {
+    min-height: 29px;
+    padding: 0 6px;
+    font-size: 8px;
+  }
+}
+
+/* Em telas extremamente estreitas, mantém vertical sem esmagar o conteúdo. */
+@media (max-width: 330px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .product-cover,
+  .product-cover-placeholder {
+    height: 145px;
+    min-height: 145px;
+  }
+}
+/* COMANDAFACIL: CARDS MOBILE COMPACTOS v1 - FIM */
+</style>
+</head>
+
+<body>
+  <%
+    const categorias = [
+      ...new Set(
+        produtos
+          .map(produto => produto.categoriaId?.nome)
+          .filter(Boolean)
+      )
+    ];
+
+    const heroProduto =
+      produtos.find(produto => produto.imagem) ||
+      produtos[0];
+
+    const telefoneNumeros =
+      String(configuracao.telefone || "")
+        .replace(/\D/g, "");
+
+    const whatsappLoja =
+      telefoneNumeros
+        ? (
+            telefoneNumeros.startsWith("55")
+              ? telefoneNumeros
+              : `55${telefoneNumeros}`
+          )
+        : "";
+
+    const descricaoLoja =
+      configuracao.descricao ||
+      "Confira nossos produtos e escolha seus favoritos.";
+
+    const horarioAbertura =
+      configuracao.horarioAbertura ||
+      "08:00";
+
+    const horarioFechamento =
+      configuracao.horarioFechamento ||
+      "22:00";
+
+    const diasFuncionamento =
+      Array.isArray(configuracao.diasFuncionamento)
+        ? configuracao.diasFuncionamento
+        : [0, 1, 2, 3, 4, 5, 6];
+  %>
+
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="hero-main">
+        <div class="hero-avatar">
+          <% if (configuracao.fotoPerfil) { %>
+            <img
+              src="<%= safePublicUrl(configuracao.fotoPerfil, { allowDataImage: true }) %>"
+              alt="<%= configuracao.nomeEstabelecimento %>"
+            >
+          <% } else { %>
+            <div class="hero-avatar-placeholder">🍔</div>
+          <% } %>
+        </div>
+
+        <div class="hero-copy">
+          <h1 class="hero-title">
+            <%= configuracao.nomeEstabelecimento %>
+          </h1>
+
+          <div class="hero-subtitle">
+            Sabor que acolhe, qualidade que fica.
+          </div>
+
+          <p class="hero-description">
+            <%= descricaoLoja %>
+          </p>
+
+          <div
+            class="store-status"
+            id="storeStatus"
+          >
+            <span class="status-dot"></span>
+
+            <div>
+              <strong id="storeStatusText">
+                Verificando horário...
+              </strong>
+
+              <small>
+                <%= horarioAbertura %>
+                até
+                <%= horarioFechamento %>
+              </small>
+            </div>
+          </div>
+
+          <div class="hero-meta">
+            <% if (configuracao.telefone) { %>
+              <a
+                class="hero-chip"
+                href="<%= safePublicUrl(whatsappLoja ? `https://wa.me/${whatsappLoja}` : "#", { allowHash: true }) %>"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                📱 <%= configuracao.telefone %>
+              </a>
+            <% } %>
+
+            <% if (configuracao.endereco) { %>
+              <div class="hero-chip">
+                📍 <%= configuracao.endereco %>
+              </div>
+            <% } %>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-side">
+        <div class="made-badge">
+          <strong>🔥 Feito na hora</strong>
+
+          <p>
+            Ingredientes selecionados e muito sabor para você.
+          </p>
+        </div>
+
+        <div class="hero-food">
+          <% if (configuracao.fotoPerfil) { %>
+            <img
+              src="<%= safePublicUrl(configuracao.fotoPerfil, { allowDataImage: true }) %>"
+              alt="<%= configuracao.nomeEstabelecimento %>"
+            >
+          <% } else if (heroProduto?.imagem) { %>
+            <img src="<%= safePublicUrl(heroProduto.imagem, { allowDataImage: true }) %>" alt="<%= heroProduto.nome %>">
+          <% } else { %>
+            <div class="hero-food-placeholder">🍔</div>
+          <% } %>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <% if (lojaDisponivel === false) { %>
+    <div
+      role="status"
+      style="max-width:1180px;margin:24px auto;padding:22px;border:1px solid #eadfd7;border-radius:16px;background:#fff;color:#431712;text-align:center;font-weight:800;"
+    >
+      Esta loja está temporariamente indisponível para novos pedidos.
+    </div>
+  <% } %>
+
+  <div class="toolbar-wrap" <%- lojaDisponivel === false ? 'style="display:none"' : '' %>>
+    <div class="toolbar">
+      <input
+        id="search"
+        class="search"
+        type="search"
+        placeholder="Buscar produto no cardápio..."
+      >
+    </div>
+  </div>
+
+  <main class="content-shell" <%- lojaDisponivel === false ? 'style="display:none"' : '' %>>
+    <div>
+      <nav class="categories">
+        <button
+          type="button"
+          class="cat-btn active"
+          data-cat="todos"
+        >
+          Todos
+        </button>
+
+        <% categorias.forEach(categoria => { %>
+          <button
+            type="button"
+            class="cat-btn"
+            data-cat="<%= categoria %>"
+          >
+            <%= categoria %>
+          </button>
+        <% }) %>
+      </nav>
+
+      <% if (!produtos.length) { %>
+        <div class="empty-state">
+          Nenhum produto disponível no momento.
+        </div>
+      <% } %>
+
+      <% categorias.forEach(categoria => {
+        const lista = produtos.filter(
+          produto => produto.categoriaId?.nome === categoria
+        );
+      %>
+        <section
+          class="section"
+          data-section="<%= categoria %>"
+        >
+          <div class="section-head">
+            <h2><%= categoria %></h2>
+
+            <span class="section-count">
+              <%= lista.length %> produto(s)
+            </span>
+          </div>
+
+          <div class="grid">
+            <% lista.forEach(produto => { %>
+              <article
+                class="product-card"
+                data-name="<%= (
+                  produto.nome +
+                  " " +
+                  (produto.descricao || "") +
+                  " " +
+                  categoria
+                ).toLowerCase() %>"
+                data-id="<%= produto._id %>"
+                data-product-name="<%= produto.nome %>"
+                data-product-price="<%= Number(produto.preco || 0) %>"
+                data-product-image="<%= safePublicUrl(produto.imagem, { allowDataImage: true }) %>"
+                data-category-id="<%= produto.categoriaId?._id || '' %>"
+                data-category-type="<%= produto.categoriaId?.tipoProduto || 'normal' %>"
+                data-pizza-half-enabled="<%= produto.categoriaId?.tipoProduto === 'pizza' && produto.categoriaId?.configuracaoPizza?.permiteMeioAMeio === true ? 'true' : 'false' %>"
+                data-pizza-price-rule="<%= produto.categoriaId?.configuracaoPizza?.regraPrecoMeioAMeio || 'maior_sabor_escolhido' %>"
+                data-product-additionals='<%= safeJsonForHtml(
+                  (produto.adicionais || [])
+                    .filter(adicional => adicional.ativo !== false)
+                    .map(adicional => ({
+                      _id: String(adicional._id),
+                      nome: adicional.nome,
+                      preco: Number(adicional.preco || 0)
+                    }))
+                ) %>'
+              >
+                <div class="product-cover">
+                  <% if (produto.imagem) { %>
+                    <img
+                      src="<%= safePublicUrl(produto.imagem, { allowDataImage: true }) %>"
+                      alt="<%= produto.nome %>"
+                    >
+                  <% } else { %>
+                    <div class="product-cover-placeholder">
+                      🍽️
+                    </div>
+                  <% } %>
+                </div>
+
+                <div class="product-body">
+                  <div class="product-category">
+                    <%= categoria %>
+                  </div>
+
+                  <% if (produto.categoriaId?.tipoProduto === 'pizza' && produto.categoriaId?.configuracaoPizza?.permiteMeioAMeio === true) { %>
+                    <div class="pizza-half-badge">🍕 Meio a meio disponível</div>
+                  <% } %>
+
+                  <h3 class="product-name"><%= produto.nome %></h3>
+                  <% const avaliacao = avaliacoesPorProduto?.[String(produto._id)] || { media: '0.0', quantidade: 0 }; %>
+                  <div style="font-size:13px;color:#9a5a12;margin-top:4px">★ <%= avaliacao.media %> · <%= avaliacao.quantidade %> avaliação(ões)</div>
+
+                  <p class="product-desc">
+                    <%= produto.descricao || "Produto disponível em nosso cardápio." %>
+                  </p>
+
+                  <div class="product-foot">
+                    <div class="product-price">
+                      <%= Number(produto.preco || 0).toLocaleString(
+                        "pt-BR",
+                        {
+                          style: "currency",
+                          currency: "BRL"
+                        }
+                      ) %>
+                    </div>
+
+                    <div style="display:flex;gap:7px">
+                      <button type="button" class="add-btn" data-add-cart>
+                        <span><%= produto.categoriaId?.tipoProduto === 'pizza' && produto.categoriaId?.configuracaoPizza?.permiteMeioAMeio === true ? 'Montar pizza' : 'Pedir' %></span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            <% }) %>
+          </div>
+        </section>
+      <% }) %>
+    </div>
+
+    <aside
+      class="sidebar"
+      id="sidebarCart"
+    >
+      <div class="sidebar-panel">
+        <div class="cart-card">
+          <div class="cart-head">
+            <h2>Meu pedido</h2>
+
+            <span
+              class="cart-badge"
+              id="cartCount"
+            >
+              0
+            </span>
+          </div>
+
+          <div
+            id="cartEmpty"
+            class="cart-empty"
+          >
+            Seu carrinho está vazio.<br>
+            Adicione produtos para continuar.
+          </div>
+
+          <div
+            id="cartList"
+            class="cart-list"
+          ></div>
+
+          <div class="cart-note-wrap">
+            <label for="cartNote">
+              Observações
+            </label>
+
+            <textarea
+              id="cartNote"
+              class="cart-note"
+              placeholder="Ex.: sem cebola, retirar ingrediente..."
+            ></textarea>
+          </div>
+
+          <div class="cart-footer">
+            <div class="cart-subtotal">
+              <span>
+                Subtotal
+                (<span id="cartItemsCount">0</span> itens)
+              </span>
+
+              <strong id="cartSubtotal">
+                R$ 0,00
+              </strong>
+            </div>
+
+            <button
+              type="button"
+              class="checkout-btn"
+              id="checkoutBtn"
+              disabled
+            >
+              Continuar pedido
+            </button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <button
+    type="button"
+    class="mobile-cart-toggle"
+    id="mobileCartToggle"
+    <%- lojaDisponivel === false ? 'style="display:none"' : '' %>
+  >
+    Meu pedido
+    <span
+      class="mobile-cart-count"
+      id="mobileCartCount"
+    >
+      0
+    </span>
+  </button>
+
+  <div
+    class="order-modal"
+    id="orderModal"
+  >
+    <div class="order-modal-card">
+      <div class="modal-head">
+        <div>
+          <h2>Finalizar pedido</h2>
+
+          <p>
+            O pedido será enviado para a aba Pedidos do estabelecimento.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          class="modal-close"
+          id="closeOrderModal"
+          aria-label="Fechar"
+        >
+          ×
+        </button>
+      </div>
+
+      <form
+        class="order-form"
+        id="orderForm"
+      >
+        <div class="form-field">
+          <label for="clienteNome">
+            Nome
+          </label>
+
+          <input
+            id="clienteNome"
+            name="cliente"
+            maxlength="120"
+            required
+          >
+        </div>
+
+        <div class="form-field">
+          <label for="clienteTelefone">
+            WhatsApp
+          </label>
+
+          <input
+            id="clienteTelefone"
+            name="telefone"
+            inputmode="tel"
+            maxlength="30"
+            placeholder="(99) 99999-9999"
+            required
+          >
+        </div>
+
+        <div class="form-field full">
+          <label for="canalPedido">
+            Tipo do pedido
+          </label>
+
+          <select
+            id="canalPedido"
+            name="canal"
+            required
+          >
+            <option value="delivery">
+              Delivery
+            </option>
+
+            <option value="retirada">
+              Retirada no local
+            </option>
+          </select>
+        </div>
+
+        <div class="form-field full delivery-address-field" id="cidadeEntregaField">
+          <label for="cidadeEntregaId">Cidade atendida</label>
+          <select
+            id="cidadeEntregaId"
+            name="cidadeEntregaId"
+            required
+          >
+            <option value="">Selecione a cidade</option>
+            <% for (const cidade of (cidadesEntrega || [])) { %>
+              <option
+                value="<%= cidade.id %>"
+                data-taxa-centavos="<%= cidade.taxaCentavos %>"
+              >
+                <%= cidade.nome %> - <%= cidade.uf %> — <%= (Number(cidade.taxaCentavos || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) %>
+              </option>
+            <% } %>
+          </select>
+          <% if (!(cidadesEntrega || []).length) { %>
+            <small>Esta loja ainda não cadastrou cidades para entrega.</small>
+          <% } %>
+        </div>
+
+        <div class="form-field full delivery-address-field" id="enderecoField">
+          <label for="ruaEntrega">Rua</label>
+          <input id="ruaEntrega" name="ruaEntrega" maxlength="180" placeholder="Nome da rua" required>
+        </div>
+
+        <div class="form-field delivery-address-field">
+          <label for="numeroEntrega">Número</label>
+          <input id="numeroEntrega" name="numeroEntrega" maxlength="40" placeholder="Ex.: 03" required>
+        </div>
+
+        <div class="form-field delivery-address-field">
+          <label for="bairroEntrega">Bairro</label>
+          <input id="bairroEntrega" name="bairroEntrega" maxlength="120" placeholder="Nome do bairro" required>
+        </div>
+
+        <div class="form-field full delivery-address-field">
+          <label for="referenciaEntrega">Ponto de referência</label>
+          <input id="referenciaEntrega" name="referenciaEntrega" maxlength="240" placeholder="Ex.: próximo à praça">
+        </div>
+
+        <div class="form-field full">
+          <label for="formaPagamento">Forma de pagamento</label>
+          <select id="formaPagamento" name="formaPagamento" required>
+            <option value="pix" <%= configuracao.mercadoPago && configuracao.mercadoPago.conectado ? '' : 'disabled' %>>Pix online <%= configuracao.mercadoPago && configuracao.mercadoPago.conectado ? '' : '(indisponível)' %></option>
+            <option value="dinheiro">Dinheiro na entrega/retirada</option>
+            <option value="cartao">Cartão na entrega/retirada</option>
+            <option value="combinado">Combinar 2 pagamentos</option>
+          </select>
+        </div>
+
+        <div class="combined-payment-panel hidden" id="combinedPaymentPanel">
+          <div class="combined-payment-grid">
+            <div class="form-field">
+              <label for="formaPagamento1">Primeiro pagamento</label>
+              <select id="formaPagamento1" name="formaPagamento1">
+                <option value="pix" <%= configuracao.mercadoPago && configuracao.mercadoPago.conectado ? '' : 'disabled' %>>Pix online <%= configuracao.mercadoPago && configuracao.mercadoPago.conectado ? '' : '(indisponível)' %></option>
+                <option value="dinheiro">Dinheiro</option>
+                <option value="cartao">Cartão</option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label for="valorPagamento1">Valor do primeiro pagamento</label>
+              <input
+                id="valorPagamento1"
+                name="valorPagamento1"
+                inputmode="decimal"
+                autocomplete="off"
+                placeholder="Ex.: 50,00"
+              >
+            </div>
+
+            <div class="form-field">
+              <label for="formaPagamento2">Segundo pagamento</label>
+              <select id="formaPagamento2" name="formaPagamento2">
+                <option value="cartao">Cartão</option>
+                <option value="dinheiro">Dinheiro</option>
+                <option value="pix" <%= configuracao.mercadoPago && configuracao.mercadoPago.conectado ? '' : 'disabled' %>>Pix online <%= configuracao.mercadoPago && configuracao.mercadoPago.conectado ? '' : '(indisponível)' %></option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label for="valorPagamento2">Valor restante</label>
+              <input
+                id="valorPagamento2"
+                name="valorPagamento2"
+                class="calculated-payment-value"
+                readonly
+                aria-readonly="true"
+                value="R$ 0,00"
+              >
+            </div>
+
+            <p class="combined-payment-note" id="combinedPaymentNote">
+              Informe somente o primeiro valor. O restante será calculado automaticamente usando o total atual do pedido.
+            </p>
+          </div>
+        </div>
+
+        <div class="form-field full">
+          <label for="observacaoFinal">
+            Observações do pedido
+          </label>
+
+          <textarea
+            id="observacaoFinal"
+            name="observacao"
+            maxlength="500"
+            placeholder="Alguma observação adicional?"
+          ></textarea>
+        </div>
+
+        <div class="checkout-summary" aria-live="polite">
+          <div class="checkout-summary-row">
+            <span>Subtotal dos produtos</span>
+            <strong id="orderSubtotal">R$ 0,00</strong>
+          </div>
+          <div class="checkout-summary-row" id="orderDeliveryFeeRow">
+            <span>Taxa de entrega</span>
+            <strong id="orderDeliveryFee">Selecione a cidade</strong>
+          </div>
+          <div class="checkout-summary-row total">
+            <span>Total do pedido</span>
+            <strong id="orderTotal">R$ 0,00</strong>
+          </div>
+        </div>
+
+        <div
+          id="formMessage"
+          class="form-message"
+        ></div>
+
+        <button
+          type="submit"
+          class="send-order-btn"
+          id="sendOrderBtn"
+        >
+          Enviar pedido
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div class="order-modal" id="pixPaymentModal">
+    <div class="order-modal-card" style="max-width:520px">
+      <div class="modal-head">
+        <div>
+          <h2>Pagamento Pix</h2>
+          <p>Escaneie o QR Code ou copie o código Pix.</p>
+        </div>
+        <button type="button" class="modal-close" id="closePixPaymentModal" aria-label="Fechar">×</button>
+      </div>
+
+      <section id="pixPaymentBox" style="padding:8px 0;text-align:center;background:#fff">
+        <h3 style="margin-top:0">Pague com Pix</h3>
+        <img id="pixQrImage" alt="QR Code Pix" style="display:block;width:240px;max-width:100%;margin:12px auto">
+        <textarea id="pixCopyCode" readonly style="width:100%;min-height:90px;padding:10px;border:1px solid #ddd;border-radius:10px"></textarea>
+        <button type="button" class="send-order-btn" id="copyPixButton" style="margin-top:10px">Copiar código Pix</button>
+        <p id="pixPaymentStatus">Aguardando pagamento...</p>
+      </section>
+    </div>
+  </div>
+
+  <div class="order-modal" id="trocoModal">
+    <div class="order-modal-card" style="max-width:520px">
+      <div class="modal-head">
+        <div>
+          <h2>Precisa de troco?</h2>
+          <p id="trocoDescription">Informe se será necessário levar troco para o pagamento em dinheiro.</p>
+        </div>
+
+        <button
+          type="button"
+          class="modal-close"
+          id="closeTrocoModal"
+          aria-label="Fechar"
+        >
+          ×
+        </button>
+      </div>
+
+      <div class="order-form" style="display:block">
+        <div id="trocoPergunta">
+          <button
+            type="button"
+            class="send-order-btn"
+            id="semTrocoBtn"
+            style="margin-bottom:12px;background:#5a1e14"
+          >
+            Não precisa de troco
+          </button>
+
+          <button
+            type="button"
+            class="send-order-btn"
+            id="comTrocoBtn"
+          >
+            Sim, preciso de troco
+          </button>
+        </div>
+
+        <div id="trocoValorArea" class="hidden">
+          <div class="form-field full">
+            <label for="trocoParaModal">Troco para quanto?</label>
+            <input
+              id="trocoParaModal"
+              type="text"
+              inputmode="decimal"
+              autocomplete="off"
+              placeholder="Ex.: 50,00"
+            >
+            <small style="display:block;margin-top:7px;color:#755b52">Exemplo: se o cliente vai pagar com R$ 50,00, digite 50,00.</small>
+          </div>
+
+          <div id="trocoMessage" class="form-message"></div>
+
+          <button
+            type="button"
+            class="send-order-btn"
+            id="confirmarTrocoBtn"
+          >
+            Confirmar e enviar pedido
+          </button>
+
+          <button
+            type="button"
+            id="voltarTrocoBtn"
+            style="width:100%;margin-top:10px;padding:12px;border:0;background:transparent;font-weight:700;cursor:pointer"
+          >
+            Voltar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pizza-modal" id="pizzaModal">
+    <div class="pizza-card">
+      <div class="addon-head">
+        <div>
+          <h2 id="pizzaModalTitle">Monte sua pizza</h2>
+          <p>Escolha um sabor inteiro ou dois sabores para dividir a pizza.</p>
+        </div>
+        <button type="button" class="modal-close" id="closePizzaModal" aria-label="Fechar">×</button>
+      </div>
+
+      <div class="pizza-mode-options">
+        <label class="pizza-mode-option">
+          <input type="radio" name="pizzaModo" value="inteira" checked>
+          Sabor inteiro
+        </label>
+        <label class="pizza-mode-option">
+          <input type="radio" name="pizzaModo" value="meio_a_meio">
+          Meio a meio
+        </label>
+      </div>
+
+      <div class="pizza-select-grid">
+        <div class="form-field">
+          <label for="pizzaSabor1">Primeiro sabor</label>
+          <select id="pizzaSabor1"></select>
+        </div>
+        <div class="form-field hidden" id="pizzaSabor2Field">
+          <label for="pizzaSabor2">Segundo sabor</label>
+          <select id="pizzaSabor2"></select>
+        </div>
+      </div>
+
+      <div class="pizza-price-preview">
+        <span>Preço da pizza</span>
+        <strong id="pizzaPricePreview">R$ 0,00</strong>
+        <p class="pizza-rule-note" id="pizzaRuleNote"></p>
+      </div>
+
+      <div class="addon-actions">
+        <button type="button" class="addon-cancel" id="cancelPizza">Cancelar</button>
+        <button type="button" class="addon-confirm" id="confirmPizza">Continuar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="addon-modal" id="addonModal">
+    <div class="addon-card">
+      <div class="addon-head">
+        <div><h2 id="addonTitle">Escolha os adicionais</h2><p>Os valores serão somados ao produto.</p></div>
+        <button type="button" class="modal-close" id="closeAddonModal">×</button>
+      </div>
+      <div class="addon-list" id="addonList"></div>
+      <div class="addon-actions">
+        <button type="button" class="addon-cancel" id="cancelAddon">Cancelar</button>
+        <button type="button" class="addon-confirm" id="confirmAddon">Adicionar ao pedido</button>
+      </div>
+    </div>
+  </div>
+
+  <% if (whatsappLoja) { %>
+    <a
+      class="botao-whatsapp"
+      href="https://wa.me/<%= whatsappLoja %>?text=<%= encodeURIComponent(
+        `Olá! Vim pelo cardápio digital de ${configuracao.nomeEstabelecimento} e gostaria de falar com vocês.`
+      ) %>"
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Falar com o estabelecimento pelo WhatsApp"
+      title="Falar no WhatsApp"
+    >
+      <svg
+        viewBox="0 0 32 32"
+        aria-hidden="true"
+      >
+        <path d="M19.11 17.21c-.26-.13-1.53-.76-1.77-.84-.24-.09-.41-.13-.59.13-.17.26-.67.84-.82 1.01-.15.17-.3.2-.56.07-.26-.13-1.09-.4-2.08-1.29-.77-.68-1.29-1.53-1.44-1.79-.15-.26-.02-.4.11-.53.12-.12.26-.3.39-.45.13-.15.17-.26.26-.43.09-.17.04-.32-.02-.45-.07-.13-.59-1.42-.8-1.94-.21-.51-.43-.44-.59-.45h-.5c-.17 0-.45.07-.69.32-.24.26-.91.89-.91 2.17 0 1.27.93 2.51 1.06 2.68.13.17 1.83 2.79 4.43 3.91.62.27 1.1.43 1.48.55.62.2 1.18.17 1.63.1.5-.07 1.53-.63 1.75-1.23.22-.6.22-1.12.15-1.23-.06-.11-.24-.17-.5-.3ZM16.04 4C9.39 4 4 9.37 4 16c0 2.12.56 4.19 1.62 6L4 28l6.17-1.58A12 12 0 1 0 16.04 4Zm0 21.8c-1.84 0-3.64-.5-5.21-1.45l-.37-.22-3.66.94.98-3.56-.24-.37A9.72 9.72 0 1 1 16.04 25.8Z"/>
+      </svg>
+
+      <span class="botao-whatsapp-texto">
+        Falar no WhatsApp
+      </span>
+    </a>
+  <% } %>
+
+  <footer class="footer">
+    Cardápio digital
+  </footer>
+
+  <script nonce="<%= cspNonce %>">
+    const storeSlug =
+      <%- safeJsonForHtml(configuracao.slug || "") %>;
+    const lojaDisponivelInicial =
+      <%- safeJsonForHtml(lojaDisponivel !== false) %>;
+
+    const PUBLIC_ORDER_LIMITS = Object.freeze({
+      maxItems: 50,
+      maxTotalQuantity: 200,
+      maxQuantityPerItem: 99,
+      maxAdditionsPerItem: 20,
+    });
+
+    const horarioAbertura =
+      <%- safeJsonForHtml(horarioAbertura) %>;
+
+    const horarioFechamento =
+      <%- safeJsonForHtml(horarioFechamento) %>;
+
+    const diasFuncionamento =
+      <%- safeJsonForHtml(diasFuncionamento) %>;
+
+    const storageKey =
+      `catalogo-cart-${storeSlug}`;
+
+    const searchInput =
+      document.querySelector("#search");
+
+    const categoryButtons =
+      document.querySelectorAll(".cat-btn");
+
+    const sections =
+      document.querySelectorAll(".section");
+
+    const cards =
+      document.querySelectorAll(".product-card");
+
+    const cartList =
+      document.querySelector("#cartList");
+
+    const cartEmpty =
+      document.querySelector("#cartEmpty");
+
+    const cartCount =
+      document.querySelector("#cartCount");
+
+    const cartItemsCount =
+      document.querySelector("#cartItemsCount");
+
+    const cartSubtotal =
+      document.querySelector("#cartSubtotal");
+
+    const checkoutBtn =
+      document.querySelector("#checkoutBtn");
+
+    const cartNote =
+      document.querySelector("#cartNote");
+
+    const mobileCartToggle =
+      document.querySelector("#mobileCartToggle");
+
+    const mobileCartCount =
+      document.querySelector("#mobileCartCount");
+
+    const sidebarCart =
+      document.querySelector("#sidebarCart");
+
+    const orderModal =
+      document.querySelector("#orderModal");
+
+    const closeOrderModal =
+      document.querySelector("#closeOrderModal");
+
+    const pixPaymentModal =
+      document.querySelector("#pixPaymentModal");
+
+    const closePixPaymentModal =
+      document.querySelector("#closePixPaymentModal");
+
+    let pixPollingTimer = null;
+    let pixPollingStartedAt = 0;
+    let pixPollingInFlight = false;
+    let pixPollingContext = null;
+    let pixPreviousFocus = null;
+
+    const orderForm =
+      document.querySelector("#orderForm");
+
+    const canalPedido =
+      document.querySelector("#canalPedido");
+
+    const cidadeEntregaId =
+      document.querySelector("#cidadeEntregaId");
+
+    const orderSubtotal = document.querySelector("#orderSubtotal");
+    const orderDeliveryFeeRow = document.querySelector("#orderDeliveryFeeRow");
+    const orderDeliveryFee = document.querySelector("#orderDeliveryFee");
+    const orderTotal = document.querySelector("#orderTotal");
+    const formaPagamento = document.querySelector("#formaPagamento");
+    const combinedPaymentPanel = document.querySelector("#combinedPaymentPanel");
+    const formaPagamento1 = document.querySelector("#formaPagamento1");
+    const valorPagamento1 = document.querySelector("#valorPagamento1");
+    const formaPagamento2 = document.querySelector("#formaPagamento2");
+    const valorPagamento2 = document.querySelector("#valorPagamento2");
+    const combinedPaymentNote = document.querySelector("#combinedPaymentNote");
+
+    const cidadesEntregaDisponiveis =
+      <%- safeJsonForHtml((cidadesEntrega || []).length > 0) %>;
+    const pixOnlineDisponivel =
+      <%- safeJsonForHtml(Boolean(configuracao.mercadoPago && configuracao.mercadoPago.conectado)) %>;
+
+    const enderecoField =
+      document.querySelector("#enderecoField");
+
+    const ruaEntrega = document.querySelector("#ruaEntrega");
+    const numeroEntrega = document.querySelector("#numeroEntrega");
+    const bairroEntrega = document.querySelector("#bairroEntrega");
+    const referenciaEntrega = document.querySelector("#referenciaEntrega");
+
+    const observacaoFinal =
+      document.querySelector("#observacaoFinal");
+
+    const sendOrderBtn =
+      document.querySelector("#sendOrderBtn");
+
+    const formMessage =
+      document.querySelector("#formMessage");
+
+    const storeStatus =
+      document.querySelector("#storeStatus");
+
+    const storeStatusText =
+      document.querySelector("#storeStatusText");
+
+    const addonModal = document.querySelector("#addonModal");
+    const addonTitle = document.querySelector("#addonTitle");
+    const addonList = document.querySelector("#addonList");
+    const pizzaModal = document.querySelector("#pizzaModal");
+    const pizzaModalTitle = document.querySelector("#pizzaModalTitle");
+    const pizzaSabor1 = document.querySelector("#pizzaSabor1");
+    const pizzaSabor2 = document.querySelector("#pizzaSabor2");
+    const pizzaSabor2Field = document.querySelector("#pizzaSabor2Field");
+    const pizzaPricePreview = document.querySelector("#pizzaPricePreview");
+    const pizzaRuleNote = document.querySelector("#pizzaRuleNote");
+    let pendingProduct = null;
+    let pendingPizza = null;
+
+    let selectedCategory = "todos";
+    let storeIsOpen = false;
+    let cart = [];
+    let lojaBloqueada = !lojaDisponivelInicial;
+    let sincronizacaoCarrinhoEmAndamento = null;
+    let avisoProdutosRemovidosExibido = false;
+
+    function currency(value) {
+      return Number(
+        value || 0
+      ).toLocaleString(
+        "pt-BR",
+        {
+          style: "currency",
+          currency: "BRL"
+        }
+      );
+    }
+
+    function lerAdicionaisCard(card) {
+      try {
+        const parsed = JSON.parse(card?.dataset?.productAdditionals || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function produtoDoCard(card) {
+      if (!card) return null;
+      return {
+        id: String(card.dataset.id || ""),
+        name: String(card.dataset.productName || ""),
+        price: Number(card.dataset.productPrice || 0),
+        image: String(card.dataset.productImage || ""),
+        adicionais: lerAdicionaisCard(card),
+        categoria: {
+          id: String(card.dataset.categoryId || ""),
+          tipoProduto: String(card.dataset.categoryType || "normal"),
+          permiteMeioAMeio: card.dataset.pizzaHalfEnabled === "true",
+          regraPrecoMeioAMeio: String(
+            card.dataset.pizzaPriceRule || "maior_sabor_escolhido",
+          ),
+        },
+      };
+    }
+
+    const produtosCatalogoMap = new Map(
+      [...cards]
+        .map(card => produtoDoCard(card))
+        .filter(Boolean)
+        .map(produto => [produto.id, produto]),
+    );
+
+    function produtosDaCategoria(categoriaId) {
+      return [...produtosCatalogoMap.values()]
+        .filter(produto => produto.categoria?.id === String(categoriaId || ""))
+        .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+    }
+
+    function modoPizzaSelecionado() {
+      return document.querySelector('input[name="pizzaModo"]:checked')?.value
+        || "inteira";
+    }
+
+    function calcularPrecoPizzaCliente({ sabor1, sabor2, regra, meioAMeio }) {
+      if (!meioAMeio) return Number(sabor1?.price || 0);
+      if (regra === "maior_preco_categoria") {
+        const produtosCategoria = produtosDaCategoria(sabor1?.categoria?.id);
+        return Math.max(0, ...produtosCategoria.map(produto => Number(produto.price || 0)));
+      }
+      return Math.max(Number(sabor1?.price || 0), Number(sabor2?.price || 0));
+    }
+
+    function preencherSelectSabores(select, produtos, selectedId = "") {
+      select.replaceChildren();
+      produtos.forEach(produto => {
+        const option = document.createElement("option");
+        option.value = produto.id;
+        option.textContent = `${produto.name} — ${currency(produto.price)}`;
+        option.selected = produto.id === selectedId;
+        select.appendChild(option);
+      });
+    }
+
+    function atualizarModalPizza() {
+      if (!pendingPizza) return;
+      const meioAMeio = modoPizzaSelecionado() === "meio_a_meio";
+      pizzaSabor2Field.classList.toggle("hidden", !meioAMeio);
+      pizzaSabor2.disabled = !meioAMeio;
+
+      const sabor1 = produtosCatalogoMap.get(String(pizzaSabor1.value || ""));
+      const sabor2 = produtosCatalogoMap.get(String(pizzaSabor2.value || ""));
+      const repetido = meioAMeio && sabor1?.id === sabor2?.id;
+      const preco = calcularPrecoPizzaCliente({
+        sabor1,
+        sabor2,
+        regra: pendingPizza.regra,
+        meioAMeio,
+      });
+
+      pizzaPricePreview.textContent = currency(preco);
+      pizzaSabor2.setCustomValidity(
+        repetido ? "Escolha dois sabores diferentes." : "",
+      );
+      document.querySelector("#confirmPizza").disabled = Boolean(
+        meioAMeio && (!sabor1 || !sabor2 || repetido),
+      );
+
+      if (!meioAMeio) {
+        pizzaRuleNote.textContent = "O sabor inteiro usa o preço normal do produto escolhido.";
+      } else if (pendingPizza.regra === "maior_preco_categoria") {
+        pizzaRuleNote.textContent =
+          "Regra da loja: será cobrado o maior preço das pizzas desta categoria.";
+      } else {
+        pizzaRuleNote.textContent =
+          "Regra da loja: será cobrado o maior preço entre os dois sabores escolhidos.";
+      }
+    }
+
+    function fecharModalPizza() {
+      pizzaModal.classList.remove("open");
+      document.body.classList.remove("modal-open");
+      pendingPizza = null;
+    }
+
+    function abrirModalPizza(produto) {
+      const produtosCategoria = produtosDaCategoria(produto.categoria.id);
+      pendingPizza = {
+        categoriaId: produto.categoria.id,
+        regra: produto.categoria.regraPrecoMeioAMeio,
+      };
+      pizzaModalTitle.textContent = `Monte sua ${produto.categoria?.tipoProduto === "pizza" ? "pizza" : "escolha"}`;
+      preencherSelectSabores(pizzaSabor1, produtosCategoria, produto.id);
+      const segundoPadrao = produtosCategoria.find(item => item.id !== produto.id)?.id
+        || produto.id;
+      preencherSelectSabores(pizzaSabor2, produtosCategoria, segundoPadrao);
+      document.querySelector('input[name="pizzaModo"][value="inteira"]').checked = true;
+      atualizarModalPizza();
+      pizzaModal.classList.add("open");
+      document.body.classList.add("modal-open");
+    }
+
+    function abrirModalAdicionais(product, adicionais) {
+      pendingProduct = { product, adicionais };
+      addonTitle.textContent = `Adicionais de ${product.name}`;
+      addonList.replaceChildren();
+      adicionais.forEach(adicional => {
+        const option = document.createElement("div");
+        option.className = "addon-option";
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.value = String(adicional._id || "");
+        label.append(input, document.createTextNode(` ${String(adicional.nome || "")}`));
+        const price = document.createElement("strong");
+        price.textContent = `+ ${currency(adicional.preco)}`;
+        option.append(label, price);
+        addonList.appendChild(option);
+      });
+      addonModal.classList.add("open");
+      document.body.classList.add("modal-open");
+    }
+
+    function continuarProdutoParaCarrinho(product, adicionais = []) {
+      if (!adicionais.length) {
+        addToCart(product, []);
+        return;
+      }
+      abrirModalAdicionais(product, adicionais);
+    }
+
+
+    function valorDigitadoParaCentavos(value) {
+      const text = String(value ?? "")
+        .trim()
+        .replace(/\s/g, "")
+        .replace(/^R\$/i, "");
+      if (!text) return null;
+
+      let normalized = "";
+      if (/^\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?$/.test(text)) {
+        normalized = text.replace(/\./g, "").replace(",", ".");
+      } else if (/^\d+(?:,\d{1,2})?$/.test(text)) {
+        normalized = text.replace(",", ".");
+      } else if (/^\d+(?:\.\d{1,2})?$/.test(text)) {
+        normalized = text;
+      } else {
+        return null;
+      }
+
+      const number = Number(normalized);
+      const cents = Math.round(number * 100);
+      return Number.isFinite(number) && Number.isSafeInteger(cents)
+        ? cents
+        : null;
+    }
+
+    function pagamentoCombinadoAtivo() {
+      return formaPagamento?.value === "combinado";
+    }
+
+    function totalAtualPedidoCentavos() {
+      return Math.max(
+        0,
+        Math.round((resumoFinanceiroPedido().total + Number.EPSILON) * 100),
+      );
+    }
+
+    function atualizarPagamentoCombinado() {
+      const active = pagamentoCombinadoAtivo();
+      combinedPaymentPanel?.classList.toggle("hidden", !active);
+      if (!combinedPaymentPanel) return;
+
+      formaPagamento1.required = active;
+      formaPagamento2.required = active;
+      valorPagamento1.required = active;
+
+      if (!active) {
+        valorPagamento1.setCustomValidity("");
+        formaPagamento2.setCustomValidity("");
+        valorPagamento2.value = currency(0);
+        return;
+      }
+
+      const totalCents = totalAtualPedidoCentavos();
+      const firstCents = valorDigitadoParaCentavos(valorPagamento1.value);
+      const secondCents = firstCents == null ? 0 : totalCents - firstCents;
+      valorPagamento2.value = currency(Math.max(0, secondCents) / 100);
+
+      const repeated = formaPagamento1.value === formaPagamento2.value;
+      formaPagamento2.setCustomValidity(
+        repeated ? "Escolha dois meios de pagamento diferentes." : "",
+      );
+
+      const validFirst = Number.isSafeInteger(firstCents)
+        && firstCents > 0
+        && firstCents < totalCents;
+      valorPagamento1.setCustomValidity(
+        validFirst
+          ? ""
+          : "Informe um primeiro valor maior que zero e menor que o total do pedido.",
+      );
+
+      if (combinedPaymentNote) {
+        combinedPaymentNote.textContent = validFirst && !repeated
+          ? `${formaPagamento1.selectedOptions[0]?.textContent?.trim() || "Primeiro pagamento"}: ${currency(firstCents / 100)} • ${formaPagamento2.selectedOptions[0]?.textContent?.trim() || "Segundo pagamento"}: ${currency(secondCents / 100)}`
+          : "Informe somente o primeiro valor. O restante será calculado automaticamente usando o total atual do pedido.";
+      }
+    }
+
+    function payloadIncluiForma(payload, method) {
+      if (payload.formaPagamento !== "combinado") {
+        return payload.formaPagamento === method;
+      }
+      return payload.formaPagamento1 === method || payload.formaPagamento2 === method;
+    }
+
+    function valorFormaPayloadCentavos(payload, method) {
+      const totalCents = totalAtualPedidoCentavos();
+      if (payload.formaPagamento !== "combinado") {
+        return payload.formaPagamento === method ? totalCents : 0;
+      }
+      const firstCents = valorDigitadoParaCentavos(payload.valorPagamento1);
+      if (!Number.isSafeInteger(firstCents)) return 0;
+      if (payload.formaPagamento1 === method) return firstCents;
+      if (payload.formaPagamento2 === method) return totalCents - firstCents;
+      return 0;
+    }
+
+    function urlImagemSegura(value) {
+      const text = String(value ?? '').trim();
+      if (/[\u0000-\u001F\u007F]/.test(text)) return '';
+      if (text.startsWith('/') && !text.startsWith('//')) return text;
+      if (/^data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+$/i.test(text)) {
+        return text;
+      }
+      try {
+        const url = new URL(text);
+        return url.protocol === 'https:' ? url.href : '';
+      } catch {
+        return '';
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function filterProducts() {
+      const query =
+        String(searchInput.value || "")
+          .toLowerCase()
+          .trim();
+
+      cards.forEach(card => {
+        const corresponde =
+          card.dataset.name.includes(query);
+
+        card.classList.toggle(
+          "hidden",
+          !corresponde
+        );
+      });
+
+      sections.forEach(section => {
+        const categoria =
+          section.dataset.section;
+
+        const categoriaCorresponde =
+          selectedCategory === "todos" ||
+          selectedCategory === categoria;
+
+        const possuiVisiveis =
+          [...section.querySelectorAll(".product-card")]
+            .some(card => {
+              return !card.classList.contains("hidden");
+            });
+
+        section.classList.toggle(
+          "hidden",
+          !categoriaCorresponde ||
+          !possuiVisiveis
+        );
+      });
+    }
+
+    categoryButtons.forEach(button => {
+      button.addEventListener(
+        "click",
+        () => {
+          categoryButtons.forEach(
+            item => {
+              item.classList.remove("active");
+            }
+          );
+
+          button.classList.add("active");
+
+          selectedCategory =
+            button.dataset.cat;
+
+          filterProducts();
+        }
+      );
+    });
+
+    searchInput.addEventListener(
+      "input",
+      filterProducts
+    );
+
+    function loadCart() {
+      try {
+        const saved =
+          localStorage.getItem(
+            storageKey
+          );
+
+        cart = saved
+          ? JSON.parse(saved)
+          : [];
+
+        if (!Array.isArray(cart)) {
+          cart = [];
+        }
+      } catch {
+        cart = [];
+      }
+    }
+
+    function saveCart() {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify(cart)
+      );
+    }
+
+    function totalItems() {
+      return cart.reduce(
+        (total, item) =>
+          total +
+          Number(item.quantity || 0),
+        0
+      );
+    }
+
+    function subtotal() {
+      return cart.reduce(
+        (total, item) => {
+          return (
+            total +
+            (
+              Number(item.price || 0) +
+              (item.adicionais || []).reduce(
+                (sum, adicional) => sum + Number(adicional.preco || 0),
+                0
+              )
+            ) * Number(item.quantity || 0)
+          );
+        },
+        0
+      );
+    }
+
+    function taxaEntregaSelecionadaCentavos() {
+      if (canalPedido?.value !== "delivery") return 0;
+      const taxa = Number(
+        cidadeEntregaId?.selectedOptions?.[0]?.dataset?.taxaCentavos,
+      );
+      return Number.isSafeInteger(taxa) && taxa >= 0 ? taxa : 0;
+    }
+
+    function resumoFinanceiroPedido() {
+      const subtotalCentavos = Math.max(
+        0,
+        Math.round((subtotal() + Number.EPSILON) * 100),
+      );
+      const taxaEntregaCentavos = taxaEntregaSelecionadaCentavos();
+      return {
+        subtotal: subtotalCentavos / 100,
+        taxaEntrega: taxaEntregaCentavos / 100,
+        total: (subtotalCentavos + taxaEntregaCentavos) / 100,
+      };
+    }
+
+    function atualizarResumoFinanceiroPedido() {
+      const resumo = resumoFinanceiroPedido();
+      const delivery = canalPedido?.value === "delivery";
+      const cidadeSelecionada = Boolean(cidadeEntregaId?.value);
+
+      if (orderSubtotal) orderSubtotal.textContent = currency(resumo.subtotal);
+      if (orderDeliveryFeeRow) orderDeliveryFeeRow.classList.toggle("hidden", !delivery);
+      if (orderDeliveryFee) {
+        orderDeliveryFee.textContent = delivery && !cidadeSelecionada
+          ? "Selecione a cidade"
+          : currency(resumo.taxaEntrega);
+      }
+      if (orderTotal) orderTotal.textContent = currency(resumo.total);
+      atualizarPagamentoCombinado();
+    }
+
+    function renderCart() {
+      cartList.replaceChildren();
+
+      cartEmpty.classList.toggle(
+        "hidden",
+        cart.length > 0
+      );
+
+      cart.forEach(item => {
+        const element =
+          document.createElement("div");
+
+        element.className =
+          "cart-item";
+
+        element.innerHTML = '<div class="cart-thumb"></div><div><h3 class="cart-name"></h3><div class="cart-price"></div><div class="cart-pizza-flavors"></div><div class="cart-addons"></div><div class="cart-actions"><div class="qty-box"><button type="button" class="qty-btn" data-action="decrease">−</button><span class="qty-number"></span><button type="button" class="qty-btn" data-action="increase">+</button></div><button type="button" class="remove-btn" data-action="remove" aria-label="Remover">×</button></div></div>';
+        const imageUrl = urlImagemSegura(item.image);
+        const thumb = element.querySelector('.cart-thumb');
+        if (imageUrl) {
+          const image = document.createElement('img');
+          image.src = imageUrl;
+          image.alt = String(item.name || '');
+          thumb.appendChild(image);
+        } else {
+          thumb.textContent = '🍔';
+        }
+        element.querySelector('.cart-name').textContent =
+          String(item.name || '');
+        element.querySelector('.cart-price').textContent = currency(
+          Number(item.price || 0) +
+          (item.adicionais || []).reduce(
+            (sum, adicional) => sum + Number(adicional.preco || 0),
+            0
+          )
+        );
+        element.querySelector('.cart-pizza-flavors').textContent =
+          item.pizzaMeioAMeio
+            ? (item.saboresPizza || [])
+                .map(sabor => `1/2 ${String(sabor.nome || "Sabor")}`)
+                .join('\n')
+            : '';
+        element.querySelector('.cart-addons').textContent =
+          (item.adicionais || [])
+            .map(adicional => `+ ${adicional.nome} (${currency(adicional.preco)})`)
+            .join('\n');
+        element.querySelector('.qty-number').textContent =
+          String(Number(item.quantity) || 0);
+        element.querySelectorAll('[data-action]').forEach(button => {
+          button.dataset.id = String(item.cartId || item.id || '');
+        });
+
+        cartList.appendChild(element);
+      });
+
+      const quantidade =
+        totalItems();
+
+      cartCount.textContent =
+        quantidade;
+
+      cartItemsCount.textContent =
+        quantidade;
+
+      mobileCartCount.textContent =
+        quantidade;
+
+      cartSubtotal.textContent =
+        currency(subtotal());
+
+      atualizarResumoFinanceiroPedido();
+      atualizarBotoesPedido();
+    }
+
+    function avisarCarrinho(mensagem) {
+      if (!mensagem) return;
+      formMessage.className = "form-message error";
+      formMessage.textContent = mensagem;
+    }
+
+    function bloquearLojaPublica() {
+      lojaBloqueada = true;
+      storeIsOpen = false;
+      checkoutBtn.disabled = true;
+      checkoutBtn.textContent = "Loja indisponível";
+      document.querySelectorAll("[data-add-cart]").forEach(button => {
+        button.disabled = true;
+      });
+      avisarCarrinho(
+        "Esta loja está temporariamente indisponível para novos pedidos."
+      );
+    }
+
+    function aplicarProdutosAtuais(produtosAtuais) {
+      const produtosNormalizados = (produtosAtuais || []).map(produto => ({
+        id: String(produto.id || ""),
+        name: String(produto.nome || ""),
+        price: Number(produto.preco || 0),
+        image: String(produto.imagem || ""),
+        adicionais: (produto.adicionais || []).map(adicional => ({
+          _id: String(adicional.id || adicional._id || ""),
+          nome: String(adicional.nome || ""),
+          preco: Number(adicional.preco || 0),
+        })),
+        categoria: produto.categoria
+          ? {
+              id: String(produto.categoria.id || ""),
+              tipoProduto: String(produto.categoria.tipoProduto || "normal"),
+              permiteMeioAMeio: produto.categoria.permiteMeioAMeio === true,
+              regraPrecoMeioAMeio: String(
+                produto.categoria.regraPrecoMeioAMeio || "maior_sabor_escolhido",
+              ),
+            }
+          : { id: "", tipoProduto: "normal", permiteMeioAMeio: false },
+      }));
+      const mapaProdutos = new Map(
+        produtosNormalizados.map(produto => [produto.id, produto]),
+      );
+      produtosCatalogoMap.clear();
+      produtosNormalizados.forEach(produto => produtosCatalogoMap.set(produto.id, produto));
+
+      const idsRemovidos = [];
+      let precoAlterado = false;
+
+      cart = cart.flatMap(item => {
+        let produto = mapaProdutos.get(String(item.id));
+        let produtoCarrinho = null;
+
+        if (item.pizzaMeioAMeio) {
+          const idsSabores = (item.saboresPizza || [])
+            .map(sabor => String(sabor.produtoId || ""));
+          const sabores = idsSabores.map(id => mapaProdutos.get(id));
+          const categoriaId = sabores[0]?.categoria?.id || "";
+          const pizzaValida = idsSabores.length === 2
+            && idsSabores[0] !== idsSabores[1]
+            && sabores.every(Boolean)
+            && sabores.every(sabor => sabor.categoria?.id === categoriaId)
+            && sabores[0].categoria?.tipoProduto === "pizza"
+            && sabores[0].categoria?.permiteMeioAMeio === true;
+
+          if (!pizzaValida) {
+            idsRemovidos.push(String(item.cartId || item.id || "pizza"));
+            return [];
+          }
+
+          produto = sabores[0];
+          const regra = produto.categoria.regraPrecoMeioAMeio;
+          const novoPreco = calcularPrecoPizzaCliente({
+            sabor1: sabores[0],
+            sabor2: sabores[1],
+            regra,
+            meioAMeio: true,
+          });
+          if (Math.abs(Number(item.price || 0) - novoPreco) > 0.001) {
+            precoAlterado = true;
+          }
+
+          produtoCarrinho = {
+            ...item,
+            id: produto.id,
+            name: `Pizza 1/2 ${sabores[0].name} + 1/2 ${sabores[1].name}`,
+            price: novoPreco,
+            image: produto.image || sabores[1].image || "",
+            categoria: produto.categoria,
+            regraPrecoPizza: regra,
+            saboresPizza: sabores.map(sabor => ({
+              produtoId: sabor.id,
+              nome: sabor.name,
+              preco: Number(sabor.price || 0),
+              fracao: 0.5,
+            })),
+          };
+        } else {
+          if (!produto) {
+            idsRemovidos.push(String(item.id));
+            return [];
+          }
+          if (Math.abs(Number(item.price || 0) - Number(produto.price || 0)) > 0.001) {
+            precoAlterado = true;
+          }
+          produtoCarrinho = {
+            ...item,
+            id: produto.id,
+            name: produto.name,
+            price: Number(produto.price || 0),
+            image: produto.image || "",
+            categoria: produto.categoria,
+          };
+        }
+
+        const adicionaisAtuais = new Map(
+          (produto.adicionais || []).map(adicional => [
+            String(adicional._id || adicional.id),
+            adicional,
+          ]),
+        );
+        const adicionais = (item.adicionais || []).flatMap(adicional => {
+          const atual = adicionaisAtuais.get(String(adicional._id || adicional.id));
+          return atual ? [{
+            _id: String(atual._id || atual.id),
+            nome: atual.nome,
+            preco: Number(atual.preco || 0),
+          }] : [];
+        });
+        const addonsKey = adicionais
+          .map(adicional => String(adicional._id))
+          .sort()
+          .join(",");
+        const pizzaKey = produtoCarrinho.pizzaMeioAMeio
+          ? `pizza:${produtoCarrinho.saboresPizza
+              .map(sabor => String(sabor.produtoId || ""))
+              .sort()
+              .join("+")}:${String(produtoCarrinho.regraPrecoPizza || "")}`
+          : produtoCarrinho.id;
+
+        return [{
+          ...produtoCarrinho,
+          cartId: `${pizzaKey}:${addonsKey}`,
+          adicionais,
+        }];
+      });
+
+      saveCart();
+      renderCart();
+      return { idsRemovidos, precoAlterado };
+    }
+
+    async function sincronizarCarrinho({ avisar = true } = {}) {
+      if (lojaBloqueada) {
+        return { idsRemovidos: [], precoAlterado: false, lojaIndisponivel: true };
+      }
+      if (sincronizacaoCarrinhoEmAndamento) {
+        return sincronizacaoCarrinhoEmAndamento;
+      }
+
+      sincronizacaoCarrinhoEmAndamento = (async () => {
+        const response = await fetch(
+          `/catalogo/${encodeURIComponent(storeSlug)}/produtos-status`,
+          { headers: { "Accept": "application/json" } }
+        );
+        const result = await response.json();
+        if (response.status === 403 && result.code === "LOJA_INDISPONIVEL") {
+          bloquearLojaPublica();
+          return {
+            idsRemovidos: [],
+            precoAlterado: false,
+            lojaIndisponivel: true
+          };
+        }
+        if (!response.ok) {
+          throw new Error("Não foi possível conferir os produtos do carrinho.");
+        }
+        const mudancas = aplicarProdutosAtuais(result.produtos);
+        if (
+          avisar
+          && mudancas.idsRemovidos.length
+          && !avisoProdutosRemovidosExibido
+        ) {
+          avisoProdutosRemovidosExibido = true;
+          avisarCarrinho(
+            "Um ou mais produtos foram removidos do seu carrinho porque não estão mais disponíveis."
+          );
+        }
+        if (avisar && mudancas.precoAlterado) {
+          avisarCarrinho("O preço de um produto foi atualizado. Confirme o pedido novamente.");
+        }
+        return mudancas;
+      })();
+
+      try {
+        return await sincronizacaoCarrinhoEmAndamento;
+      } finally {
+        sincronizacaoCarrinhoEmAndamento = null;
+      }
+    }
+
+    function addToCart(product, adicionais = []) {
+      if (adicionais.length > PUBLIC_ORDER_LIMITS.maxAdditionsPerItem) {
+        avisarCarrinho(
+          `Escolha no máximo ${PUBLIC_ORDER_LIMITS.maxAdditionsPerItem} adicionais por item.`
+        );
+        return false;
+      }
+
+      const addonsKey = adicionais
+        .map(adicional => String(adicional._id))
+        .sort()
+        .join(",");
+      const pizzaKey = product.pizzaMeioAMeio
+        ? `pizza:${(product.saboresPizza || [])
+            .map(sabor => String(sabor.produtoId || ""))
+            .sort()
+            .join("+")}:${String(product.regraPrecoPizza || "")}`
+        : String(product.id || "");
+      const cartId = `${pizzaKey}:${addonsKey}`;
+      const existing = cart.find(item => item.cartId === cartId);
+
+      if (totalItems() >= PUBLIC_ORDER_LIMITS.maxTotalQuantity) {
+        avisarCarrinho(
+          `O pedido pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxTotalQuantity} unidades.`
+        );
+        return false;
+      }
+
+      if (existing && Number(existing.quantity || 0) >= PUBLIC_ORDER_LIMITS.maxQuantityPerItem) {
+        avisarCarrinho(
+          `Cada item pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxQuantityPerItem} unidades.`
+        );
+        return false;
+      }
+
+      if (!existing && cart.length >= PUBLIC_ORDER_LIMITS.maxItems) {
+        avisarCarrinho(
+          `O pedido pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxItems} itens diferentes.`
+        );
+        return false;
+      }
+
+      if (existing) {
+        existing.quantity += 1;
+      } else {
+        cart.push({
+          ...product,
+          cartId,
+          adicionais,
+          quantity: 1
+        });
+      }
+
+      saveCart();
+      renderCart();
+      return true;
+    }
+
+    function updateCartItem(
+      id,
+      action
+    ) {
+      const item =
+        cart.find(
+          product => (product.cartId || product.id) === id
+        );
+
+      if (!item) {
+        return;
+      }
+
+      if (action === "increase") {
+        if (totalItems() >= PUBLIC_ORDER_LIMITS.maxTotalQuantity) {
+          avisarCarrinho(
+            `O pedido pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxTotalQuantity} unidades.`
+          );
+          return;
+        }
+        if (Number(item.quantity || 0) >= PUBLIC_ORDER_LIMITS.maxQuantityPerItem) {
+          avisarCarrinho(
+            `Cada item pode ter no máximo ${PUBLIC_ORDER_LIMITS.maxQuantityPerItem} unidades.`
+          );
+          return;
+        }
+        item.quantity += 1;
+      }
+
+      if (action === "decrease") {
+        item.quantity -= 1;
+      }
+
+      if (
+        action === "remove" ||
+        item.quantity <= 0
+      ) {
+        cart = cart.filter(
+          product => (product.cartId || product.id) !== id
+        );
+      }
+
+      saveCart();
+      renderCart();
+    }
+
+    document
+      .querySelectorAll("[data-add-cart]")
+      .forEach(button => {
+        button.addEventListener(
+          "click",
+          event => {
+            if (!storeIsOpen) {
+              alert("O estabelecimento está fechado.");
+              return;
+            }
+
+            const card = event.currentTarget.closest(".product-card");
+            const product = produtosCatalogoMap.get(String(card?.dataset?.id || ""))
+              || produtoDoCard(card);
+            if (!product) return;
+
+            if (
+              product.categoria?.tipoProduto === "pizza"
+              && product.categoria?.permiteMeioAMeio === true
+            ) {
+              abrirModalPizza(product);
+              return;
+            }
+
+            continuarProdutoParaCarrinho(product, product.adicionais || []);
+          },
+        );
+      });
+
+    document.querySelectorAll('input[name="pizzaModo"]').forEach(input => {
+      input.addEventListener("change", atualizarModalPizza);
+    });
+    pizzaSabor1.addEventListener("change", atualizarModalPizza);
+    pizzaSabor2.addEventListener("change", atualizarModalPizza);
+    document.querySelector("#closePizzaModal").addEventListener("click", fecharModalPizza);
+    document.querySelector("#cancelPizza").addEventListener("click", fecharModalPizza);
+    pizzaModal.addEventListener("click", event => {
+      if (event.target === pizzaModal) fecharModalPizza();
+    });
+    document.querySelector("#confirmPizza").addEventListener("click", () => {
+      if (!pendingPizza) return;
+      const sabor1 = produtosCatalogoMap.get(String(pizzaSabor1.value || ""));
+      const meioAMeio = modoPizzaSelecionado() === "meio_a_meio";
+      const sabor2 = produtosCatalogoMap.get(String(pizzaSabor2.value || ""));
+      if (!sabor1) return;
+
+      if (!meioAMeio) {
+        fecharModalPizza();
+        continuarProdutoParaCarrinho(sabor1, sabor1.adicionais || []);
+        return;
+      }
+
+      if (!sabor2 || sabor1.id === sabor2.id) {
+        pizzaSabor2.setCustomValidity("Escolha dois sabores diferentes.");
+        pizzaSabor2.reportValidity();
+        return;
+      }
+
+      const preco = calcularPrecoPizzaCliente({
+        sabor1,
+        sabor2,
+        regra: pendingPizza.regra,
+        meioAMeio: true,
+      });
+      const pizza = {
+        id: sabor1.id,
+        name: `Pizza 1/2 ${sabor1.name} + 1/2 ${sabor2.name}`,
+        price: preco,
+        image: sabor1.image || sabor2.image || "",
+        categoria: sabor1.categoria,
+        pizzaMeioAMeio: true,
+        saboresPizza: [
+          {
+            produtoId: sabor1.id,
+            nome: sabor1.name,
+            preco: Number(sabor1.price || 0),
+            fracao: 0.5,
+          },
+          {
+            produtoId: sabor2.id,
+            nome: sabor2.name,
+            preco: Number(sabor2.price || 0),
+            fracao: 0.5,
+          },
+        ],
+        regraPrecoPizza: pendingPizza.regra,
+      };
+
+      fecharModalPizza();
+      continuarProdutoParaCarrinho(pizza, sabor1.adicionais || []);
+    });
+
+    function closeAddonModal() {
+      addonModal.classList.remove("open");
+      document.body.classList.remove("modal-open");
+      pendingProduct = null;
+    }
+
+    document.querySelector("#closeAddonModal").addEventListener("click", closeAddonModal);
+    document.querySelector("#cancelAddon").addEventListener("click", closeAddonModal);
+    addonModal.addEventListener("click", event => {
+      if (event.target === addonModal) closeAddonModal();
+    });
+    document.querySelector("#confirmAddon").addEventListener("click", () => {
+      if (!pendingProduct) return;
+      const ids = [...addonList.querySelectorAll("input:checked")].map(input => input.value);
+      if (ids.length > PUBLIC_ORDER_LIMITS.maxAdditionsPerItem) {
+        avisarCarrinho(
+          `Escolha no máximo ${PUBLIC_ORDER_LIMITS.maxAdditionsPerItem} adicionais por item.`
+        );
+        return;
+      }
+      const selected = pendingProduct.adicionais.filter(adicional => ids.includes(String(adicional._id)));
+      if (addToCart(pendingProduct.product, selected)) closeAddonModal();
+    });
+
+    cartList.addEventListener(
+      "click",
+      event => {
+        const target =
+          event.target.closest(
+            "[data-action]"
+          );
+
+        if (!target) {
+          return;
+        }
+
+        updateCartItem(
+          target.dataset.id,
+          target.dataset.action
+        );
+      }
+    );
+
+    function horarioEmMinutos(
+      horario
+    ) {
+      const [hora, minuto] =
+        String(horario)
+          .split(":")
+          .map(Number);
+
+      return hora * 60 + minuto;
+    }
+
+    function obterHorarioBrasil() {
+      const parts =
+        new Intl.DateTimeFormat(
+          "pt-BR",
+          {
+            timeZone:
+              "America/Sao_Paulo",
+            weekday: "short",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false
+          }
+        ).formatToParts(
+          new Date()
+        );
+
+      const diaTexto =
+        String(
+          parts.find(
+            part =>
+              part.type === "weekday"
+          )?.value || ""
+        )
+          .replace(".", "")
+          .toLowerCase();
+
+      const dias = {
+        dom: 0,
+        seg: 1,
+        ter: 2,
+        qua: 3,
+        qui: 4,
+        sex: 5,
+        sáb: 6,
+        sab: 6
+      };
+
+      return {
+        dia: dias[diaTexto],
+        minutos:
+          Number(
+            parts.find(
+              part =>
+                part.type === "hour"
+            )?.value || 0
+          ) *
+            60 +
+          Number(
+            parts.find(
+              part =>
+                part.type === "minute"
+            )?.value || 0
+          )
+      };
+    }
+
+    function verificarLojaAberta() {
+      const atual =
+        obterHorarioBrasil();
+
+      const abertura =
+        horarioEmMinutos(
+          horarioAbertura
+        );
+
+      const fechamento =
+        horarioEmMinutos(
+          horarioFechamento
+        );
+
+      const funcionaHoje =
+        diasFuncionamento.includes(
+          atual.dia
+        );
+
+      if (abertura === fechamento) {
+        storeIsOpen =
+          funcionaHoje;
+      } else if (
+        abertura < fechamento
+      ) {
+        storeIsOpen =
+          funcionaHoje &&
+          atual.minutos >= abertura &&
+          atual.minutos < fechamento;
+      } else {
+        storeIsOpen =
+          funcionaHoje &&
+          (
+            atual.minutos >= abertura ||
+            atual.minutos < fechamento
+          );
+      }
+
+      storeStatus.classList.remove(
+        "open",
+        "closed"
+      );
+
+      storeStatus.classList.add(
+        storeIsOpen
+          ? "open"
+          : "closed"
+      );
+
+      storeStatusText.textContent =
+        storeIsOpen
+          ? "Aberto agora"
+          : "Fechado agora";
+
+      atualizarBotoesPedido();
+    }
+
+    function atualizarBotoesPedido() {
+      document
+        .querySelectorAll(
+          "[data-add-cart]"
+        )
+        .forEach(button => {
+          button.disabled =
+            !storeIsOpen;
+
+          const text =
+            button.querySelector("span");
+
+          if (text) {
+            text.textContent =
+              storeIsOpen
+                ? "Pedir"
+                : "Fechado";
+          }
+        });
+
+      checkoutBtn.disabled =
+        lojaBloqueada ||
+        !storeIsOpen ||
+        cart.length === 0;
+
+      checkoutBtn.textContent =
+        lojaBloqueada
+          ? "Loja indisponível"
+          : storeIsOpen
+          ? "Continuar pedido"
+          : "Estabelecimento fechado";
+    }
+
+    async function openOrderModal() {
+      try {
+        await sincronizarCarrinho();
+      } catch (error) {
+        avisarCarrinho(error.message);
+        return;
+      }
+      if (
+        !storeIsOpen ||
+        !cart.length
+      ) {
+        return;
+      }
+
+      observacaoFinal.value =
+        cartNote.value;
+
+      formMessage.className =
+        "form-message";
+
+      formMessage.textContent = "";
+
+      orderModal.classList.add(
+        "open"
+      );
+
+      document.body.classList.add(
+        "modal-open"
+      );
+
+      sidebarCart.classList.remove(
+        "open"
+      );
+
+      atualizarResumoFinanceiroPedido();
+    }
+
+    function closeModal() {
+      orderModal.classList.remove("open");
+
+      if (!pixPaymentModal.classList.contains("open")) {
+        document.body.classList.remove("modal-open");
+      }
+    }
+
+    function openPixPaymentModal() {
+      pixPreviousFocus = document.activeElement;
+      orderModal.classList.remove("open");
+      pixPaymentModal.classList.add("open");
+      document.body.classList.add("modal-open");
+    }
+
+    function closePixModal() {
+      if (pixPollingTimer) clearTimeout(pixPollingTimer);
+      pixPollingTimer = null;
+      pixPollingContext = null;
+      pixPaymentModal.classList.remove("open");
+      document.body.classList.remove("modal-open");
+      document.querySelector("#pixQrImage").removeAttribute("src");
+      document.querySelector("#pixCopyCode").value = "";
+      pixPreviousFocus?.focus?.();
+      pixPreviousFocus = null;
+    }
+
+    function pixPollingDelay() {
+      const elapsed = Date.now() - pixPollingStartedAt;
+      if (elapsed < 30_000) return 2_000;
+      if (elapsed < 120_000) return 5_000;
+      return 10_000;
+    }
+
+    function schedulePixPolling(delay = pixPollingDelay()) {
+      if (!pixPollingContext || pixPollingTimer || document.hidden) return;
+      pixPollingTimer = setTimeout(() => {
+        pixPollingTimer = null;
+        void pollPixStatus();
+      }, delay);
+    }
+
+    async function pollPixStatus() {
+      if (!pixPollingContext || pixPollingInFlight || document.hidden) return;
+      pixPollingInFlight = true;
+      try {
+        const statusResponse = await fetch(
+          `/catalogo/${encodeURIComponent(storeSlug)}/pedido/pagamento-status`,
+          { method: "POST", headers: { "Authorization": `Bearer ${pixPollingContext.token}` } }
+        );
+        const statusResult = await statusResponse.json();
+        if (!statusResponse.ok) throw new Error("Falha temporária ao confirmar pagamento.");
+        if (statusResult.pixAprovado && statusResult.aguardandoPagamentoRestante) {
+          document.querySelector("#pixPaymentStatus").textContent =
+            "✅ Parte Pix aprovada. O restante será pago na entrega/retirada.";
+          const card = document.querySelector(`[data-public-order-code="${CSS.escape(pixPollingContext.codigoPublico)}"]`);
+          const badge = card?.querySelector(".payment-status");
+          if (badge) {
+            badge.className = "customer-order-badge payment-status pending";
+            badge.textContent = "Pix pago • restante pendente";
+          }
+          formMessage.className = "form-message success";
+          formMessage.textContent =
+            "Parte Pix confirmada! O pedido foi enviado para a loja e o restante será recebido na entrega/retirada.";
+          setTimeout(closePixModal, 1200);
+          return;
+        }
+        if (statusResult.pagamentoStatus === "pago") {
+          document.querySelector("#pixPaymentStatus").textContent = "✅ Pagamento aprovado.";
+          const card = document.querySelector(`[data-public-order-code="${CSS.escape(pixPollingContext.codigoPublico)}"]`);
+          const badge = card?.querySelector(".payment-status");
+          if (badge) { badge.className = "customer-order-badge payment-status paid"; badge.textContent = "Pagamento: Pago"; }
+          formMessage.className = "form-message success";
+          formMessage.textContent = "Pagamento confirmado! Seu pedido foi enviado para a loja.";
+          setTimeout(closePixModal, 700);
+          return;
+        }
+        if (["cancelado", "rejected", "cancelled", "canceled", "expired", "refunded", "charged_back"]
+          .includes(String(statusResult.pagamentoStatus || statusResult.status || "").toLowerCase())) {
+          document.querySelector("#pixPaymentStatus").textContent = "Pagamento não aprovado.";
+          if (pixPollingTimer) clearTimeout(pixPollingTimer);
+          pixPollingTimer = null;
+          pixPollingContext = null;
+          return;
+        }
+        schedulePixPolling();
+      } catch (_) {
+        schedulePixPolling();
+      } finally {
+        pixPollingInFlight = false;
+      }
+    }
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        if (pixPollingTimer) clearTimeout(pixPollingTimer);
+        pixPollingTimer = null;
+      } else if (pixPollingContext) {
+        schedulePixPolling(0);
+      }
+    });
+
+    function atualizarEndereco() {
+      let delivery =
+        canalPedido.value ===
+        "delivery";
+
+      if (delivery && !cidadesEntregaDisponiveis) {
+        canalPedido.value = "retirada";
+        delivery = false;
+        formMessage.className = "form-message error";
+        formMessage.textContent =
+          "Esta loja ainda não cadastrou cidades para entrega. Selecione retirada no local.";
+      }
+
+      document.querySelectorAll(".delivery-address-field").forEach(field => {
+        field.classList.toggle("hidden", !delivery);
+      });
+
+      [cidadeEntregaId, ruaEntrega, numeroEntrega, bairroEntrega].forEach(input => {
+        if (input) input.required = delivery;
+      });
+
+      if (!delivery) {
+        [cidadeEntregaId, ruaEntrega, numeroEntrega, bairroEntrega, referenciaEntrega].forEach(input => {
+          if (input) input.value = "";
+        });
+      }
+
+      atualizarResumoFinanceiroPedido();
+    }
+
+    checkoutBtn.addEventListener(
+      "click",
+      openOrderModal
+    );
+
+    closeOrderModal.addEventListener(
+      "click",
+      closeModal
+    );
+
+    closePixPaymentModal.addEventListener("click", closePixModal);
+    pixPaymentModal.addEventListener("click", event => {
+      if (event.target === pixPaymentModal) closePixModal();
+    });
+
+    orderModal.addEventListener(
+      "click",
+      event => {
+        if (
+          event.target ===
+          orderModal
+        ) {
+          closeModal();
+        }
+      }
+    );
+
+    canalPedido.addEventListener(
+      "change",
+      atualizarEndereco
+    );
+
+    cidadeEntregaId.addEventListener(
+      "change",
+      atualizarResumoFinanceiroPedido
+    );
+
+
+    formaPagamento.addEventListener("change", atualizarPagamentoCombinado);
+    formaPagamento1.addEventListener("change", atualizarPagamentoCombinado);
+    formaPagamento2.addEventListener("change", atualizarPagamentoCombinado);
+    valorPagamento1.addEventListener("input", atualizarPagamentoCombinado);
+
+    if (!pixOnlineDisponivel) {
+      if (formaPagamento.value === "pix") formaPagamento.value = "dinheiro";
+      if (formaPagamento1.value === "pix") formaPagamento1.value = "dinheiro";
+      if (formaPagamento2.value === "pix") formaPagamento2.value = "cartao";
+    }
+
+    mobileCartToggle.addEventListener(
+      "click",
+      async () => {
+        try {
+          await sincronizarCarrinho();
+        } catch (error) {
+          avisarCarrinho(error.message);
+          return;
+        }
+        sidebarCart.classList.add(
+          "open"
+        );
+      }
+    );
+
+    sidebarCart.addEventListener(
+      "click",
+      event => {
+        if (
+          event.target ===
+          sidebarCart
+        ) {
+          sidebarCart.classList.remove(
+            "open"
+          );
+        }
+      }
+    );
+
+    const trocoModal = document.querySelector("#trocoModal");
+    const closeTrocoModalBtn = document.querySelector("#closeTrocoModal");
+    const semTrocoBtn = document.querySelector("#semTrocoBtn");
+    const comTrocoBtn = document.querySelector("#comTrocoBtn");
+    const trocoPergunta = document.querySelector("#trocoPergunta");
+    const trocoValorArea = document.querySelector("#trocoValorArea");
+    const trocoParaModal = document.querySelector("#trocoParaModal");
+    const trocoMessage = document.querySelector("#trocoMessage");
+    const trocoDescription = document.querySelector("#trocoDescription");
+    const confirmarTrocoBtn = document.querySelector("#confirmarTrocoBtn");
+    const voltarTrocoBtn = document.querySelector("#voltarTrocoBtn");
+
+    const csrfTokenPublico = <%- safeJsonForHtml(csrfToken) %>;
+    let pedidoIdempotencyKeyAtual = null;
+    let pedidoPreparacaoEmAndamento = false;
+    let pedidoEnvioEmAndamento = false;
+
+    function criarIdempotencyKey() {
+      if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+      return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, caractere =>
+        (Number(caractere) ^ (globalThis.crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (Number(caractere) / 4))))
+          .toString(16));
+    }
+
+    let pedidoPendente = null;
+    let pedidoPendenteValorDinheiroCentavos = 0;
+
+    function abrirModalTroco(payload, valorDinheiroCentavos) {
+      pedidoPendente = payload;
+      pedidoPendenteValorDinheiroCentavos = Math.max(0, Number(valorDinheiroCentavos || 0));
+      if (trocoDescription) {
+        trocoDescription.textContent =
+          `A parte em dinheiro é ${currency(pedidoPendenteValorDinheiroCentavos / 100)}. Informe se será necessário levar troco.`;
+      }
+      trocoPergunta.classList.remove("hidden");
+      trocoValorArea.classList.add("hidden");
+      trocoParaModal.value = "";
+      trocoMessage.className = "form-message";
+      trocoMessage.textContent = "";
+      trocoModal.classList.add("open");
+    }
+
+    function fecharModalTroco() {
+      trocoModal.classList.remove("open");
+      pedidoPendente = null;
+      pedidoPendenteValorDinheiroCentavos = 0;
+      trocoParaModal.value = "";
+      trocoMessage.textContent = "";
+    }
+
+    closeTrocoModalBtn.addEventListener("click", fecharModalTroco);
+
+    trocoModal.addEventListener("click", event => {
+      if (event.target === trocoModal) fecharModalTroco();
+    });
+
+    comTrocoBtn.addEventListener("click", () => {
+      trocoPergunta.classList.add("hidden");
+      trocoValorArea.classList.remove("hidden");
+      setTimeout(() => trocoParaModal.focus(), 50);
+    });
+
+    voltarTrocoBtn.addEventListener("click", () => {
+      trocoValorArea.classList.add("hidden");
+      trocoPergunta.classList.remove("hidden");
+      trocoParaModal.value = "";
+      trocoMessage.textContent = "";
+    });
+
+    async function enviarPedido(payload) {
+      if (pedidoEnvioEmAndamento) return;
+      pedidoEnvioEmAndamento = true;
+
+      formMessage.className = "form-message";
+      formMessage.textContent = "";
+      sendOrderBtn.disabled = true;
+      sendOrderBtn.textContent = "Enviando pedido...";
+      confirmarTrocoBtn.disabled = true;
+      semTrocoBtn.disabled = true;
+      comTrocoBtn.disabled = true;
+
+      try {
+        const response = await fetch(
+          `/catalogo/${encodeURIComponent(storeSlug)}/pedidos`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRF-Token": csrfTokenPublico
+            },
+            body: JSON.stringify(payload)
+          }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          // Erros de validação permitem uma nova tentativa com outro payload.
+          // Em falhas 5xx/rede, a chave é preservada para repetir com segurança.
+          if (response.status < 500) pedidoIdempotencyKeyAtual = null;
+          if (result.code === "LOJA_INDISPONIVEL") {
+            bloquearLojaPublica();
+          }
+          if (result.code === "PRODUTO_INDISPONIVEL") {
+            const invalidos = new Set(
+              (result.produtosInvalidos || []).map(String)
+            );
+            cart = cart.filter(item => !invalidos.has(String(item.id)));
+            saveCart();
+            renderCart();
+          }
+          if (result.code === "PRECO_ATUALIZADO") {
+            const atualizados = new Map(
+              (result.produtosAtualizados || []).map(produto => [
+                String(produto.id),
+                produto
+              ])
+            );
+            cart = cart.map(item => {
+              const produto = atualizados.get(String(item.id));
+              return produto ? {
+                ...item,
+                name: produto.nome,
+                price: Number(produto.preco || 0),
+                image: produto.imagem || ""
+              } : item;
+            });
+            saveCart();
+            renderCart();
+          }
+          throw new Error(result.message || "Não foi possível enviar o pedido.");
+        }
+
+        fecharModalTroco();
+        pedidoIdempotencyKeyAtual = null;
+
+        if (payloadIncluiForma(payload, "pix")) {
+          const pixResponse = await fetch(
+            `/catalogo/${encodeURIComponent(storeSlug)}/pedido/pix`,
+            {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${result.acompanhamentoToken}`,
+                "Content-Type": "application/json"
+              }
+            }
+          );
+          const pixResult = await pixResponse.json().catch(() => ({
+            success: false,
+            code: "PIX_INVALID_RESPONSE",
+            message: "O servidor retornou uma resposta inválida ao gerar o Pix."
+          }));
+          if (!pixResponse.ok || !pixResult.success) {
+            // O pedido já existe. Limpa o carrinho para impedir um segundo pedido
+            // e apresenta um estado explícito, em vez de deixar o formulário preso.
+            cart = [];
+            saveCart();
+            renderCart();
+            orderForm.reset();
+            atualizarEndereco();
+            formMessage.className = "form-message error";
+            formMessage.textContent =
+              `Pedido #${result.numeroPedido} criado, mas o Pix não foi gerado. ` +
+              (pixResult.message || "Entre em contato com a loja.");
+            window.registrarPedidoAcompanhamento?.({
+              codigoPublico: result.codigoPublico || result.numeroPedido,
+              token: result.acompanhamentoToken,
+              criadoEm: new Date().toISOString()
+            });
+            window.mostrarSucessoPedido?.(
+              result.codigoPublico || result.numeroPedido,
+              formMessage.textContent
+            );
+            return;
+          }
+
+          const qr = document.querySelector("#pixQrImage");
+          const code = document.querySelector("#pixCopyCode");
+          qr.src = `data:image/png;base64,${pixResult.qrCodeBase64}`;
+          code.value = pixResult.copiaCola || "";
+          const valorPixTexto = currency(Number(pixResult.valorPix || 0));
+          document.querySelector("#pixPaymentStatus").textContent = pixResult.pagamentoCombinado
+            ? `Aguardando o Pix de ${valorPixTexto}. O restante será pago na entrega/retirada.`
+            : `Aguardando o Pix de ${valorPixTexto}.`;
+          document.querySelector("#copyPixButton").textContent = "Copiar código Pix";
+          openPixPaymentModal();
+
+          document.querySelector("#copyPixButton").onclick = async () => {
+            await navigator.clipboard.writeText(code.value);
+            document.querySelector("#copyPixButton").textContent = "Código copiado";
+          };
+
+          if (pixPollingTimer) clearTimeout(pixPollingTimer);
+          pixPollingStartedAt = Date.now();
+          pixPollingContext = {
+            token: result.acompanhamentoToken,
+            codigoPublico: result.codigoPublico || result.numeroPedido
+          };
+          schedulePixPolling(2_000);
+        }
+
+        formMessage.className = "form-message success";
+        formMessage.textContent =
+          `Pedido #${result.numeroPedido} enviado. Use “Meus pedidos” para acompanhar.`;
+        window.registrarPedidoAcompanhamento?.({
+          codigoPublico: result.codigoPublico || result.numeroPedido,
+          token: result.acompanhamentoToken,
+          criadoEm: new Date().toISOString()
+        });
+        // No Pix, o QR Code é a tela principal neste momento. A confirmação
+        // final é mostrada somente depois que o pagamento for aprovado.
+        if (!payloadIncluiForma(payload, "pix")) {
+          window.mostrarSucessoPedido?.(
+            result.codigoPublico || result.numeroPedido,
+            result.emailAviso || ""
+          );
+        }
+
+        cart = [];
+        saveCart();
+        renderCart();
+        orderForm.reset();
+        atualizarEndereco();
+
+        if (!payloadIncluiForma(payload, "pix")) {
+          setTimeout(() => closeModal(), 2500);
+        }
+      } catch (error) {
+        formMessage.className = "form-message error";
+        formMessage.textContent = error.message;
+
+        if (trocoModal.classList.contains("open")) {
+          trocoMessage.className = "form-message error";
+          trocoMessage.textContent = error.message;
+        }
+      } finally {
+        pedidoEnvioEmAndamento = false;
+        sendOrderBtn.disabled = false;
+        sendOrderBtn.textContent = "Enviar pedido";
+        confirmarTrocoBtn.disabled = false;
+        confirmarTrocoBtn.textContent = "Confirmar e enviar pedido";
+        semTrocoBtn.disabled = false;
+        comTrocoBtn.disabled = false;
+      }
+    }
+
+    semTrocoBtn.addEventListener("click", async () => {
+      if (!pedidoPendente) return;
+      const payload = {
+        ...pedidoPendente,
+        precisaTroco: false,
+        trocoPara: null
+      };
+      await enviarPedido(payload);
+    });
+
+    confirmarTrocoBtn.addEventListener("click", async () => {
+      if (!pedidoPendente) return;
+
+      const valorDigitado = String(trocoParaModal.value || "")
+        .trim()
+        .replace(/\s/g, "")
+        .replace("R$", "")
+        .replace(/\./g, "")
+        .replace(",", ".");
+      const trocoPara = Number(valorDigitado);
+
+      if (!Number.isFinite(trocoPara) || trocoPara <= 0) {
+        trocoMessage.className = "form-message error";
+        trocoMessage.textContent = "Informe um valor válido. Exemplo: 50,00.";
+        trocoParaModal.focus();
+        return;
+      }
+
+      if (Math.round(trocoPara * 100) < pedidoPendenteValorDinheiroCentavos) {
+        trocoMessage.className = "form-message error";
+        trocoMessage.textContent =
+          `O valor para troco deve ser igual ou maior que ${currency(pedidoPendenteValorDinheiroCentavos / 100)}.`;
+        trocoParaModal.focus();
+        return;
+      }
+
+      const payload = {
+        ...pedidoPendente,
+        precisaTroco: true,
+        trocoPara
+      };
+
+      confirmarTrocoBtn.disabled = true;
+      confirmarTrocoBtn.textContent = "Enviando pedido...";
+      await enviarPedido(payload);
+    });
+
+    orderForm.addEventListener("submit", async event => {
+      event.preventDefault();
+
+      // O bloqueio precisa acontecer antes da primeira operação assíncrona.
+      // Sem isso, vários cliques entram simultaneamente em sincronizarCarrinho()
+      // e podem gerar chaves diferentes depois que a primeira requisição termina.
+      if (pedidoPreparacaoEmAndamento || pedidoEnvioEmAndamento) return;
+      if (!storeIsOpen || !cart.length) return;
+
+      pedidoPreparacaoEmAndamento = true;
+      sendOrderBtn.disabled = true;
+      sendOrderBtn.textContent = "Preparando pedido...";
+
+      try {
+        try {
+          const mudancas = await sincronizarCarrinho();
+          if (
+            mudancas.lojaIndisponivel
+            || mudancas.idsRemovidos.length
+            || mudancas.precoAlterado
+          ) {
+            return;
+          }
+        } catch (error) {
+          avisarCarrinho(error.message);
+          return;
+        }
+
+        const formData = new FormData(orderForm);
+        const payload = {
+          cliente: String(formData.get("cliente") || "").trim(),
+          telefone: String(formData.get("telefone") || "").trim(),
+          canal: String(formData.get("canal") || ""),
+          cidadeEntregaId: String(formData.get("cidadeEntregaId") || "").trim(),
+          ruaEntrega: String(formData.get("ruaEntrega") || "").trim(),
+          numeroEntrega: String(formData.get("numeroEntrega") || "").trim(),
+          bairroEntrega: String(formData.get("bairroEntrega") || "").trim(),
+          referenciaEntrega: String(formData.get("referenciaEntrega") || "").trim(),
+          observacao: String(formData.get("observacao") || "").trim(),
+          formaPagamento: String(formData.get("formaPagamento") || "nao_informado"),
+          formaPagamento1: String(formData.get("formaPagamento1") || ""),
+          valorPagamento1: String(formData.get("valorPagamento1") || "").trim(),
+          formaPagamento2: String(formData.get("formaPagamento2") || ""),
+          valorPagamento2: String(formData.get("valorPagamento2") || "").trim(),
+          precisaTroco: false,
+          trocoPara: null,
+          idempotencyKey: pedidoIdempotencyKeyAtual ||= criarIdempotencyKey(),
+          itens: cart.map(item => ({
+            produtoId: item.id,
+            preco: Number(item.price),
+            quantidade: Number(item.quantity),
+            pizzaMeioAMeio: item.pizzaMeioAMeio === true,
+            saboresPizza: item.pizzaMeioAMeio
+              ? (item.saboresPizza || []).map(sabor => ({
+                  produtoId: String(sabor.produtoId || ""),
+                }))
+              : [],
+            adicionais: (item.adicionais || []).map(adicional => ({
+              _id: adicional._id
+            })),
+            observacao: String(item.observacao || "")
+          }))
+        };
+
+        if (payload.formaPagamento === "combinado") {
+          atualizarPagamentoCombinado();
+          if (!orderForm.reportValidity()) return;
+        }
+
+        const valorDinheiroCentavos = valorFormaPayloadCentavos(payload, "dinheiro");
+        if (valorDinheiroCentavos > 0) {
+          abrirModalTroco(payload, valorDinheiroCentavos);
+          return;
+        }
+
+        await enviarPedido(payload);
+      } finally {
+        pedidoPreparacaoEmAndamento = false;
+        if (!pedidoEnvioEmAndamento) {
+          sendOrderBtn.disabled = false;
+          sendOrderBtn.textContent = "Enviar pedido";
+        }
+      }
+    });
+
+    loadCart();
+    renderCart();
+    sincronizarCarrinho().catch(error => avisarCarrinho(error.message));
+    filterProducts();
+    atualizarEndereco();
+    verificarLojaAberta();
+
+    setInterval(
+      verificarLojaAberta,
+      60000
+    );
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        sincronizarCarrinho().catch(error => avisarCarrinho(error.message));
+      }
+    });
+
+    window.addEventListener("pageshow", () => {
+      sincronizarCarrinho().catch(error => avisarCarrinho(error.message));
+    });
+  </script>
+
+<style nonce="<%= cspNonce %>">
+  #openMyOrders {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 50;
+    padding: 14px 18px;
+    border: 0;
+    border-radius: 999px;
+    background: #5a1e14;
+    color: #fff;
+    font-weight: 800;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .24);
+  }
+
+  #myOrdersDialog {
+    width: min(720px, 94vw);
+    max-height: min(86vh, 760px);
+    border: 0;
+    border-radius: 20px;
+    padding: 0;
+    overflow: hidden;
+    background: #fff;
+    color: #241915;
+  }
+
+  #myOrdersDialog::backdrop {
+    background: rgba(20, 10, 6, .72);
+    backdrop-filter: blur(5px);
+  }
+
+  .my-orders-shell { display: flex; flex-direction: column; max-height: min(86vh, 760px); }
+  .my-orders-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 20px; border-bottom:1px solid #eadfd9; }
+  .my-orders-header h2 { margin:0; font-size:1.45rem; }
+  .my-orders-close { width:40px; height:40px; border:0; border-radius:50%; font-size:1.2rem; cursor:pointer; }
+  .my-orders-body { padding:18px 20px 22px; overflow:auto; }
+  .my-orders-form { display:grid; grid-template-columns:1fr auto; gap:10px; }
+  .my-orders-form input { min-width:0; width:100%; padding:13px 14px; border:1px solid #d9cdc7; border-radius:12px; font-size:16px; }
+  .my-orders-form button { border:0; border-radius:12px; padding:0 18px; background:#ee6b18; color:#fff; font-weight:800; cursor:pointer; }
+  .my-orders-result { margin-top:16px; display:grid; gap:12px; }
+  .customer-order-card { border:1px solid #eadfd9; border-radius:16px; padding:15px; background:#fffaf7; box-shadow:0 5px 18px rgba(60,25,10,.07); overflow:hidden; }
+  .customer-order-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:10px; }
+  .customer-order-number { font-size:1.05rem; font-weight:900; }
+  .customer-order-date { font-size:.78rem; color:#7d6b63; margin-top:2px; }
+  .customer-order-badges { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; }
+  .customer-order-badge { padding:5px 8px; border-radius:999px; font-size:.72rem; font-weight:800; background:#efe7e2; }
+  .customer-order-badge.pending { background:#fff0bf; color:#785300; }
+  .customer-order-badge.paid { background:#dff6e6; color:#126330; }
+  .customer-order-items { margin:10px 0; border-top:1px dashed #d9c9c0; border-bottom:1px dashed #d9c9c0; padding:8px 0; }
+  .customer-order-item { display:grid; grid-template-columns:auto 1fr auto; gap:8px; padding:5px 0; align-items:start; }
+  .customer-order-item strong { overflow-wrap:anywhere; }
+  .customer-order-item small { display:block; color:#74645d; margin-top:2px; }
+  .customer-order-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:10px; }
+  .customer-order-total { font-size:1.08rem; font-weight:900; color:#11833a; }
+  .finish-pix-button { border:0; border-radius:11px; padding:11px 14px; background:#1769e0; color:white; font-weight:800; cursor:pointer; }
+  .finish-pix-button:disabled { opacity:.6; cursor:wait; }
+  .orders-empty, .orders-loading, .orders-error { padding:18px; text-align:center; border-radius:13px; background:#f7f1ed; }
+  .orders-error { background:#ffe2e2; color:#a11d1d; }
+
+  @media (max-width: 560px) {
+    #openMyOrders { right:12px; bottom:12px; padding:12px 15px; }
+    #myOrdersDialog { width:calc(100vw - 20px); max-height:calc(100dvh - 20px); border-radius:16px; }
+    .my-orders-shell { max-height:calc(100dvh - 20px); }
+    .my-orders-header { padding:14px 15px; }
+    .my-orders-body { padding:14px 12px 18px; }
+    .my-orders-form { grid-template-columns:1fr; }
+    .my-orders-form button { min-height:46px; }
+    .customer-order-head, .customer-order-footer { align-items:stretch; flex-direction:column; }
+    .customer-order-badges { justify-content:flex-start; }
+    .finish-pix-button { width:100%; min-height:46px; }
+    .customer-order-item { grid-template-columns:auto minmax(0, 1fr); }
+    .customer-order-item-price { grid-column:2; }
+  }
+
+  #orderSuccessDialog, #ratingDialog {
+    width:min(520px, calc(100vw - 24px)); border:0; border-radius:24px; padding:0;
+    overflow:hidden; background:#fff; color:#241915; box-shadow:0 28px 80px rgba(40,18,8,.32);
+  }
+  #orderSuccessDialog::backdrop, #ratingDialog::backdrop { background:rgba(30,12,6,.68); backdrop-filter:blur(6px); }
+  .success-card, .rating-card { padding:28px; text-align:center; }
+  .success-icon, .rating-icon { width:68px; height:68px; margin:0 auto 14px; border-radius:22px; display:grid; place-items:center; font-size:32px; background:linear-gradient(135deg,#fff0df,#ffd0a7); }
+  .success-card h2, .rating-card h2 { margin:0; font-size:clamp(1.45rem,4vw,1.9rem); }
+  .success-card p, .rating-card p { color:#74645d; line-height:1.5; }
+  .success-code { display:inline-flex; margin:8px 0 4px; padding:12px 18px; border-radius:14px; background:#fff4eb; color:#b8420d; font-size:1.35rem; letter-spacing:1px; }
+  .success-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:20px; }
+  .success-actions button, .rating-actions button { min-height:48px; border:0; border-radius:14px; font-weight:900; cursor:pointer; }
+  .success-actions .primary, .rating-actions .primary { background:linear-gradient(135deg,#f4511e,#f57c00); color:#fff; }
+  .success-actions .secondary, .rating-actions .secondary { background:#f4ece7; color:#4a2b20; }
+  .success-actions .full { grid-column:1/-1; }
+  .rating-stars { display:flex; justify-content:center; gap:8px; margin:18px 0; }
+  .rating-star-button { width:48px; height:48px; border:0; border-radius:14px; background:#f5eee9; color:#c8b5aa; font-size:28px; cursor:pointer; transition:.18s ease; }
+  .rating-star-button.active { background:#fff0d4; color:#f59e0b; transform:translateY(-2px); }
+  .rating-product { font-weight:900; margin-top:6px; }
+  #ratingComment { width:100%; min-height:100px; resize:vertical; border:1px solid #decfc7; border-radius:14px; padding:13px; font:inherit; }
+  .rating-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:16px; }
+  @media(max-width:560px){ .success-card,.rating-card{padding:22px 16px}.success-actions,.rating-actions{grid-template-columns:1fr}.success-actions .full{grid-column:auto}.rating-star-button{width:44px;height:44px} }
+
+</style>
+
+<button type="button" id="openMyOrders">📦 Meus pedidos</button>
+
+<dialog id="myOrdersDialog">
+  <div class="my-orders-shell">
+    <header class="my-orders-header">
+      <h2>Consultar meus pedidos</h2>
+      <button type="button" id="closeMyOrders" class="my-orders-close" aria-label="Fechar">✕</button>
+    </header>
+    <div class="my-orders-body">
+      <p style="margin-top:0;color:#74645d">Informe o telefone usado na compra e os últimos quatro caracteres do número do pedido.</p>
+      <form id="orderLookupForm" class="my-orders-form">
+        <label>Telefone usado no pedido<input id="orderLookupPhone" required inputmode="tel" autocomplete="tel"></label>
+        <label>Últimos 4 caracteres do pedido<input id="orderLookupSuffix" required maxlength="4" pattern="[A-Fa-f0-9]{4}" autocomplete="off"></label>
+        <label id="orderLookupFullLabel" hidden>Número completo do pedido<input id="orderLookupFull" maxlength="8" pattern="[A-Fa-f0-9]{8}" autocomplete="off"></label>
+        <button type="button" id="orderLookupButton">Consultar pedido</button>
+      </form>
+      <div id="myOrdersResult" class="my-orders-result"></div>
+    </div>
+  </div>
+
+  <%
+  const telefoneLimpo = String(user.telefone || '').replace(/\D/g, '');
+
+  const telefoneWhatsApp = telefoneLimpo.startsWith('55')
+    ? telefoneLimpo
+    : `55${telefoneLimpo}`;
+
+  const mensagemWhatsApp = encodeURIComponent(
+    'Olá, gostaria de mais informações.'
+  );
+%>
+
+<a
+  href="https://wa.me/<%= telefoneWhatsApp %>?text=<%= mensagemWhatsApp %>"
+  target="_blank"
+  rel="noopener noreferrer"
+  class="botao-whatsapp"
+>
+  Falar no WhatsApp
+</a>
+</dialog>
+
+<dialog id="orderLookupLoading" aria-labelledby="orderLookupLoadingTitle">
+  <div class="my-orders-shell" aria-busy="true">
+    <h2 id="orderLookupLoadingTitle">Consultando pedido...</h2>
+    <p>Aguarde enquanto localizamos as informações.</p>
+  </div>
+</dialog>
+
+<dialog id="orderSuccessDialog" aria-labelledby="orderSuccessTitle">
+  <div class="success-card">
+    <div class="success-icon">✓</div>
+    <h2 id="orderSuccessTitle">Pedido realizado!</h2>
+    <p>Seu pedido foi enviado para o estabelecimento.</p>
+    <strong class="success-code" id="orderSuccessCode"></strong>
+    <p>Guarde este número para acompanhar o andamento.</p>
+    <p id="orderSuccessWarning" hidden></p>
+    <div class="success-actions">
+      <button type="button" class="primary" id="copyOrderCode">Copiar número</button>
+      <button type="button" class="secondary" id="trackCreatedOrder">Acompanhar pedido</button>
+      <button type="button" class="secondary full" id="closeOrderSuccess">Fechar</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="ratingDialog" aria-labelledby="ratingTitle">
+  <div class="rating-card">
+    <div class="rating-icon">★</div>
+    <h2 id="ratingTitle">Como foi seu pedido?</h2>
+    <p>Avalie o produto depois que o pedido for entregue.</p>
+    <div class="rating-product" id="ratingProductName"></div>
+    <div class="rating-stars" role="radiogroup" aria-label="Nota de 1 a 5">
+      <% for (let star = 1; star <= 5; star += 1) { %>
+        <button type="button" class="rating-star-button" data-rating-star="<%= star %>" aria-label="<%= star %> estrela<%= star === 1 ? '' : 's' %>">★</button>
+      <% } %>
+    </div>
+    <textarea id="ratingComment" maxlength="500" placeholder="Conte como foi sua experiência (opcional)"></textarea>
+    <div class="rating-actions">
+      <button type="button" class="secondary" id="skipRating">Agora não</button>
+      <button type="button" class="primary" id="sendCatalogRating" disabled>Enviar avaliação</button>
+    </div>
+  </div>
+</dialog>
+
+<script nonce="<%= cspNonce %>">
+(() => {
+  const slug = <%- safeJsonForHtml(configuracao.slug) %>;
+  const establishmentTimezone = <%- safeJsonForHtml(configuracao.timezone || 'America/Sao_Paulo') %>;
+  const formatOrderDate = value => new Intl.DateTimeFormat('pt-BR', {
+    timeZone: establishmentTimezone, day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  }).format(new Date(value));
+  const dialog = document.querySelector('#myOrdersDialog');
+  const resultBox = document.querySelector('#myOrdersResult');
+  const tokensDosPedidos = new Map();
+  const money = value => `R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`;
+  const escapeHtml = value => String(value ?? '')
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+
+  const statusText = status => ({
+    novo: 'Novo', preparo: 'Em preparo', em_preparo: 'Em preparo', pronto: 'Pronto',
+    entregue: 'Entregue', finalizado: 'Finalizado', cancelado: 'Cancelado'
+  }[status] || status || 'Não informado');
+
+  const paymentText = status => ({ pendente: 'Pendente', pago: 'Pago', cancelado: 'Cancelado' }[status] || status || 'Pendente');
+
+  window.registrarPedidoAcompanhamento = () => {
+    document.querySelector('#openMyOrders').textContent = '📦 Consultar meus pedidos';
+  };
+
+  function mostrarMensagemPedidos(className, mensagem) {
+    const box = document.createElement('div');
+    box.className = className;
+    box.textContent = String(mensagem || '');
+    resultBox.replaceChildren(box);
+  }
+
+  const ratingDialog = document.querySelector('#ratingDialog');
+  const ratingProductName = document.querySelector('#ratingProductName');
+  const ratingComment = document.querySelector('#ratingComment');
+  const sendCatalogRating = document.querySelector('#sendCatalogRating');
+  let ratingContext = null;
+  let ratingValue = 0;
+
+  function selectRating(value) {
+    ratingValue = Number(value || 0);
+    document.querySelectorAll('[data-rating-star]').forEach(button => {
+      button.classList.toggle('active', Number(button.dataset.ratingStar) <= ratingValue);
+      button.setAttribute('aria-checked', String(Number(button.dataset.ratingStar) === ratingValue));
+    });
+    sendCatalogRating.disabled = ratingValue < 1;
+  }
+
+  function openRatingModal(context) {
+    if (!context?.produtoId || !context?.codigoPublico) return;
+    ratingContext = context;
+    ratingProductName.textContent = context.nome || 'Produto';
+    ratingComment.value = '';
+    selectRating(0);
+    if (!ratingDialog.open) ratingDialog.showModal();
+  }
+
+  document.querySelectorAll('[data-rating-star]').forEach(button => {
+    button.addEventListener('click', () => selectRating(button.dataset.ratingStar));
+  });
+  document.querySelector('#skipRating').addEventListener('click', () => ratingDialog.close());
+  ratingDialog.addEventListener('click', event => { if (event.target === ratingDialog) ratingDialog.close(); });
+  sendCatalogRating.addEventListener('click', async () => {
+    if (!ratingContext || ratingValue < 1) return;
+    sendCatalogRating.disabled = true;
+    sendCatalogRating.textContent = 'Enviando...';
+    try {
+      const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/pedido/avaliacao`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          codigoPublico: ratingContext.codigoPublico,
+          produtoId: ratingContext.produtoId,
+          nota: ratingValue,
+          comentario: ratingComment.value
+        })
+      });
+      const data = await parseJsonSafe(response);
+      if (!response.ok) throw new Error(data.message || 'Não foi possível salvar a avaliação.');
+      ratingDialog.close();
+      const target = document.querySelector(`[data-rate-product][data-order-code="${CSS.escape(ratingContext.codigoPublico)}"][data-product-id="${CSS.escape(ratingContext.produtoId)}"]`);
+      if (target) { target.textContent = 'Avaliado'; target.disabled = true; }
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      sendCatalogRating.textContent = 'Enviar avaliação';
+      sendCatalogRating.disabled = ratingValue < 1;
+    }
+  });
+
+  function renderOrders(orders) {
+    tokensDosPedidos.clear();
+    if (!orders.length) {
+      mostrarMensagemPedidos(
+        'orders-empty',
+        'Nenhum pedido acompanhado neste navegador.'
+      );
+      return;
+    }
+
+    const cards = orders.map(order => {
+      tokensDosPedidos.set(
+        String(order.codigoPublico),
+        null
+      );
+      const card = document.createElement('article');
+      card.className = 'customer-order-card';
+      card.dataset.publicOrderCode = String(order.codigoPublico || '');
+      card.innerHTML = '<div class="customer-order-head"><div><div class="customer-order-number"></div><div class="customer-order-date"></div></div><div class="customer-order-badges"><span class="customer-order-badge order-status"></span><span class="customer-order-badge payment-status"></span></div></div><div class="customer-order-delivery"><strong>Entrega: </strong><span></span></div><div class="customer-order-message"></div><div class="customer-order-items"></div><div class="customer-order-footer"><div class="customer-order-total"></div></div>';
+      card.querySelector('.customer-order-number').textContent =
+        `Pedido #${String(order.codigoPublico || '')}`;
+      card.querySelector('.customer-order-date').textContent =
+        formatOrderDate(order.data);
+      card.querySelector('.order-status').textContent =
+        statusText(order.status);
+      const payment = card.querySelector('.payment-status');
+      payment.classList.add(
+        order.pagamentoStatus === 'pago' ? 'paid' : 'pending'
+      );
+      payment.textContent =
+        `Pagamento: ${paymentText(order.pagamentoStatus)}`;
+      card.querySelector('.customer-order-delivery span').textContent =
+        String(order.formaEntrega || 'Não informada');
+      card.querySelector('.customer-order-message').textContent =
+        String(order.mensagem || '');
+      card.querySelector('.customer-order-total').textContent =
+        `Total: ${money(order.total)}`;
+      const itemsBox = card.querySelector('.customer-order-items');
+      if (!(order.itens || []).length) {
+        const empty = document.createElement('div');
+        empty.textContent = 'Itens não informados.';
+        itemsBox.appendChild(empty);
+      }
+      (order.itens || []).forEach(item => {
+        const itemRow = document.createElement('div');
+        itemRow.className = 'customer-order-item';
+        const quantity = document.createElement('span');
+        quantity.textContent = `${Number(item.quantidade || 1)}x`;
+        const nameBox = document.createElement('div');
+        const name = document.createElement('strong');
+        name.textContent = String(item.nome || 'Item');
+        nameBox.appendChild(name);
+        itemRow.append(quantity, nameBox);
+        if (order.podeAvaliar && item.produtoId) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'finish-pix-button';
+          button.dataset.rateProduct = '';
+          button.dataset.orderCode = String(order.codigoPublico || '');
+          button.dataset.productId = String(item.produtoId);
+          button.textContent = item.avaliado ? 'Avaliado' : 'Avaliar';
+          button.disabled = Boolean(item.avaliado);
+          itemRow.appendChild(button);
+        }
+        itemsBox.appendChild(itemRow);
+      });
+      return card;
+    });
+    resultBox.replaceChildren(...cards);
+    const primeiro = orders.flatMap(order => (order.itens || []).map(item => ({ order, item })))
+      .find(entry => entry.order.podeAvaliar && entry.item.produtoId && !entry.item.avaliado);
+    if (primeiro) {
+      setTimeout(() => openRatingModal({
+        codigoPublico: primeiro.order.codigoPublico,
+        produtoId: primeiro.item.produtoId,
+        nome: primeiro.item.nome
+      }), 350);
+    }
+  }
+
+  document.querySelector('#openMyOrders').onclick = async () => {
+    dialog.showModal();
+  };
+  document.querySelector('#closeMyOrders').onclick = () => { resultBox.replaceChildren(); dialog.close(); };
+  dialog.addEventListener('click', event => {
+    if (event.target === dialog) dialog.close();
+  });
+  const lookupButton = document.querySelector('#orderLookupButton');
+  const lookupPhone = document.querySelector('#orderLookupPhone');
+  const lookupSuffix = document.querySelector('#orderLookupSuffix');
+  const lookupFull = document.querySelector('#orderLookupFull');
+  const lookupFullLabel = document.querySelector('#orderLookupFullLabel');
+  const loadingDialog = document.querySelector('#orderLookupLoading');
+  let consultaEmAndamento = false;
+
+  async function parseJsonSafe(response) {
+    try { return await response.json(); } catch (_) {
+      return { ok: false, message: 'A resposta do servidor não pôde ser lida.' };
+    }
+  }
+
+  lookupButton.addEventListener('click', async () => {
+    if (consultaEmAndamento) return;
+    const telefone = lookupPhone.value.replace(/\D/g, '').slice(-11);
+    const codigoFinal = lookupSuffix.value.trim().toUpperCase();
+    const codigoCompleto = lookupFullLabel.hidden
+      ? ''
+      : lookupFull.value.trim().toUpperCase();
+    if (telefone.length < 10 || !/^[A-F0-9]{4}$/.test(codigoFinal)
+      || (!lookupFullLabel.hidden && !/^[A-F0-9]{8}$/.test(codigoCompleto))) {
+      mostrarMensagemPedidos('orders-error', 'Informe um telefone válido e o código solicitado.');
+      return;
+    }
+    consultaEmAndamento = true;
+    lookupButton.disabled = true;
+    lookupButton.textContent = 'Consultando...';
+    loadingDialog.showModal();
+    try {
+      const response = await fetch(`/catalogo/${encodeURIComponent(slug)}/pedidos/consultar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telefone, codigoFinal, ...(codigoCompleto ? { codigoCompleto } : {}) })
+      });
+      const data = await parseJsonSafe(response);
+      if (!response.ok || !data.ok) {
+        if (data.code === 'ORDER_LOOKUP_FULL_CODE_REQUIRED') {
+          lookupFullLabel.hidden = false;
+          lookupFull.focus();
+        }
+        mostrarMensagemPedidos('orders-error', data.message || 'Não foi possível localizar o pedido com os dados informados.');
+        return;
+      }
+      renderOrders([data.pedido]);
+    } catch (_) {
+      mostrarMensagemPedidos('orders-error', 'Não foi possível consultar o pedido agora.');
+    } finally {
+      if (loadingDialog.open) loadingDialog.close();
+      document.body.style.overflow = '';
+      document.body.removeAttribute('aria-busy');
+      consultaEmAndamento = false;
+      lookupButton.disabled = false;
+      lookupButton.textContent = 'Consultar pedido';
+      lookupButton.focus();
+    }
+  });
+
+  const successDialog = document.querySelector('#orderSuccessDialog');
+  let ultimoCodigoPublico = '';
+  window.mostrarSucessoPedido = (codigo, aviso) => {
+    ultimoCodigoPublico = String(codigo || '').toUpperCase();
+    document.querySelector('#orderSuccessCode').textContent = `#${ultimoCodigoPublico}`;
+    const warning = document.querySelector('#orderSuccessWarning');
+    warning.textContent = String(aviso || '');
+    warning.hidden = !aviso;
+    successDialog.showModal();
+  };
+  document.querySelector('#copyOrderCode').addEventListener('click', async event => {
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(ultimoCodigoPublico);
+      else {
+        const area = document.createElement('textarea');
+        area.value = ultimoCodigoPublico; area.readOnly = true; area.style.position = 'fixed'; area.style.opacity = '0';
+        document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove();
+      }
+      event.currentTarget.textContent = 'Número copiado';
+    } catch (_) { event.currentTarget.textContent = 'Não foi possível copiar'; }
+  });
+  document.querySelector('#trackCreatedOrder').addEventListener('click', () => {
+    successDialog.close(); dialog.showModal(); lookupSuffix.value = ultimoCodigoPublico.slice(-4); lookupPhone.focus();
+  });
+  document.querySelector('#closeOrderSuccess').addEventListener('click', () => successDialog.close());
+  resultBox.addEventListener('click', event => {
+    const button = event.target.closest('[data-rate-product]');
+    if (!button || button.disabled) return;
+    openRatingModal({
+      codigoPublico: button.dataset.orderCode,
+      produtoId: button.dataset.productId,
+      nome: button.closest('.customer-order-item')?.querySelector('strong')?.textContent || 'Produto'
+    });
+  });
+
+})();
+</script>
+</body>
+</html>

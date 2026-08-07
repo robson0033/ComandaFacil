@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Termos de Uso | Comanda Fácil</title>
+    <link rel="icon" href="/assets/imgs/comanda.png" type="image/png" />
+    <style nonce="<%= cspNonce %>">
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        color: #25211f;
+        background: #f8f5f2;
+        font-family: Inter, Arial, Helvetica, sans-serif;
+        line-height: 1.7;
+      }
+      .topo {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        border-bottom: 1px solid #eadfd7;
+        background: rgba(255, 255, 255, 0.94);
+        backdrop-filter: blur(14px);
+      }
+      .topo-conteudo,
+      .pagina {
+        width: min(100% - 32px, 920px);
+        margin: 0 auto;
+      }
+      .topo-conteudo {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        min-height: 74px;
+      }
+      .marca {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 19px;
+        font-weight: 900;
+        color: #111;
+        text-decoration: none;
+      }
+      .marca img {
+        width: 45px;
+        height: 45px;
+        object-fit: contain;
+        border-radius: 12px;
+      }
+      .voltar {
+        padding: 10px 15px;
+        border: 1px solid #dfd4cc;
+        border-radius: 10px;
+        color: #8f1d18;
+        font-weight: 800;
+        text-decoration: none;
+        background: #fff;
+      }
+      .pagina {
+        padding: 52px 0 80px;
+      }
+      .hero {
+        padding: 38px;
+        border-radius: 24px;
+        color: #fff;
+        background: linear-gradient(135deg, #7b1717, #ec7015);
+        box-shadow: 0 24px 55px rgba(101, 17, 17, 0.18);
+      }
+      .hero h1 {
+        margin: 0;
+        font-size: clamp(32px, 5vw, 48px);
+        line-height: 1.1;
+      }
+      .hero p {
+        margin: 14px 0 0;
+        color: rgba(255, 255, 255, 0.84);
+      }
+      .documento {
+        margin-top: 28px;
+        padding: 36px;
+        border: 1px solid #eadfd7;
+        border-radius: 24px;
+        background: #fff;
+        box-shadow: 0 18px 45px rgba(73, 34, 16, 0.07);
+      }
+      h2 {
+        margin: 34px 0 10px;
+        color: #651111;
+        font-size: 22px;
+      }
+      h2:first-child {
+        margin-top: 0;
+      }
+      p,
+      li {
+        color: #514b47;
+      }
+      ul {
+        padding-left: 23px;
+      }
+
+      .rodape {
+        margin-top: 32px;
+        color: #7a716b;
+        font-size: 13px;
+        text-align: center;
+      }
+      @media (max-width: 600px) {
+        .hero,
+        .documento {
+          padding: 25px 20px;
+          border-radius: 18px;
+        }
+        .voltar {
+          font-size: 13px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topo">
+      <div class="topo-conteudo">
+        <a class="marca" href="/"
+          ><img src="/assets/imgs/comanda.png" alt="Comanda Fácil" /><span
+            >Comanda Fácil</span
+          ></a
+        >
+        <a class="voltar" href="/">Voltar ao acesso</a>
+      </div>
+    </header>
+
+    <main class="pagina">
+      <section class="hero">
+        <h1>Termos de Uso</h1>
+        <p>Última atualização: 24 de julho de 2026 · Versão <%= versao %></p>
+      </section>
+
+      <article class="documento">
+        <h2>1. Aceitação</h2>
+        <p>
+          Ao criar uma conta, acessar ou utilizar o Comanda Fácil, o usuário
+          declara que leu e aceita estes Termos de Uso e a Política de
+          Privacidade. Quem não concordar com estas condições não deve concluir
+          o cadastro ou utilizar a plataforma.
+        </p>
+
+        <h2>2. Sobre a plataforma</h2>
+        <p>
+          O Comanda Fácil é uma plataforma de gestão destinada a restaurantes,
+          lanchonetes, pizzarias, hamburguerias e estabelecimentos semelhantes.
+          Entre outras funções, a plataforma pode oferecer cadastro de produtos,
+          cardápio digital, gestão de mesas, pedidos, estoque, funcionários,
+          relatórios, pagamentos e integração com serviços de terceiros.
+        </p>
+
+        <h2>3. Cadastro e segurança da conta</h2>
+        <ul>
+          <li>
+            As informações fornecidas no cadastro devem ser verdadeiras,
+            completas e atualizadas.
+          </li>
+          <li>
+            O usuário é responsável por preservar sua senha e por todas as
+            atividades realizadas em sua conta.
+          </li>
+          <li>
+            É proibido compartilhar acesso de proprietário com pessoas não
+            autorizadas ou tentar acessar contas de terceiros.
+          </li>
+          <li>
+            Suspeitas de uso indevido devem ser comunicadas pelo canal de
+            atendimento disponibilizado na plataforma.
+          </li>
+        </ul>
+
+        <h2>4. Responsabilidade do estabelecimento</h2>
+        <p>
+          O estabelecimento é responsável pelas informações publicadas no
+          cardápio, preços, disponibilidade, composição dos produtos, dados
+          fiscais, atendimento aos consumidores, preparo e entrega dos pedidos,
+          cumprimento de regras sanitárias e comerciais e tratamento dos dados
+          de seus próprios clientes.
+        </p>
+
+        <h2>5. Pedidos, pagamentos e integrações</h2>
+        <p>
+          Pagamentos online podem ser processados por instituições e provedores
+          independentes. O Comanda Fácil não controla aprovações, recusas,
+          bloqueios, estornos, prazos bancários ou indisponibilidades desses
+          serviços. O usuário deve manter válidas suas credenciais e
+          configurações de integração.
+        </p>
+
+        <h2>6. Planos, teste e cobrança</h2>
+        <p>
+          A plataforma pode oferecer período de teste, assinatura ou recursos
+          pagos. Valores, duração, limites e condições exibidos no momento da
+          contratação integram estes Termos. O atraso, cancelamento ou falha de
+          cobrança pode limitar ou suspender recursos, preservadas as obrigações
+          legais aplicáveis.
+        </p>
+
+        <h2>7. Uso permitido</h2>
+        <p>
+          É proibido utilizar a plataforma para fraude, violação de direitos,
+          envio de conteúdo malicioso, tentativa de invasão, engenharia reversa
+          não autorizada, sobrecarga deliberada dos servidores, comércio ilegal
+          ou qualquer finalidade contrária à legislação.
+        </p>
+
+        <h2>8. Disponibilidade e alterações</h2>
+        <p>
+          Buscamos manter o serviço disponível e seguro, mas manutenções, falhas
+          de internet, serviços externos, eventos de força maior e atualizações
+          podem causar interrupções. Funções podem ser aprimoradas, substituídas
+          ou descontinuadas, com comunicação quando a alteração for relevante.
+        </p>
+
+        <h2>9. Dados e cópias de segurança</h2>
+        <p>
+          O usuário deve revisar seus dados e manter cópias próprias das
+          informações essenciais ao negócio. Embora sejam adotadas medidas
+          razoáveis de proteção e continuidade, nenhum sistema é totalmente
+          imune a falhas, indisponibilidade ou incidentes.
+        </p>
+
+        <h2>10. Propriedade intelectual</h2>
+        <p>
+          A marca, interface, código, textos, identidade visual e demais
+          elementos do Comanda Fácil são protegidos pela legislação aplicável. O
+          uso da plataforma não transfere ao usuário direitos de propriedade
+          intelectual, salvo autorização expressa.
+        </p>
+
+        <h2>11. Suspensão e encerramento</h2>
+        <p>
+          A conta poderá ser suspensa ou encerrada em caso de fraude, risco de
+          segurança, violação destes Termos, determinação legal ou
+          inadimplência. O usuário poderá solicitar o encerramento da conta
+          pelos canais disponibilizados, observadas obrigações legais de
+          conservação de dados.
+        </p>
+
+        <h2>12. Limitação de responsabilidade</h2>
+        <p>
+          Na extensão permitida pela legislação, o Comanda Fácil não responde
+          por prejuízos causados por informações incorretas cadastradas pelo
+          estabelecimento, falhas de terceiros, equipamentos locais,
+          impressoras, conexão de internet, uso indevido da conta ou decisões
+          comerciais tomadas com base em dados inseridos pelo próprio usuário.
+        </p>
+
+        <h2>13. Alterações destes Termos</h2>
+        <p>
+          Estes Termos podem ser atualizados para refletir mudanças legais,
+          técnicas ou comerciais. Quando necessário, será solicitado novo aceite
+          ou apresentada comunicação destacada na plataforma.
+        </p>
+
+        <h2>14. Legislação aplicável</h2>
+        <p>
+          Estes Termos são regidos pelas leis brasileiras. Eventuais conflitos
+          serão tratados preferencialmente de forma amigável e, quando
+          aplicável, pelo foro competente definido pela legislação de proteção
+          ao consumidor e demais normas vigentes.
+        </p>
+      </article>
+
+      <p class="rodape">Comanda Fácil · Gestão Food Service</p>
+    </main>
+  </body>
+</html>
