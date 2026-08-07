@@ -889,6 +889,35 @@
       box-shadow: 0 0 0 4px rgba(242, 118, 19, 0.1);
     }
 
+    .combined-payment-panel {
+      grid-column: 1 / -1;
+      padding: 15px;
+      border: 1px solid #eadfd8;
+      border-radius: 15px;
+      background: #fff8f3;
+      box-shadow: inset 0 0 0 1px rgba(242, 118, 19, 0.03);
+    }
+
+    .combined-payment-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .combined-payment-note {
+      grid-column: 1 / -1;
+      margin: 2px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .calculated-payment-value {
+      background: #f4efec;
+      color: #2b201b;
+      font-weight: 850;
+    }
+
     .send-order-btn {
       grid-column: 1 / -1;
       min-height: 52px;
@@ -926,6 +955,34 @@
       color: #176e42;
     }
 
+    .checkout-summary {
+      grid-column: 1 / -1;
+      display: grid;
+      gap: 9px;
+      padding: 15px 16px;
+      border: 1px solid #eadfd8;
+      border-radius: 15px;
+      background: #fff8f3;
+    }
+
+    .checkout-summary-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      color: #6f5a50;
+      font-size: 14px;
+      font-weight: 750;
+    }
+
+    .checkout-summary-row.total {
+      padding-top: 10px;
+      border-top: 1px solid #eadfd8;
+      color: var(--text);
+      font-size: 17px;
+      font-weight: 900;
+    }
+
     .addon-modal {
       position: fixed; inset: 0; z-index: 130; display: none;
       place-items: center; padding: 18px; background: rgba(22,9,6,.68);
@@ -944,6 +1001,87 @@
     .addon-cancel { border:1px solid var(--line); background:#fff; }
     .addon-confirm { border:0; color:#fff; background:linear-gradient(135deg,var(--orange),var(--orange-2)); }
     .cart-addons { margin-top:5px; color:#f3cdbc; font-size:11px; line-height:1.45; }
+    .pizza-half-badge {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      margin-top: 8px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: #fff1e4;
+      color: #9a460c;
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .pizza-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 135;
+      display: none;
+      place-items: center;
+      padding: 18px;
+      background: rgba(22, 9, 6, .68);
+      backdrop-filter: blur(7px);
+    }
+    .pizza-modal.open { display: grid; }
+    .pizza-card {
+      width: min(620px, 100%);
+      max-height: 92vh;
+      overflow: auto;
+      padding: 22px;
+      border-radius: 24px;
+      background: #fff;
+      box-shadow: 0 28px 80px rgba(0,0,0,.3);
+    }
+    .pizza-mode-options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 16px 0;
+    }
+    .pizza-mode-option {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 50px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #fffaf6;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .pizza-select-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .pizza-price-preview {
+      margin-top: 16px;
+      padding: 15px;
+      border: 1px solid #f1d6c2;
+      border-radius: 14px;
+      background: #fff5ec;
+    }
+    .pizza-price-preview strong {
+      display: block;
+      margin-top: 5px;
+      color: #7e2c12;
+      font-size: 24px;
+    }
+    .pizza-rule-note {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .cart-pizza-flavors {
+      margin-top: 5px;
+      color: #ffd7c4;
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: pre-line;
+    }
     @media (max-width: 1180px) {
       .content-shell {
         grid-template-columns: 1fr;
@@ -1033,13 +1171,25 @@
         grid-template-columns: 1fr;
       }
 
+      .pizza-mode-options,
+      .pizza-select-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .combined-payment-grid {
+        grid-template-columns: 1fr;
+      }
+
       .form-field.full,
       .send-order-btn,
       .form-message {
         grid-column: auto;
       }
     }
-  </style>
+  
+
+
+</style>
 </head>
 
 <body>
@@ -1259,6 +1409,10 @@
                 data-product-name="<%= produto.nome %>"
                 data-product-price="<%= Number(produto.preco || 0) %>"
                 data-product-image="<%= safePublicUrl(produto.imagem, { allowDataImage: true }) %>"
+                data-category-id="<%= produto.categoriaId?._id || '' %>"
+                data-category-type="<%= produto.categoriaId?.tipoProduto || 'normal' %>"
+                data-pizza-half-enabled="<%= produto.categoriaId?.tipoProduto === 'pizza' && produto.categoriaId?.configuracaoPizza?.permiteMeioAMeio === true ? 'true' : 'false' %>"
+                data-pizza-price-rule="<%= produto.categoriaId?.configuracaoPizza?.regraPrecoMeioAMeio || 'maior_sabor_escolhido' %>"
                 data-product-additionals='<%= safeJsonForHtml(
                   (produto.adicionais || [])
                     .filter(adicional => adicional.ativo !== false)
@@ -1287,6 +1441,10 @@
                     <%= categoria %>
                   </div>
 
+                  <% if (produto.categoriaId?.tipoProduto === 'pizza' && produto.categoriaId?.configuracaoPizza?.permiteMeioAMeio === true) { %>
+                    <div class="pizza-half-badge">🍕 Meio a meio disponível</div>
+                  <% } %>
+
                   <h3 class="product-name"><%= produto.nome %></h3>
                   <% const avaliacao = avaliacoesPorProduto?.[String(produto._id)] || { media: '0.0', quantidade: 0 }; %>
                   <div style="font-size:13px;color:#9a5a12;margin-top:4px">★ <%= avaliacao.media %> · <%= avaliacao.quantidade %> avaliação(ões)</div>
@@ -1307,7 +1465,9 @@
                     </div>
 
                     <div style="display:flex;gap:7px">
-                      <button type="button" class="add-btn" data-add-cart><span>Pedir</span></button>
+                      <button type="button" class="add-btn" data-add-cart>
+                        <span><%= produto.categoriaId?.tipoProduto === 'pizza' && produto.categoriaId?.configuracaoPizza?.permiteMeioAMeio === true ? 'Montar pizza' : 'Pedir' %></span>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1525,7 +1685,57 @@
             <option value="pix" <%= configuracao.mercadoPago && configuracao.mercadoPago.conectado ? '' : 'disabled' %>>Pix online <%= configuracao.mercadoPago && configuracao.mercadoPago.conectado ? '' : '(indisponível)' %></option>
             <option value="dinheiro">Dinheiro na entrega/retirada</option>
             <option value="cartao">Cartão na entrega/retirada</option>
+            <option value="combinado">Combinar 2 pagamentos</option>
           </select>
+        </div>
+
+        <div class="combined-payment-panel hidden" id="combinedPaymentPanel">
+          <div class="combined-payment-grid">
+            <div class="form-field">
+              <label for="formaPagamento1">Primeiro pagamento</label>
+              <select id="formaPagamento1" name="formaPagamento1">
+                <option value="pix" <%= configuracao.mercadoPago && configuracao.mercadoPago.conectado ? '' : 'disabled' %>>Pix online <%= configuracao.mercadoPago && configuracao.mercadoPago.conectado ? '' : '(indisponível)' %></option>
+                <option value="dinheiro">Dinheiro</option>
+                <option value="cartao">Cartão</option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label for="valorPagamento1">Valor do primeiro pagamento</label>
+              <input
+                id="valorPagamento1"
+                name="valorPagamento1"
+                inputmode="decimal"
+                autocomplete="off"
+                placeholder="Ex.: 50,00"
+              >
+            </div>
+
+            <div class="form-field">
+              <label for="formaPagamento2">Segundo pagamento</label>
+              <select id="formaPagamento2" name="formaPagamento2">
+                <option value="cartao">Cartão</option>
+                <option value="dinheiro">Dinheiro</option>
+                <option value="pix" <%= configuracao.mercadoPago && configuracao.mercadoPago.conectado ? '' : 'disabled' %>>Pix online <%= configuracao.mercadoPago && configuracao.mercadoPago.conectado ? '' : '(indisponível)' %></option>
+              </select>
+            </div>
+
+            <div class="form-field">
+              <label for="valorPagamento2">Valor restante</label>
+              <input
+                id="valorPagamento2"
+                name="valorPagamento2"
+                class="calculated-payment-value"
+                readonly
+                aria-readonly="true"
+                value="R$ 0,00"
+              >
+            </div>
+
+            <p class="combined-payment-note" id="combinedPaymentNote">
+              Informe somente o primeiro valor. O restante será calculado automaticamente usando o total atual do pedido.
+            </p>
+          </div>
         </div>
 
         <div class="form-field full">
@@ -1539,6 +1749,21 @@
             maxlength="500"
             placeholder="Alguma observação adicional?"
           ></textarea>
+        </div>
+
+        <div class="checkout-summary" aria-live="polite">
+          <div class="checkout-summary-row">
+            <span>Subtotal dos produtos</span>
+            <strong id="orderSubtotal">R$ 0,00</strong>
+          </div>
+          <div class="checkout-summary-row" id="orderDeliveryFeeRow">
+            <span>Taxa de entrega</span>
+            <strong id="orderDeliveryFee">Selecione a cidade</strong>
+          </div>
+          <div class="checkout-summary-row total">
+            <span>Total do pedido</span>
+            <strong id="orderTotal">R$ 0,00</strong>
+          </div>
         </div>
 
         <div
@@ -1582,7 +1807,7 @@
       <div class="modal-head">
         <div>
           <h2>Precisa de troco?</h2>
-          <p>Informe se será necessário levar troco para o pagamento em dinheiro.</p>
+          <p id="trocoDescription">Informe se será necessário levar troco para o pagamento em dinheiro.</p>
         </div>
 
         <button
@@ -1646,6 +1871,51 @@
             Voltar
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pizza-modal" id="pizzaModal">
+    <div class="pizza-card">
+      <div class="addon-head">
+        <div>
+          <h2 id="pizzaModalTitle">Monte sua pizza</h2>
+          <p>Escolha um sabor inteiro ou dois sabores para dividir a pizza.</p>
+        </div>
+        <button type="button" class="modal-close" id="closePizzaModal" aria-label="Fechar">×</button>
+      </div>
+
+      <div class="pizza-mode-options">
+        <label class="pizza-mode-option">
+          <input type="radio" name="pizzaModo" value="inteira" checked>
+          Sabor inteiro
+        </label>
+        <label class="pizza-mode-option">
+          <input type="radio" name="pizzaModo" value="meio_a_meio">
+          Meio a meio
+        </label>
+      </div>
+
+      <div class="pizza-select-grid">
+        <div class="form-field">
+          <label for="pizzaSabor1">Primeiro sabor</label>
+          <select id="pizzaSabor1"></select>
+        </div>
+        <div class="form-field hidden" id="pizzaSabor2Field">
+          <label for="pizzaSabor2">Segundo sabor</label>
+          <select id="pizzaSabor2"></select>
+        </div>
+      </div>
+
+      <div class="pizza-price-preview">
+        <span>Preço da pizza</span>
+        <strong id="pizzaPricePreview">R$ 0,00</strong>
+        <p class="pizza-rule-note" id="pizzaRuleNote"></p>
+      </div>
+
+      <div class="addon-actions">
+        <button type="button" class="addon-cancel" id="cancelPizza">Cancelar</button>
+        <button type="button" class="addon-confirm" id="confirmPizza">Continuar</button>
       </div>
     </div>
   </div>
@@ -1786,8 +2056,22 @@
     const cidadeEntregaId =
       document.querySelector("#cidadeEntregaId");
 
+    const orderSubtotal = document.querySelector("#orderSubtotal");
+    const orderDeliveryFeeRow = document.querySelector("#orderDeliveryFeeRow");
+    const orderDeliveryFee = document.querySelector("#orderDeliveryFee");
+    const orderTotal = document.querySelector("#orderTotal");
+    const formaPagamento = document.querySelector("#formaPagamento");
+    const combinedPaymentPanel = document.querySelector("#combinedPaymentPanel");
+    const formaPagamento1 = document.querySelector("#formaPagamento1");
+    const valorPagamento1 = document.querySelector("#valorPagamento1");
+    const formaPagamento2 = document.querySelector("#formaPagamento2");
+    const valorPagamento2 = document.querySelector("#valorPagamento2");
+    const combinedPaymentNote = document.querySelector("#combinedPaymentNote");
+
     const cidadesEntregaDisponiveis =
       <%- safeJsonForHtml((cidadesEntrega || []).length > 0) %>;
+    const pixOnlineDisponivel =
+      <%- safeJsonForHtml(Boolean(configuracao.mercadoPago && configuracao.mercadoPago.conectado)) %>;
 
     const enderecoField =
       document.querySelector("#enderecoField");
@@ -1815,7 +2099,15 @@
     const addonModal = document.querySelector("#addonModal");
     const addonTitle = document.querySelector("#addonTitle");
     const addonList = document.querySelector("#addonList");
+    const pizzaModal = document.querySelector("#pizzaModal");
+    const pizzaModalTitle = document.querySelector("#pizzaModalTitle");
+    const pizzaSabor1 = document.querySelector("#pizzaSabor1");
+    const pizzaSabor2 = document.querySelector("#pizzaSabor2");
+    const pizzaSabor2Field = document.querySelector("#pizzaSabor2Field");
+    const pizzaPricePreview = document.querySelector("#pizzaPricePreview");
+    const pizzaRuleNote = document.querySelector("#pizzaRuleNote");
     let pendingProduct = null;
+    let pendingPizza = null;
 
     let selectedCategory = "todos";
     let storeIsOpen = false;
@@ -1834,6 +2126,257 @@
           currency: "BRL"
         }
       );
+    }
+
+    function lerAdicionaisCard(card) {
+      try {
+        const parsed = JSON.parse(card?.dataset?.productAdditionals || "[]");
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function produtoDoCard(card) {
+      if (!card) return null;
+      return {
+        id: String(card.dataset.id || ""),
+        name: String(card.dataset.productName || ""),
+        price: Number(card.dataset.productPrice || 0),
+        image: String(card.dataset.productImage || ""),
+        adicionais: lerAdicionaisCard(card),
+        categoria: {
+          id: String(card.dataset.categoryId || ""),
+          tipoProduto: String(card.dataset.categoryType || "normal"),
+          permiteMeioAMeio: card.dataset.pizzaHalfEnabled === "true",
+          regraPrecoMeioAMeio: String(
+            card.dataset.pizzaPriceRule || "maior_sabor_escolhido",
+          ),
+        },
+      };
+    }
+
+    const produtosCatalogoMap = new Map(
+      [...cards]
+        .map(card => produtoDoCard(card))
+        .filter(Boolean)
+        .map(produto => [produto.id, produto]),
+    );
+
+    function produtosDaCategoria(categoriaId) {
+      return [...produtosCatalogoMap.values()]
+        .filter(produto => produto.categoria?.id === String(categoriaId || ""))
+        .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+    }
+
+    function modoPizzaSelecionado() {
+      return document.querySelector('input[name="pizzaModo"]:checked')?.value
+        || "inteira";
+    }
+
+    function calcularPrecoPizzaCliente({ sabor1, sabor2, regra, meioAMeio }) {
+      if (!meioAMeio) return Number(sabor1?.price || 0);
+      if (regra === "maior_preco_categoria") {
+        const produtosCategoria = produtosDaCategoria(sabor1?.categoria?.id);
+        return Math.max(0, ...produtosCategoria.map(produto => Number(produto.price || 0)));
+      }
+      return Math.max(Number(sabor1?.price || 0), Number(sabor2?.price || 0));
+    }
+
+    function preencherSelectSabores(select, produtos, selectedId = "") {
+      select.replaceChildren();
+      produtos.forEach(produto => {
+        const option = document.createElement("option");
+        option.value = produto.id;
+        option.textContent = `${produto.name} — ${currency(produto.price)}`;
+        option.selected = produto.id === selectedId;
+        select.appendChild(option);
+      });
+    }
+
+    function atualizarModalPizza() {
+      if (!pendingPizza) return;
+      const meioAMeio = modoPizzaSelecionado() === "meio_a_meio";
+      pizzaSabor2Field.classList.toggle("hidden", !meioAMeio);
+      pizzaSabor2.disabled = !meioAMeio;
+
+      const sabor1 = produtosCatalogoMap.get(String(pizzaSabor1.value || ""));
+      const sabor2 = produtosCatalogoMap.get(String(pizzaSabor2.value || ""));
+      const repetido = meioAMeio && sabor1?.id === sabor2?.id;
+      const preco = calcularPrecoPizzaCliente({
+        sabor1,
+        sabor2,
+        regra: pendingPizza.regra,
+        meioAMeio,
+      });
+
+      pizzaPricePreview.textContent = currency(preco);
+      pizzaSabor2.setCustomValidity(
+        repetido ? "Escolha dois sabores diferentes." : "",
+      );
+      document.querySelector("#confirmPizza").disabled = Boolean(
+        meioAMeio && (!sabor1 || !sabor2 || repetido),
+      );
+
+      if (!meioAMeio) {
+        pizzaRuleNote.textContent = "O sabor inteiro usa o preço normal do produto escolhido.";
+      } else if (pendingPizza.regra === "maior_preco_categoria") {
+        pizzaRuleNote.textContent =
+          "Regra da loja: será cobrado o maior preço das pizzas desta categoria.";
+      } else {
+        pizzaRuleNote.textContent =
+          "Regra da loja: será cobrado o maior preço entre os dois sabores escolhidos.";
+      }
+    }
+
+    function fecharModalPizza() {
+      pizzaModal.classList.remove("open");
+      document.body.classList.remove("modal-open");
+      pendingPizza = null;
+    }
+
+    function abrirModalPizza(produto) {
+      const produtosCategoria = produtosDaCategoria(produto.categoria.id);
+      pendingPizza = {
+        categoriaId: produto.categoria.id,
+        regra: produto.categoria.regraPrecoMeioAMeio,
+      };
+      pizzaModalTitle.textContent = `Monte sua ${produto.categoria?.tipoProduto === "pizza" ? "pizza" : "escolha"}`;
+      preencherSelectSabores(pizzaSabor1, produtosCategoria, produto.id);
+      const segundoPadrao = produtosCategoria.find(item => item.id !== produto.id)?.id
+        || produto.id;
+      preencherSelectSabores(pizzaSabor2, produtosCategoria, segundoPadrao);
+      document.querySelector('input[name="pizzaModo"][value="inteira"]').checked = true;
+      atualizarModalPizza();
+      pizzaModal.classList.add("open");
+      document.body.classList.add("modal-open");
+    }
+
+    function abrirModalAdicionais(product, adicionais) {
+      pendingProduct = { product, adicionais };
+      addonTitle.textContent = `Adicionais de ${product.name}`;
+      addonList.replaceChildren();
+      adicionais.forEach(adicional => {
+        const option = document.createElement("div");
+        option.className = "addon-option";
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.value = String(adicional._id || "");
+        label.append(input, document.createTextNode(` ${String(adicional.nome || "")}`));
+        const price = document.createElement("strong");
+        price.textContent = `+ ${currency(adicional.preco)}`;
+        option.append(label, price);
+        addonList.appendChild(option);
+      });
+      addonModal.classList.add("open");
+      document.body.classList.add("modal-open");
+    }
+
+    function continuarProdutoParaCarrinho(product, adicionais = []) {
+      if (!adicionais.length) {
+        addToCart(product, []);
+        return;
+      }
+      abrirModalAdicionais(product, adicionais);
+    }
+
+
+    function valorDigitadoParaCentavos(value) {
+      const text = String(value ?? "")
+        .trim()
+        .replace(/\s/g, "")
+        .replace(/^R\$/i, "");
+      if (!text) return null;
+
+      let normalized = "";
+      if (/^\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?$/.test(text)) {
+        normalized = text.replace(/\./g, "").replace(",", ".");
+      } else if (/^\d+(?:,\d{1,2})?$/.test(text)) {
+        normalized = text.replace(",", ".");
+      } else if (/^\d+(?:\.\d{1,2})?$/.test(text)) {
+        normalized = text;
+      } else {
+        return null;
+      }
+
+      const number = Number(normalized);
+      const cents = Math.round(number * 100);
+      return Number.isFinite(number) && Number.isSafeInteger(cents)
+        ? cents
+        : null;
+    }
+
+    function pagamentoCombinadoAtivo() {
+      return formaPagamento?.value === "combinado";
+    }
+
+    function totalAtualPedidoCentavos() {
+      return Math.max(
+        0,
+        Math.round((resumoFinanceiroPedido().total + Number.EPSILON) * 100),
+      );
+    }
+
+    function atualizarPagamentoCombinado() {
+      const active = pagamentoCombinadoAtivo();
+      combinedPaymentPanel?.classList.toggle("hidden", !active);
+      if (!combinedPaymentPanel) return;
+
+      formaPagamento1.required = active;
+      formaPagamento2.required = active;
+      valorPagamento1.required = active;
+
+      if (!active) {
+        valorPagamento1.setCustomValidity("");
+        formaPagamento2.setCustomValidity("");
+        valorPagamento2.value = currency(0);
+        return;
+      }
+
+      const totalCents = totalAtualPedidoCentavos();
+      const firstCents = valorDigitadoParaCentavos(valorPagamento1.value);
+      const secondCents = firstCents == null ? 0 : totalCents - firstCents;
+      valorPagamento2.value = currency(Math.max(0, secondCents) / 100);
+
+      const repeated = formaPagamento1.value === formaPagamento2.value;
+      formaPagamento2.setCustomValidity(
+        repeated ? "Escolha dois meios de pagamento diferentes." : "",
+      );
+
+      const validFirst = Number.isSafeInteger(firstCents)
+        && firstCents > 0
+        && firstCents < totalCents;
+      valorPagamento1.setCustomValidity(
+        validFirst
+          ? ""
+          : "Informe um primeiro valor maior que zero e menor que o total do pedido.",
+      );
+
+      if (combinedPaymentNote) {
+        combinedPaymentNote.textContent = validFirst && !repeated
+          ? `${formaPagamento1.selectedOptions[0]?.textContent?.trim() || "Primeiro pagamento"}: ${currency(firstCents / 100)} • ${formaPagamento2.selectedOptions[0]?.textContent?.trim() || "Segundo pagamento"}: ${currency(secondCents / 100)}`
+          : "Informe somente o primeiro valor. O restante será calculado automaticamente usando o total atual do pedido.";
+      }
+    }
+
+    function payloadIncluiForma(payload, method) {
+      if (payload.formaPagamento !== "combinado") {
+        return payload.formaPagamento === method;
+      }
+      return payload.formaPagamento1 === method || payload.formaPagamento2 === method;
+    }
+
+    function valorFormaPayloadCentavos(payload, method) {
+      const totalCents = totalAtualPedidoCentavos();
+      if (payload.formaPagamento !== "combinado") {
+        return payload.formaPagamento === method ? totalCents : 0;
+      }
+      const firstCents = valorDigitadoParaCentavos(payload.valorPagamento1);
+      if (!Number.isSafeInteger(firstCents)) return 0;
+      if (payload.formaPagamento1 === method) return firstCents;
+      if (payload.formaPagamento2 === method) return totalCents - firstCents;
+      return 0;
     }
 
     function urlImagemSegura(value) {
@@ -1976,6 +2519,43 @@
       );
     }
 
+    function taxaEntregaSelecionadaCentavos() {
+      if (canalPedido?.value !== "delivery") return 0;
+      const taxa = Number(
+        cidadeEntregaId?.selectedOptions?.[0]?.dataset?.taxaCentavos,
+      );
+      return Number.isSafeInteger(taxa) && taxa >= 0 ? taxa : 0;
+    }
+
+    function resumoFinanceiroPedido() {
+      const subtotalCentavos = Math.max(
+        0,
+        Math.round((subtotal() + Number.EPSILON) * 100),
+      );
+      const taxaEntregaCentavos = taxaEntregaSelecionadaCentavos();
+      return {
+        subtotal: subtotalCentavos / 100,
+        taxaEntrega: taxaEntregaCentavos / 100,
+        total: (subtotalCentavos + taxaEntregaCentavos) / 100,
+      };
+    }
+
+    function atualizarResumoFinanceiroPedido() {
+      const resumo = resumoFinanceiroPedido();
+      const delivery = canalPedido?.value === "delivery";
+      const cidadeSelecionada = Boolean(cidadeEntregaId?.value);
+
+      if (orderSubtotal) orderSubtotal.textContent = currency(resumo.subtotal);
+      if (orderDeliveryFeeRow) orderDeliveryFeeRow.classList.toggle("hidden", !delivery);
+      if (orderDeliveryFee) {
+        orderDeliveryFee.textContent = delivery && !cidadeSelecionada
+          ? "Selecione a cidade"
+          : currency(resumo.taxaEntrega);
+      }
+      if (orderTotal) orderTotal.textContent = currency(resumo.total);
+      atualizarPagamentoCombinado();
+    }
+
     function renderCart() {
       cartList.replaceChildren();
 
@@ -1991,7 +2571,7 @@
         element.className =
           "cart-item";
 
-        element.innerHTML = '<div class="cart-thumb"></div><div><h3 class="cart-name"></h3><div class="cart-price"></div><div class="cart-addons"></div><div class="cart-actions"><div class="qty-box"><button type="button" class="qty-btn" data-action="decrease">−</button><span class="qty-number"></span><button type="button" class="qty-btn" data-action="increase">+</button></div><button type="button" class="remove-btn" data-action="remove" aria-label="Remover">×</button></div></div>';
+        element.innerHTML = '<div class="cart-thumb"></div><div><h3 class="cart-name"></h3><div class="cart-price"></div><div class="cart-pizza-flavors"></div><div class="cart-addons"></div><div class="cart-actions"><div class="qty-box"><button type="button" class="qty-btn" data-action="decrease">−</button><span class="qty-number"></span><button type="button" class="qty-btn" data-action="increase">+</button></div><button type="button" class="remove-btn" data-action="remove" aria-label="Remover">×</button></div></div>';
         const imageUrl = urlImagemSegura(item.image);
         const thumb = element.querySelector('.cart-thumb');
         if (imageUrl) {
@@ -2011,6 +2591,12 @@
             0
           )
         );
+        element.querySelector('.cart-pizza-flavors').textContent =
+          item.pizzaMeioAMeio
+            ? (item.saboresPizza || [])
+                .map(sabor => `1/2 ${String(sabor.nome || "Sabor")}`)
+                .join('\n')
+            : '';
         element.querySelector('.cart-addons').textContent =
           (item.adicionais || [])
             .map(adicional => `+ ${adicional.nome} (${currency(adicional.preco)})`)
@@ -2039,6 +2625,7 @@
       cartSubtotal.textContent =
         currency(subtotal());
 
+      atualizarResumoFinanceiroPedido();
       atualizarBotoesPedido();
     }
 
@@ -2062,50 +2649,131 @@
     }
 
     function aplicarProdutosAtuais(produtosAtuais) {
+      const produtosNormalizados = (produtosAtuais || []).map(produto => ({
+        id: String(produto.id || ""),
+        name: String(produto.nome || ""),
+        price: Number(produto.preco || 0),
+        image: String(produto.imagem || ""),
+        adicionais: (produto.adicionais || []).map(adicional => ({
+          _id: String(adicional.id || adicional._id || ""),
+          nome: String(adicional.nome || ""),
+          preco: Number(adicional.preco || 0),
+        })),
+        categoria: produto.categoria
+          ? {
+              id: String(produto.categoria.id || ""),
+              tipoProduto: String(produto.categoria.tipoProduto || "normal"),
+              permiteMeioAMeio: produto.categoria.permiteMeioAMeio === true,
+              regraPrecoMeioAMeio: String(
+                produto.categoria.regraPrecoMeioAMeio || "maior_sabor_escolhido",
+              ),
+            }
+          : { id: "", tipoProduto: "normal", permiteMeioAMeio: false },
+      }));
       const mapaProdutos = new Map(
-        (produtosAtuais || []).map(produto => [String(produto.id), produto])
+        produtosNormalizados.map(produto => [produto.id, produto]),
       );
+      produtosCatalogoMap.clear();
+      produtosNormalizados.forEach(produto => produtosCatalogoMap.set(produto.id, produto));
+
       const idsRemovidos = [];
       let precoAlterado = false;
 
       cart = cart.flatMap(item => {
-        const produto = mapaProdutos.get(String(item.id));
-        if (!produto) {
-          idsRemovidos.push(String(item.id));
-          return [];
-        }
+        let produto = mapaProdutos.get(String(item.id));
+        let produtoCarrinho = null;
 
-        if (Math.abs(Number(item.price || 0) - Number(produto.preco || 0)) > 0.001) {
-          precoAlterado = true;
+        if (item.pizzaMeioAMeio) {
+          const idsSabores = (item.saboresPizza || [])
+            .map(sabor => String(sabor.produtoId || ""));
+          const sabores = idsSabores.map(id => mapaProdutos.get(id));
+          const categoriaId = sabores[0]?.categoria?.id || "";
+          const pizzaValida = idsSabores.length === 2
+            && idsSabores[0] !== idsSabores[1]
+            && sabores.every(Boolean)
+            && sabores.every(sabor => sabor.categoria?.id === categoriaId)
+            && sabores[0].categoria?.tipoProduto === "pizza"
+            && sabores[0].categoria?.permiteMeioAMeio === true;
+
+          if (!pizzaValida) {
+            idsRemovidos.push(String(item.cartId || item.id || "pizza"));
+            return [];
+          }
+
+          produto = sabores[0];
+          const regra = produto.categoria.regraPrecoMeioAMeio;
+          const novoPreco = calcularPrecoPizzaCliente({
+            sabor1: sabores[0],
+            sabor2: sabores[1],
+            regra,
+            meioAMeio: true,
+          });
+          if (Math.abs(Number(item.price || 0) - novoPreco) > 0.001) {
+            precoAlterado = true;
+          }
+
+          produtoCarrinho = {
+            ...item,
+            id: produto.id,
+            name: `Pizza 1/2 ${sabores[0].name} + 1/2 ${sabores[1].name}`,
+            price: novoPreco,
+            image: produto.image || sabores[1].image || "",
+            categoria: produto.categoria,
+            regraPrecoPizza: regra,
+            saboresPizza: sabores.map(sabor => ({
+              produtoId: sabor.id,
+              nome: sabor.name,
+              preco: Number(sabor.price || 0),
+              fracao: 0.5,
+            })),
+          };
+        } else {
+          if (!produto) {
+            idsRemovidos.push(String(item.id));
+            return [];
+          }
+          if (Math.abs(Number(item.price || 0) - Number(produto.price || 0)) > 0.001) {
+            precoAlterado = true;
+          }
+          produtoCarrinho = {
+            ...item,
+            id: produto.id,
+            name: produto.name,
+            price: Number(produto.price || 0),
+            image: produto.image || "",
+            categoria: produto.categoria,
+          };
         }
 
         const adicionaisAtuais = new Map(
           (produto.adicionais || []).map(adicional => [
-            String(adicional.id),
-            adicional
-          ])
+            String(adicional._id || adicional.id),
+            adicional,
+          ]),
         );
         const adicionais = (item.adicionais || []).flatMap(adicional => {
           const atual = adicionaisAtuais.get(String(adicional._id || adicional.id));
           return atual ? [{
-            _id: atual.id,
+            _id: String(atual._id || atual.id),
             nome: atual.nome,
-            preco: Number(atual.preco || 0)
+            preco: Number(atual.preco || 0),
           }] : [];
         });
         const addonsKey = adicionais
           .map(adicional => String(adicional._id))
           .sort()
           .join(",");
+        const pizzaKey = produtoCarrinho.pizzaMeioAMeio
+          ? `pizza:${produtoCarrinho.saboresPizza
+              .map(sabor => String(sabor.produtoId || ""))
+              .sort()
+              .join("+")}:${String(produtoCarrinho.regraPrecoPizza || "")}`
+          : produtoCarrinho.id;
 
         return [{
-          ...item,
-          cartId: `${produto.id}:${addonsKey}`,
-          id: produto.id,
-          name: produto.nome,
-          price: Number(produto.preco || 0),
-          image: produto.imagem || "",
-          adicionais
+          ...produtoCarrinho,
+          cartId: `${pizzaKey}:${addonsKey}`,
+          adicionais,
         }];
       });
 
@@ -2175,7 +2843,13 @@
         .map(adicional => String(adicional._id))
         .sort()
         .join(",");
-      const cartId = `${product.id}:${addonsKey}`;
+      const pizzaKey = product.pizzaMeioAMeio
+        ? `pizza:${(product.saboresPizza || [])
+            .map(sabor => String(sabor.produtoId || ""))
+            .sort()
+            .join("+")}:${String(product.regraPrecoPizza || "")}`
+        : String(product.id || "");
+      const cartId = `${pizzaKey}:${addonsKey}`;
       const existing = cart.find(item => item.cartId === cartId);
 
       if (totalItems() >= PUBLIC_ORDER_LIMITS.maxTotalQuantity) {
@@ -2268,60 +2942,90 @@
           "click",
           event => {
             if (!storeIsOpen) {
-              alert(
-                "O estabelecimento está fechado."
-              );
-
+              alert("O estabelecimento está fechado.");
               return;
             }
 
-            const card =
-              event.currentTarget.closest(
-                ".product-card"
-              );
+            const card = event.currentTarget.closest(".product-card");
+            const product = produtosCatalogoMap.get(String(card?.dataset?.id || ""))
+              || produtoDoCard(card);
+            if (!product) return;
 
-            const product = {
-              id: card.dataset.id,
-              name: card.dataset.productName,
-              price: Number(card.dataset.productPrice || 0),
-              image: card.dataset.productImage || ""
-            };
-
-            let adicionais = [];
-            try {
-              adicionais = JSON.parse(card.dataset.productAdditionals || "[]");
-            } catch {
-              adicionais = [];
-            }
-
-            if (!adicionais.length) {
-              addToCart(product, []);
+            if (
+              product.categoria?.tipoProduto === "pizza"
+              && product.categoria?.permiteMeioAMeio === true
+            ) {
+              abrirModalPizza(product);
               return;
             }
 
-            pendingProduct = { product, adicionais };
-            addonTitle.textContent = `Adicionais de ${product.name}`;
-            addonList.replaceChildren();
-            adicionais.forEach(adicional => {
-              const option = document.createElement('div');
-              option.className = 'addon-option';
-              const label = document.createElement('label');
-              const input = document.createElement('input');
-              input.type = 'checkbox';
-              input.value = String(adicional._id || '');
-              label.append(input, document.createTextNode(
-                ` ${String(adicional.nome || '')}`
-              ));
-              const price = document.createElement('strong');
-              price.textContent = `+ ${currency(adicional.preco)}`;
-              option.append(label, price);
-              addonList.appendChild(option);
-            });
-            addonModal.classList.add("open");
-            document.body.classList.add("modal-open");
-          }
+            continuarProdutoParaCarrinho(product, product.adicionais || []);
+          },
         );
       });
+
+    document.querySelectorAll('input[name="pizzaModo"]').forEach(input => {
+      input.addEventListener("change", atualizarModalPizza);
+    });
+    pizzaSabor1.addEventListener("change", atualizarModalPizza);
+    pizzaSabor2.addEventListener("change", atualizarModalPizza);
+    document.querySelector("#closePizzaModal").addEventListener("click", fecharModalPizza);
+    document.querySelector("#cancelPizza").addEventListener("click", fecharModalPizza);
+    pizzaModal.addEventListener("click", event => {
+      if (event.target === pizzaModal) fecharModalPizza();
+    });
+    document.querySelector("#confirmPizza").addEventListener("click", () => {
+      if (!pendingPizza) return;
+      const sabor1 = produtosCatalogoMap.get(String(pizzaSabor1.value || ""));
+      const meioAMeio = modoPizzaSelecionado() === "meio_a_meio";
+      const sabor2 = produtosCatalogoMap.get(String(pizzaSabor2.value || ""));
+      if (!sabor1) return;
+
+      if (!meioAMeio) {
+        fecharModalPizza();
+        continuarProdutoParaCarrinho(sabor1, sabor1.adicionais || []);
+        return;
+      }
+
+      if (!sabor2 || sabor1.id === sabor2.id) {
+        pizzaSabor2.setCustomValidity("Escolha dois sabores diferentes.");
+        pizzaSabor2.reportValidity();
+        return;
+      }
+
+      const preco = calcularPrecoPizzaCliente({
+        sabor1,
+        sabor2,
+        regra: pendingPizza.regra,
+        meioAMeio: true,
+      });
+      const pizza = {
+        id: sabor1.id,
+        name: `Pizza 1/2 ${sabor1.name} + 1/2 ${sabor2.name}`,
+        price: preco,
+        image: sabor1.image || sabor2.image || "",
+        categoria: sabor1.categoria,
+        pizzaMeioAMeio: true,
+        saboresPizza: [
+          {
+            produtoId: sabor1.id,
+            nome: sabor1.name,
+            preco: Number(sabor1.price || 0),
+            fracao: 0.5,
+          },
+          {
+            produtoId: sabor2.id,
+            nome: sabor2.name,
+            preco: Number(sabor2.price || 0),
+            fracao: 0.5,
+          },
+        ],
+        regraPrecoPizza: pendingPizza.regra,
+      };
+
+      fecharModalPizza();
+      continuarProdutoParaCarrinho(pizza, sabor1.adicionais || []);
+    });
 
     function closeAddonModal() {
       addonModal.classList.remove("open");
@@ -2556,6 +3260,8 @@
       sidebarCart.classList.remove(
         "open"
       );
+
+      atualizarResumoFinanceiroPedido();
     }
 
     function closeModal() {
@@ -2610,6 +3316,21 @@
         );
         const statusResult = await statusResponse.json();
         if (!statusResponse.ok) throw new Error("Falha temporária ao confirmar pagamento.");
+        if (statusResult.pixAprovado && statusResult.aguardandoPagamentoRestante) {
+          document.querySelector("#pixPaymentStatus").textContent =
+            "✅ Parte Pix aprovada. O restante será pago na entrega/retirada.";
+          const card = document.querySelector(`[data-public-order-code="${CSS.escape(pixPollingContext.codigoPublico)}"]`);
+          const badge = card?.querySelector(".payment-status");
+          if (badge) {
+            badge.className = "customer-order-badge payment-status pending";
+            badge.textContent = "Pix pago • restante pendente";
+          }
+          formMessage.className = "form-message success";
+          formMessage.textContent =
+            "Parte Pix confirmada! O pedido foi enviado para a loja e o restante será recebido na entrega/retirada.";
+          setTimeout(closePixModal, 1200);
+          return;
+        }
         if (statusResult.pagamentoStatus === "pago") {
           document.querySelector("#pixPaymentStatus").textContent = "✅ Pagamento aprovado.";
           const card = document.querySelector(`[data-public-order-code="${CSS.escape(pixPollingContext.codigoPublico)}"]`);
@@ -2671,6 +3392,8 @@
           if (input) input.value = "";
         });
       }
+
+      atualizarResumoFinanceiroPedido();
     }
 
     checkoutBtn.addEventListener(
@@ -2704,6 +3427,23 @@
       "change",
       atualizarEndereco
     );
+
+    cidadeEntregaId.addEventListener(
+      "change",
+      atualizarResumoFinanceiroPedido
+    );
+
+
+    formaPagamento.addEventListener("change", atualizarPagamentoCombinado);
+    formaPagamento1.addEventListener("change", atualizarPagamentoCombinado);
+    formaPagamento2.addEventListener("change", atualizarPagamentoCombinado);
+    valorPagamento1.addEventListener("input", atualizarPagamentoCombinado);
+
+    if (!pixOnlineDisponivel) {
+      if (formaPagamento.value === "pix") formaPagamento.value = "dinheiro";
+      if (formaPagamento1.value === "pix") formaPagamento1.value = "dinheiro";
+      if (formaPagamento2.value === "pix") formaPagamento2.value = "cartao";
+    }
 
     mobileCartToggle.addEventListener(
       "click",
@@ -2742,6 +3482,7 @@
     const trocoValorArea = document.querySelector("#trocoValorArea");
     const trocoParaModal = document.querySelector("#trocoParaModal");
     const trocoMessage = document.querySelector("#trocoMessage");
+    const trocoDescription = document.querySelector("#trocoDescription");
     const confirmarTrocoBtn = document.querySelector("#confirmarTrocoBtn");
     const voltarTrocoBtn = document.querySelector("#voltarTrocoBtn");
 
@@ -2758,9 +3499,15 @@
     }
 
     let pedidoPendente = null;
+    let pedidoPendenteValorDinheiroCentavos = 0;
 
-    function abrirModalTroco(payload) {
+    function abrirModalTroco(payload, valorDinheiroCentavos) {
       pedidoPendente = payload;
+      pedidoPendenteValorDinheiroCentavos = Math.max(0, Number(valorDinheiroCentavos || 0));
+      if (trocoDescription) {
+        trocoDescription.textContent =
+          `A parte em dinheiro é ${currency(pedidoPendenteValorDinheiroCentavos / 100)}. Informe se será necessário levar troco.`;
+      }
       trocoPergunta.classList.remove("hidden");
       trocoValorArea.classList.add("hidden");
       trocoParaModal.value = "";
@@ -2772,6 +3519,7 @@
     function fecharModalTroco() {
       trocoModal.classList.remove("open");
       pedidoPendente = null;
+      pedidoPendenteValorDinheiroCentavos = 0;
       trocoParaModal.value = "";
       trocoMessage.textContent = "";
     }
@@ -2862,7 +3610,7 @@
         fecharModalTroco();
         pedidoIdempotencyKeyAtual = null;
 
-        if (payload.formaPagamento === "pix") {
+        if (payloadIncluiForma(payload, "pix")) {
           const pixResponse = await fetch(
             `/catalogo/${encodeURIComponent(storeSlug)}/pedido/pix`,
             {
@@ -2906,7 +3654,10 @@
           const code = document.querySelector("#pixCopyCode");
           qr.src = `data:image/png;base64,${pixResult.qrCodeBase64}`;
           code.value = pixResult.copiaCola || "";
-          document.querySelector("#pixPaymentStatus").textContent = "Aguardando pagamento...";
+          const valorPixTexto = currency(Number(pixResult.valorPix || 0));
+          document.querySelector("#pixPaymentStatus").textContent = pixResult.pagamentoCombinado
+            ? `Aguardando o Pix de ${valorPixTexto}. O restante será pago na entrega/retirada.`
+            : `Aguardando o Pix de ${valorPixTexto}.`;
           document.querySelector("#copyPixButton").textContent = "Copiar código Pix";
           openPixPaymentModal();
 
@@ -2934,7 +3685,7 @@
         });
         // No Pix, o QR Code é a tela principal neste momento. A confirmação
         // final é mostrada somente depois que o pagamento for aprovado.
-        if (payload.formaPagamento !== "pix") {
+        if (!payloadIncluiForma(payload, "pix")) {
           window.mostrarSucessoPedido?.(
             result.codigoPublico || result.numeroPedido,
             result.emailAviso || ""
@@ -2947,7 +3698,7 @@
         orderForm.reset();
         atualizarEndereco();
 
-        if (payload.formaPagamento !== "pix") {
+        if (!payloadIncluiForma(payload, "pix")) {
           setTimeout(() => closeModal(), 2500);
         }
       } catch (error) {
@@ -2993,6 +3744,14 @@
       if (!Number.isFinite(trocoPara) || trocoPara <= 0) {
         trocoMessage.className = "form-message error";
         trocoMessage.textContent = "Informe um valor válido. Exemplo: 50,00.";
+        trocoParaModal.focus();
+        return;
+      }
+
+      if (Math.round(trocoPara * 100) < pedidoPendenteValorDinheiroCentavos) {
+        trocoMessage.className = "form-message error";
+        trocoMessage.textContent =
+          `O valor para troco deve ser igual ou maior que ${currency(pedidoPendenteValorDinheiroCentavos / 100)}.`;
         trocoParaModal.focus();
         return;
       }
@@ -3048,6 +3807,10 @@
           referenciaEntrega: String(formData.get("referenciaEntrega") || "").trim(),
           observacao: String(formData.get("observacao") || "").trim(),
           formaPagamento: String(formData.get("formaPagamento") || "nao_informado"),
+          formaPagamento1: String(formData.get("formaPagamento1") || ""),
+          valorPagamento1: String(formData.get("valorPagamento1") || "").trim(),
+          formaPagamento2: String(formData.get("formaPagamento2") || ""),
+          valorPagamento2: String(formData.get("valorPagamento2") || "").trim(),
           precisaTroco: false,
           trocoPara: null,
           idempotencyKey: pedidoIdempotencyKeyAtual ||= criarIdempotencyKey(),
@@ -3055,6 +3818,12 @@
             produtoId: item.id,
             preco: Number(item.price),
             quantidade: Number(item.quantity),
+            pizzaMeioAMeio: item.pizzaMeioAMeio === true,
+            saboresPizza: item.pizzaMeioAMeio
+              ? (item.saboresPizza || []).map(sabor => ({
+                  produtoId: String(sabor.produtoId || ""),
+                }))
+              : [],
             adicionais: (item.adicionais || []).map(adicional => ({
               _id: adicional._id
             })),
@@ -3062,8 +3831,14 @@
           }))
         };
 
-        if (payload.formaPagamento === "dinheiro") {
-          abrirModalTroco(payload);
+        if (payload.formaPagamento === "combinado") {
+          atualizarPagamentoCombinado();
+          if (!orderForm.reportValidity()) return;
+        }
+
+        const valorDinheiroCentavos = valorFormaPayloadCentavos(payload, "dinheiro");
+        if (valorDinheiroCentavos > 0) {
+          abrirModalTroco(payload, valorDinheiroCentavos);
           return;
         }
 
@@ -3197,6 +3972,211 @@
   .rating-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:16px; }
   @media(max-width:560px){ .success-card,.rating-card{padding:22px 16px}.success-actions,.rating-actions{grid-template-columns:1fr}.success-actions .full{grid-column:auto}.rating-star-button{width:44px;height:44px} }
 
+
+
+/* COMANDAFACIL: CARDS MOBILE VERTICAIS 2 COLUNAS v2 - INICIO */
+/*
+ * Ajuste somente visual para celular.
+ * Mantém os cards VERTICAIS, com imagem em cima, e 2 por linha.
+ * Não altera carrinho, pedidos, pagamentos, pizza meio a meio ou backend.
+ */
+@media (max-width: 760px) {
+  .section {
+    margin-top: 14px !important;
+  }
+
+  .section-head {
+    align-items: center !important;
+    gap: 8px !important;
+    margin-bottom: 9px !important;
+  }
+
+  .section-head h2 {
+    font-size: 18px !important;
+    line-height: 1.15 !important;
+  }
+
+  .section-count {
+    flex: 0 0 auto !important;
+    font-size: 10px !important;
+  }
+
+  .grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    align-items: stretch !important;
+  }
+
+  .grid > .product-card {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+    border-radius: 13px !important;
+    box-shadow: 0 5px 14px rgba(65, 29, 14, 0.08) !important;
+    transform: none !important;
+  }
+
+  .grid > .product-card:hover {
+    transform: none !important;
+  }
+
+  .grid > .product-card .product-cover {
+    width: 100% !important;
+    height: 104px !important;
+    min-height: 104px !important;
+    max-height: 104px !important;
+    overflow: hidden !important;
+  }
+
+  .grid > .product-card .product-cover img {
+    display: block !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+  }
+
+  .grid > .product-card .product-cover-placeholder {
+    width: 100% !important;
+    height: 104px !important;
+    min-height: 104px !important;
+    display: grid !important;
+    place-items: center !important;
+    font-size: 31px !important;
+  }
+
+  .grid > .product-card .product-body {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    flex-direction: column !important;
+    min-width: 0 !important;
+    padding: 7px 8px 8px !important;
+  }
+
+  .grid > .product-card .product-category {
+    overflow: hidden !important;
+    font-size: 7.5px !important;
+    line-height: 1.1 !important;
+    letter-spacing: .45px !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .grid > .product-card .pizza-half-badge {
+    max-width: 100% !important;
+    margin-top: 3px !important;
+    padding: 3px 5px !important;
+    overflow: hidden !important;
+    font-size: 7px !important;
+    line-height: 1.1 !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .grid > .product-card .product-name {
+    margin: 3px 0 0 !important;
+    overflow: hidden !important;
+    font-size: 12px !important;
+    line-height: 1.15 !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .grid > .product-card .product-name + div {
+    margin-top: 2px !important;
+    overflow: hidden !important;
+    font-size: 7.5px !important;
+    line-height: 1.15 !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .grid > .product-card .product-desc {
+    min-height: 23px !important;
+    max-height: 23px !important;
+    margin: 3px 0 0 !important;
+    display: -webkit-box !important;
+    overflow: hidden !important;
+    -webkit-box-orient: vertical !important;
+    -webkit-line-clamp: 2 !important;
+    font-size: 8px !important;
+    line-height: 1.4 !important;
+  }
+
+  .grid > .product-card .product-foot {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 4px !important;
+    margin-top: auto !important;
+    padding-top: 6px !important;
+  }
+
+  .grid > .product-card .product-price {
+    flex: 0 1 auto !important;
+    min-width: 0 !important;
+    font-size: 12px !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+  }
+
+  .grid > .product-card .product-foot > div:last-child {
+    min-width: 0 !important;
+  }
+
+  .grid > .product-card .add-btn {
+    min-height: 28px !important;
+    padding: 0 6px !important;
+    border-radius: 8px !important;
+    font-size: 7.5px !important;
+    line-height: 1 !important;
+    box-shadow: none !important;
+    white-space: nowrap !important;
+  }
+}
+
+/* Celulares estreitos: continua com DUAS colunas. */
+@media (max-width: 360px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+  }
+
+  .grid > .product-card .product-cover,
+  .grid > .product-card .product-cover-placeholder {
+    height: 92px !important;
+    min-height: 92px !important;
+    max-height: 92px !important;
+  }
+
+  .grid > .product-card .product-body {
+    padding: 6px 6px 7px !important;
+  }
+
+  .grid > .product-card .product-name {
+    font-size: 11px !important;
+  }
+
+  .grid > .product-card .product-desc {
+    min-height: 21px !important;
+    max-height: 21px !important;
+    font-size: 7.5px !important;
+  }
+
+  .grid > .product-card .product-price {
+    font-size: 11px !important;
+  }
+
+  .grid > .product-card .add-btn {
+    min-height: 26px !important;
+    padding: 0 5px !important;
+    font-size: 7px !important;
+  }
+}
+/* COMANDAFACIL: CARDS MOBILE VERTICAIS 2 COLUNAS v2 - FIM */
 </style>
 
 <button type="button" id="openMyOrders">📦 Meus pedidos</button>
