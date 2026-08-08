@@ -8,6 +8,7 @@ const PUBLIC_ORDER_LIMITS = Object.freeze({
   maxAdditionsPerItem: 20,
   maxProductIdLength: 64,
   maxPizzaSizeIdLength: 64,
+  maxVariationIdLength: 64,
   maxAdditionIdLength: 64,
   client: 120,
   phone: 30,
@@ -81,6 +82,20 @@ function validateItemsShape(items) {
       && !publicIdentifier(tamanhoPizzaInformado, PUBLIC_ORDER_LIMITS.maxPizzaSizeIdLength)
     ) {
       return { valid: false, message: "Tamanho de pizza inválido." };
+    }
+
+    const variacaoInformada = String(
+      item.variacaoId
+        ?? item.opcaoId
+        ?? item.variacao?._id
+        ?? item.variacao?.id
+        ?? "",
+    ).trim();
+    if (
+      variacaoInformada
+      && !publicIdentifier(variacaoInformada, PUBLIC_ORDER_LIMITS.maxVariationIdLength)
+    ) {
+      return { valid: false, message: "Opção do produto inválida." };
     }
 
     const pizzaMeioAMeio = item.pizzaMeioAMeio === true

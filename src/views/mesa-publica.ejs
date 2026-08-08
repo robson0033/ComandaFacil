@@ -1652,6 +1652,19 @@
         <% const avaliacao =
           avaliacoesPorProduto?.[String(produto._id)] ||
           { media: 0, quantidade: 0 };
+          const variacoesCategoriaAtivas =
+            produto.categoriaId?.tipoProduto !== 'pizza'
+            && produto.categoriaId?.configuracaoVariacoes?.habilitado === true
+              ? (produto.categoriaId?.configuracaoVariacoes?.opcoes || [])
+                  .filter(opcao => opcao.ativo !== false)
+                  .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0))
+              : [];
+          const precosVariacoesExibicao = (produto.precosVariacoes || [])
+            .map(item => Number(item.preco))
+            .filter(Number.isFinite);
+          const variacaoPrecificacaoPendente =
+            variacoesCategoriaAtivas.length > 0
+            && precosVariacoesExibicao.length === 0;
         %>
 
         <article
@@ -1719,13 +1732,20 @@
 
             <div class="product-footer">
               <strong class="price">
-                <%= Number(produto.preco).toLocaleString(
-                  'pt-BR',
-                  {
-                    style: 'currency',
-                    currency: 'BRL'
-                  }
-                ) %>
+                <% if (precosVariacoesExibicao.length) { %>
+                  <small style="display:block;font-size:10px;">A partir de</small>
+                  <%= Math.min(...precosVariacoesExibicao).toLocaleString(
+                    'pt-BR',
+                    { style: 'currency', currency: 'BRL' }
+                  ) %>
+                <% } else if (variacaoPrecificacaoPendente) { %>
+                  Indisponível
+                <% } else { %>
+                  <%= Number(produto.preco).toLocaleString(
+                    'pt-BR',
+                    { style: 'currency', currency: 'BRL' }
+                  ) %>
+                <% } %>
               </strong>
 
               <div class="product-actions">
@@ -1752,6 +1772,16 @@
                   data-name="<%= produto.nome %>"
                   data-price="<%= produto.preco %>"
                   data-image="<%= safePublicUrl(produto.imagem, { allowDataImage: true }) %>"
+                  data-variations-enabled="<%= variacoesCategoriaAtivas.length ? 'true' : 'false' %>"
+                  data-category-variations='<%= safeJsonForHtml(variacoesCategoriaAtivas.map(opcao => ({
+                    id: String(opcao._id),
+                    nome: String(opcao.nome || '')
+                  }))) %>'
+                  data-product-variation-prices='<%= safeJsonForHtml((produto.precosVariacoes || []).map(item => ({
+                    variacaoId: String(item.variacaoId || ''),
+                    variacaoNome: String(item.variacaoNome || ''),
+                    preco: Number(item.preco || 0)
+                  }))) %>'
                   data-additionals='<%= safeJsonForHtml(
                     (produto.adicionais || [])
                       .filter(adicional => adicional.ativo !== false)
@@ -1761,8 +1791,9 @@
                         preco: adicional.preco
                       }))
                   ) %>'
+                  <%= variacaoPrecificacaoPendente ? 'disabled title="Preços por opção ainda não configurados"' : '' %>
                 >
-                  + Adicionar
+                  <%= variacaoPrecificacaoPendente ? 'Indisponível' : (variacoesCategoriaAtivas.length ? 'Escolher' : '+ Adicionar') %>
                 </button>
               </div>
             </div>
@@ -1929,6 +1960,29 @@
       Finalizar pedido
     </button>
   </aside>
+
+  <section class="rating-modal" id="variationModal">
+    <div class="rating-card">
+      <div class="rating-card-head">
+        <div>
+          <h2 id="variationProductName">Escolha uma opção</h2>
+          <p>Selecione o tamanho, volume ou porção desejada.</p>
+        </div>
+        <button type="button" class="close-cart" id="closeVariationModal">×</button>
+      </div>
+
+      <div class="form-field">
+        <label for="variationSelect">Opção</label>
+        <select id="variationSelect"></select>
+      </div>
+      <strong id="variationPricePreview" style="display:block;margin-top:14px;font-size:20px;"></strong>
+
+      <div class="rating-actions">
+        <button type="button" class="secondary-button" id="cancelVariation">Cancelar</button>
+        <button type="button" class="primary-button" id="confirmVariation">Continuar</button>
+      </div>
+    </div>
+  </section>
 
   <section class="rating-modal" id="addonModal">
     <div class="rating-card">
@@ -2128,7 +2182,13 @@
     const addonOptions =
       document.querySelector('#addonOptions');
 
+    const variationModal = document.querySelector('#variationModal');
+    const variationSelect = document.querySelector('#variationSelect');
+    const variationPricePreview = document.querySelector('#variationPricePreview');
+    const variationProductName = document.querySelector('#variationProductName');
+
     let pendingProductToAdd = null;
+    let pendingVariationMesa = null;
 
     function totalCartQuantity() {
       return cart.reduce(
@@ -2149,9 +2209,11 @@
           .sort()
           .join(',');
 
+      const variationKey = String(product.variacao?.id || '');
       const existing = cart.find(
         item =>
           item.produtoId === product.produtoId &&
+          String(item.variacao?.id || '') === variationKey &&
           item.additionsKey === additionsKey
       );
 
@@ -2193,6 +2255,72 @@
       document.body.style.overflow = '';
     }
 
+    function abrirAdicionaisMesa(product, additionals) {
+      if (!additionals.length) {
+        addProductToCart(product, []);
+        return;
+      }
+
+      pendingProductToAdd = { product, additionals };
+      document.querySelector('#addonProductName').textContent =
+        `Adicionais de ${product.nome}`;
+      addonOptions.replaceChildren();
+      additionals.forEach(adicional => {
+        const option = document.createElement('div');
+        option.className = 'addon-option';
+        const label = document.createElement('label');
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.value = String(adicional._id || '');
+        label.append(input, document.createTextNode(` ${String(adicional.nome || '')}`));
+        const price = document.createElement('strong');
+        price.textContent = `+ ${money(adicional.preco)}`;
+        option.append(label, price);
+        addonOptions.appendChild(option);
+      });
+      addonModal.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function precoVariacaoMesa(precos, variacaoId) {
+      const item = (precos || []).find(preco =>
+        String(preco.variacaoId || '') === String(variacaoId || '')
+      );
+      return item ? Number(item.preco) : Number.NaN;
+    }
+
+    function fecharVariacaoMesa() {
+      variationModal.classList.remove('open');
+      pendingVariationMesa = null;
+      document.body.style.overflow = '';
+    }
+
+    function abrirVariacaoMesa(product, additionals, variacoes, precos) {
+      const disponiveis = variacoes.filter(opcao =>
+        Number.isFinite(precoVariacaoMesa(precos, opcao.id))
+      );
+      if (!disponiveis.length) return;
+      pendingVariationMesa = { product, additionals, variacoes: disponiveis, precos };
+      variationProductName.textContent = `Escolha uma opção para ${product.nome}`;
+      variationSelect.replaceChildren();
+      disponiveis.forEach(opcao => {
+        const option = document.createElement('option');
+        option.value = opcao.id;
+        option.textContent = `${opcao.nome} — ${money(precoVariacaoMesa(precos, opcao.id))}`;
+        variationSelect.appendChild(option);
+      });
+      const atualizar = () => {
+        const opcao = disponiveis.find(item => item.id === String(variationSelect.value || ''));
+        const preco = opcao ? precoVariacaoMesa(precos, opcao.id) : Number.NaN;
+        variationPricePreview.textContent = Number.isFinite(preco) ? money(preco) : 'Indisponível';
+        document.querySelector('#confirmVariation').disabled = !opcao || !Number.isFinite(preco);
+      };
+      variationSelect.onchange = atualizar;
+      atualizar();
+      variationModal.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+
     document
       .querySelectorAll('.add-button')
       .forEach(button => {
@@ -2204,46 +2332,40 @@
             imagem: button.dataset.image,
           };
 
-          const additionals = JSON.parse(
-            button.dataset.additionals || '[]'
-          );
-
-          if (!additionals.length) {
-            addProductToCart(product, []);
+          const additionals = JSON.parse(button.dataset.additionals || '[]');
+          const variacoes = JSON.parse(button.dataset.categoryVariations || '[]');
+          const precosVariacoes = JSON.parse(button.dataset.productVariationPrices || '[]');
+          if (button.dataset.variationsEnabled === 'true' && variacoes.length) {
+            abrirVariacaoMesa(product, additionals, variacoes, precosVariacoes);
             return;
           }
 
-          pendingProductToAdd = {
-            product,
-            additionals,
-          };
-
-          document.querySelector(
-            '#addonProductName'
-          ).textContent =
-            `Adicionais de ${product.nome}`;
-
-          addonOptions.replaceChildren();
-          additionals.forEach(adicional => {
-            const option = document.createElement('div');
-            option.className = 'addon-option';
-            const label = document.createElement('label');
-            const input = document.createElement('input');
-            input.type = 'checkbox';
-            input.value = String(adicional._id || '');
-            label.append(input, document.createTextNode(
-              ` ${String(adicional.nome || '')}`
-            ));
-            const price = document.createElement('strong');
-            price.textContent = `+ ${money(adicional.preco)}`;
-            option.append(label, price);
-            addonOptions.appendChild(option);
-          });
-
-          addonModal.classList.add('open');
-          document.body.style.overflow = 'hidden';
+          abrirAdicionaisMesa(product, additionals);
         });
       });
+
+    document.querySelector('#closeVariationModal').addEventListener('click', fecharVariacaoMesa);
+    document.querySelector('#cancelVariation').addEventListener('click', fecharVariacaoMesa);
+    variationModal.addEventListener('click', event => {
+      if (event.target === variationModal) fecharVariacaoMesa();
+    });
+    document.querySelector('#confirmVariation').addEventListener('click', () => {
+      if (!pendingVariationMesa) return;
+      const opcao = pendingVariationMesa.variacoes.find(item =>
+        item.id === String(variationSelect.value || '')
+      );
+      if (!opcao) return;
+      const preco = precoVariacaoMesa(pendingVariationMesa.precos, opcao.id);
+      if (!Number.isFinite(preco)) return;
+      const product = {
+        ...pendingVariationMesa.product,
+        preco,
+        variacao: { id: opcao.id, nome: opcao.nome },
+      };
+      const additionals = pendingVariationMesa.additionals;
+      fecharVariacaoMesa();
+      abrirAdicionaisMesa(product, additionals);
+    });
 
     document
       .querySelector('#closeAddonModal')
@@ -2339,9 +2461,11 @@
         element.querySelector('.cart-item-name').textContent =
           String(item.nome || '');
         const addons = element.querySelector('.cart-item-addons');
-        addons.textContent = (item.adicionais || [])
-          .map(adicional => `+ ${adicional.nome} (${money(adicional.preco)})`)
-          .join('\n');
+        const detalhesItem = [];
+        if (item.variacao?.nome) detalhesItem.push(`📏 ${item.variacao.nome}`);
+        detalhesItem.push(...(item.adicionais || [])
+          .map(adicional => `+ ${adicional.nome} (${money(adicional.preco)})`));
+        addons.textContent = detalhesItem.join('\n');
         element.querySelector('.cart-item-price').textContent = money(
           (
             Number(item.preco || 0) +

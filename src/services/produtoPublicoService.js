@@ -45,7 +45,7 @@ async function buscarProdutosPublicosDoEstabelecimento(
   })
     .populate(
       "categoriaId",
-      "nome tipo tipoProduto configuracaoPizza",
+      "nome tipo tipoProduto configuracaoPizza configuracaoVariacoes",
     )
     .sort({ nome: 1, _id: 1 })
     .lean();

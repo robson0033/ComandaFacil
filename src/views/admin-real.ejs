@@ -3359,6 +3359,210 @@
       }
     }
 
+
+
+    /* =========================================================
+       COMANDA FÁCIL — ORGANIZAÇÃO VISUAL DO EDITOR DE CATEGORIAS
+       Mantém a lógica de pizza e variações genéricas separadas.
+       ========================================================= */
+
+    .category-editor {
+      padding: 16px;
+      background: #fff;
+    }
+
+    .category-edit-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: end;
+    }
+
+    .category-edit-form {
+      display: grid;
+      grid-template-columns:
+        minmax(240px, 1.35fr)
+        minmax(190px, 0.75fr)
+        minmax(130px, 170px);
+      gap: 12px;
+      align-items: end;
+      width: 100%;
+      min-width: 0;
+    }
+
+    .category-edit-form > .field {
+      min-width: 0;
+      margin: 0;
+    }
+
+    .category-edit-form > .mini-button[type="submit"] {
+      grid-column: 3;
+      grid-row: 1;
+      width: 100%;
+      min-height: 44px;
+      margin: 0;
+    }
+
+    /* Configurações especiais sempre ficam em uma linha própria. */
+    .category-pizza-inline {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns:
+        minmax(220px, 0.75fr)
+        minmax(300px, 1.25fr);
+      gap: 12px;
+      align-items: end;
+      padding: 14px;
+      border: 1px solid #f0dcc8;
+      border-radius: 14px;
+      background: #fffaf5;
+    }
+
+    /* Variações comuns ganham aparência própria para não parecer pizza. */
+    .category-variation-settings {
+      border-color: #d9e6f2;
+      background: #f8fbff;
+    }
+
+    /* Corrige o bloco genérico aparecendo dentro de categoria Pizza. */
+    .category-variation-settings.hidden,
+    .category-pizza-settings.hidden,
+    [data-categoria-variacoes-manager].hidden {
+      display: none !important;
+    }
+
+    .category-compact-checkbox {
+      min-height: 46px;
+      padding: 10px 12px;
+      border-color: var(--cinza-300);
+      border-radius: 11px;
+      background: #fff;
+      line-height: 1.25;
+    }
+
+    .category-pizza-inline > .field {
+      margin: 0;
+    }
+
+    .category-pizza-inline > .field label {
+      margin-bottom: 6px;
+    }
+
+    .pizza-size-manager {
+      grid-column: 1 / -1;
+      margin-top: 2px;
+      padding: 14px;
+      border: 1px solid #ead9c8;
+      border-radius: 12px;
+      background: #fff;
+      box-shadow: 0 1px 2px rgba(44, 25, 16, 0.04);
+    }
+
+    .category-variation-settings .pizza-size-manager {
+      border-color: #d9e6f2;
+    }
+
+    .pizza-size-manager > strong {
+      display: block;
+      color: var(--cinza-900);
+      font-size: 15px;
+      line-height: 1.25;
+    }
+
+    .pizza-size-manager > small {
+      max-width: 900px;
+      line-height: 1.4;
+    }
+
+    .pizza-size-list {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 9px;
+      margin-top: 11px;
+    }
+
+    .pizza-size-row {
+      grid-template-columns: minmax(0, 1fr) 42px;
+      gap: 8px;
+    }
+
+    .pizza-size-row input:not([type="hidden"]) {
+      width: 100%;
+      min-width: 0;
+      height: 42px;
+    }
+
+    .pizza-size-remove {
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
+    }
+
+    .pizza-size-manager > .mini-button {
+      margin-top: 10px !important;
+    }
+
+    .category-delete-form {
+      align-self: end;
+      margin: 0;
+    }
+
+    .category-delete-form .mini-button {
+      min-height: 44px;
+    }
+
+    @media (max-width: 1100px) {
+      .category-edit-layout {
+        grid-template-columns: 1fr;
+      }
+
+      .category-delete-form {
+        justify-self: end;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .category-edit-form {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      }
+
+      .category-edit-form > .mini-button[type="submit"] {
+        grid-column: 1 / -1;
+        grid-row: auto;
+        width: 100%;
+      }
+
+      .category-pizza-inline {
+        grid-template-columns: 1fr;
+      }
+
+      .pizza-size-list {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .category-editor {
+        padding: 12px;
+      }
+
+      .category-edit-form {
+        grid-template-columns: 1fr;
+      }
+
+      .category-pizza-inline,
+      .category-edit-form > .mini-button[type="submit"] {
+        grid-column: 1;
+      }
+
+      .category-pizza-inline {
+        padding: 12px;
+      }
+
+      .category-delete-form,
+      .category-delete-form .mini-button {
+        width: 100%;
+      }
+    }
   </style>
 </head>
  <link rel="icon" href="/assets/imgs/comanda.png" type="image/x-png">
@@ -5341,6 +5545,32 @@
             </button>
 
             <div
+              class="category-create-pizza-options category-variation-settings"
+              data-categoria-variacoes-settings
+            >
+              <label class="category-compact-checkbox">
+                <input
+                  type="checkbox"
+                  name="variacoesHabilitadas"
+                  value="on"
+                  data-categoria-variacoes-toggle
+                >
+                Usar opções de tamanho, volume ou porção
+              </label>
+
+              <div class="pizza-size-manager hidden" data-categoria-variacoes-manager>
+                <strong>Opções da categoria</strong>
+                <small style="display:block;color:var(--cinza-500);margin-top:4px;">
+                  Exemplos: 300ml, 500ml e 1L; Pequena, Média e Grande; Meia porção e Porção inteira. Depois, informe o preço de cada opção em cada produto.
+                </small>
+                <div class="pizza-size-list" data-variation-list></div>
+                <button type="button" class="mini-button edit" data-add-variation style="margin-top:9px;">
+                  + Adicionar opção
+                </button>
+              </div>
+            </div>
+
+            <div
               class="category-create-pizza-options category-pizza-settings hidden"
               data-categoria-pizza-settings
             >
@@ -5388,6 +5618,8 @@
           <div class="category-config-list">
             <% listaCategoriasCatalogo.forEach(categoria => {
               const categoriaPizza = categoria.tipoProduto === 'pizza';
+              const variacoesCategoria = !categoriaPizza
+                && categoria.configuracaoVariacoes?.habilitado === true;
               const permiteMeioAMeio = categoriaPizza
                 && categoria.configuracaoPizza?.permiteMeioAMeio === true;
               const regraPizza =
@@ -5410,6 +5642,18 @@
                     <% if (permiteMeioAMeio) { %>
                       <span class="category-badge enabled">
                         Meio a meio
+                      </span>
+                    <% } %>
+
+                    <% if (variacoesCategoria) { %>
+                      <span class="category-badge enabled">
+                        Opções
+                      </span>
+                    <% } %>
+
+                    <% if (variacoesCategoria && categoria.configuracaoVariacoes?.opcoes?.length) { %>
+                      <span class="category-summary-rule">
+                        <%= categoria.configuracaoVariacoes.opcoes.filter(opcao => opcao.ativo !== false).map(opcao => opcao.nome).join(' • ') %>
                       </span>
                     <% } %>
 
@@ -5483,6 +5727,50 @@
                             Pizzas
                           </option>
                         </select>
+                      </div>
+
+                      <div
+                        class="category-pizza-inline category-variation-settings <%= categoriaPizza ? 'hidden' : '' %>"
+                        data-categoria-variacoes-settings
+                      >
+                        <label class="category-compact-checkbox">
+                          <input
+                            type="checkbox"
+                            name="variacoesHabilitadas"
+                            value="on"
+                            data-categoria-variacoes-toggle
+                            <%= variacoesCategoria ? 'checked' : '' %>
+                          >
+                          Usar opções de tamanho, volume ou porção
+                        </label>
+
+                        <div class="pizza-size-manager <%= variacoesCategoria ? '' : 'hidden' %>" data-categoria-variacoes-manager>
+                          <strong>Opções da categoria</strong>
+                          <small style="display:block;color:var(--cinza-500);margin-top:4px;">
+                            Essas opções valem para todos os produtos da categoria. Cada produto pode ter um preço diferente em cada opção.
+                          </small>
+                          <div class="pizza-size-list" data-variation-list>
+                            <% (categoria.configuracaoVariacoes?.opcoes || [])
+                              .filter(opcao => opcao.ativo !== false)
+                              .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0))
+                              .forEach(opcao => { %>
+                              <div class="pizza-size-row">
+                                <input type="hidden" name="categoriaVariacaoId[]" value="<%= opcao._id %>">
+                                <input
+                                  name="categoriaVariacaoNome[]"
+                                  value="<%= opcao.nome %>"
+                                  maxlength="50"
+                                  placeholder="Ex.: Grande"
+                                  required
+                                >
+                                <button type="button" class="pizza-size-remove" data-remove-variation title="Remover opção">×</button>
+                              </div>
+                            <% }) %>
+                          </div>
+                          <button type="button" class="mini-button edit" data-add-variation style="margin-top:9px;">
+                            + Adicionar opção
+                          </button>
+                        </div>
                       </div>
 
                       <div
@@ -5640,6 +5928,8 @@
                     <strong>
                       <% if (produto.categoriaId?.tipoProduto === 'pizza' && produto.precosPizza?.length) { %>
                         A partir de <%= formatarMoeda(Math.min(...produto.precosPizza.map(item => Number(item.preco || 0)))) %>
+                      <% } else if (produto.categoriaId?.configuracaoVariacoes?.habilitado === true && produto.precosVariacoes?.length) { %>
+                        A partir de <%= formatarMoeda(Math.min(...produto.precosVariacoes.map(item => Number(item.preco || 0)))) %>
                       <% } else { %>
                         <%= formatarMoeda(produto.preco) %>
                       <% } %>
@@ -5677,6 +5967,17 @@
                         const nomeTamanhoAtual = tamanhoAtual?.nome || item.tamanhoNome;
                       %>
                         <span>🍕 <%= nomeTamanhoAtual %>: <%= formatarMoeda(item.preco) %></span>
+                      <% }) %>
+                    </div>
+                  <% } %>
+                  <% if (produto.categoriaId?.tipoProduto !== 'pizza' && produto.categoriaId?.configuracaoVariacoes?.habilitado === true && produto.precosVariacoes?.length) { %>
+                    <div class="product-pizza-prices-admin">
+                      <% produto.precosVariacoes.forEach(item => {
+                        const opcaoAtual = (produto.categoriaId?.configuracaoVariacoes?.opcoes || [])
+                          .find(opcao => String(opcao._id) === String(item.variacaoId));
+                        const nomeOpcaoAtual = opcaoAtual?.nome || item.variacaoNome;
+                      %>
+                        <span>📏 <%= nomeOpcaoAtual %>: <%= formatarMoeda(item.preco) %></span>
                       <% }) %>
                     </div>
                   <% } %>
@@ -6495,7 +6796,7 @@
             <% if (config.mercadoPago && config.mercadoPago.conectado) { %>
               <div class="link-box" style="margin-bottom:14px">✅ Conta conectada — Pix automático disponível no catálogo.</div>
               <div class="link-box" style="margin-bottom:14px">
-                <strong>Taxa de serviço Comanda Fácil:</strong> 0,5%<br>
+                <strong>Taxa de serviço Comanda Fácil:</strong> 1,5%<br>
                 <strong>Tarifas Mercado Pago:</strong> conforme as condições da conta da loja<br>
                 <strong>Termos aceitos em:</strong>
                 <%= config.mercadoPago.termsAcceptedAt ? formatarDataHoraEstabelecimento(config.mercadoPago.termsAcceptedAt) : 'Aceite anterior não registrado' %><br>
@@ -6586,7 +6887,7 @@
               <div class="mp-terms-content">
                 <p>Ao conectar sua conta Mercado Pago, você autoriza o Comanda Fácil a processar os pagamentos online dos pedidos da sua loja.</p>
                 <ul>
-                  <li>o Comanda Fácil cobrará 0,5% sobre cada Pix online aprovado;</li>
+                  <li>o Comanda Fácil cobrará 1,5% sobre cada Pix online aprovado;</li>
                   <li>o Mercado Pago poderá descontar suas próprias tarifas;</li>
                   <li>o cliente continuará pagando somente o valor normal do pedido;</li>
                   <li>o restante será creditado na conta Mercado Pago da loja.</li>
@@ -6594,7 +6895,7 @@
               </div>
               <label class="mp-terms-accept">
                 <input type="checkbox" id="platformFeeTermsCheckbox">
-                <span><strong>Li e compreendi.</strong> Aceito os termos e a taxa de serviço de 0,5% do Comanda Fácil.</span>
+                <span><strong>Li e compreendi.</strong> Aceito os termos e a taxa de serviço de 1,5% do Comanda Fácil.</span>
               </label>
               <div class="mp-terms-actions">
                 <button type="button" class="button secondary" id="cancelPlatformFeeTerms">Cancelar</button>
@@ -7221,6 +7522,13 @@
           </small>
           <div class="product-pizza-price-list" data-product-pizza-price-list></div>
         </div>
+        <div class="field full hidden" data-product-variation-prices>
+          <label>Preços por opção</label>
+          <small style="color:var(--cinza-500);">
+            Informe quanto custa este produto em cada tamanho, volume ou porção cadastrada na categoria.
+          </small>
+          <div class="product-pizza-price-list" data-product-variation-price-list></div>
+        </div>
 
         <div class="field">
           <label for="produtoImagem">Imagem</label>
@@ -7339,6 +7647,10 @@
             tamanhoId: String(item.tamanhoId || ""),
             preco: Number(item.preco || 0)
           }))) %>'
+          data-existing-variation-prices='<%= safeJsonForHtml((produto.precosVariacoes || []).map(item => ({
+            variacaoId: String(item.variacaoId || ""),
+            preco: Number(item.preco || 0)
+          }))) %>'
         >
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <div class="field">
@@ -7386,6 +7698,13 @@
               Atualize o preço deste sabor para cada tamanho.
             </small>
             <div class="product-pizza-price-list" data-product-pizza-price-list></div>
+          </div>
+          <div class="field full hidden" data-product-variation-prices>
+            <label>Preços por opção</label>
+            <small style="color:var(--cinza-500);">
+              Atualize o preço deste produto para cada tamanho, volume ou porção.
+            </small>
+            <div class="product-pizza-price-list" data-product-variation-price-list></div>
           </div>
 
           <div class="field">
@@ -10868,6 +11187,14 @@ if (podeReceberNotificacoes) {
           id: String(tamanho._id),
           nome: String(tamanho.nome || ''),
         })),
+      variacoesHabilitadas: categoria.configuracaoVariacoes?.habilitado === true,
+      variacoes: (categoria.configuracaoVariacoes?.opcoes || [])
+        .filter(opcao => opcao.ativo !== false)
+        .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0))
+        .map(opcao => ({
+          id: String(opcao._id),
+          nome: String(opcao.nome || ''),
+        })),
     }))) %>;
     const categoriasCatalogoPizzaAdminMap = new Map(
       categoriasCatalogoPizzaAdmin.map(categoria => [categoria.id, categoria]),
@@ -11400,72 +11727,166 @@ if (podeReceberNotificacoes) {
       }
     }
 
-    function renderizarPrecosPizzaProduto(form) {
+    function precosVariacoesExistentesDoForm(form) {
+      try {
+        const itens = JSON.parse(form?.dataset?.existingVariationPrices || '[]');
+        return new Map((Array.isArray(itens) ? itens : []).map(item => [
+          String(item.variacaoId || ''),
+          Number(item.preco || 0),
+        ]));
+      } catch {
+        return new Map();
+      }
+    }
+
+    function criarLinhaPrecoProduto({ nome, id, campoId, campoPreco, datasetKey, valor = '' }) {
+      const row = document.createElement('div');
+      row.className = 'product-pizza-price-row';
+      const label = document.createElement('strong');
+      label.textContent = nome;
+      const hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = campoId;
+      hidden.value = id;
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.name = campoPreco;
+      input.min = '0';
+      input.step = '0.01';
+      input.required = true;
+      input.placeholder = 'Preço';
+      input.dataset[datasetKey] = 'true';
+      input.dataset.opcaoId = id;
+      input.value = valor;
+      row.append(label, hidden, input);
+      return row;
+    }
+
+    function renderizarPrecosProduto(form) {
       const select = form.querySelector('[data-product-category]');
       const categoria = categoriasCatalogoPizzaAdminMap.get(String(select?.value || ''));
-      const tamanhos = categoria?.tipoProduto === 'pizza'
+      const tamanhosPizza = categoria?.tipoProduto === 'pizza'
         ? (categoria.tamanhos || [])
         : [];
-      const painel = form.querySelector('[data-product-pizza-prices]');
-      const lista = form.querySelector('[data-product-pizza-price-list]');
+      const variacoes = categoria?.tipoProduto !== 'pizza' && categoria?.variacoesHabilitadas
+        ? (categoria.variacoes || [])
+        : [];
+      const painelPizza = form.querySelector('[data-product-pizza-prices]');
+      const listaPizza = form.querySelector('[data-product-pizza-price-list]');
+      const painelVariacoes = form.querySelector('[data-product-variation-prices]');
+      const listaVariacoes = form.querySelector('[data-product-variation-price-list]');
       const campoBase = form.querySelector('[data-base-price-field]');
       const inputBase = form.querySelector('[data-base-price]');
-      if (!painel || !lista || !campoBase || !inputBase) return;
+      if (!painelPizza || !listaPizza || !painelVariacoes || !listaVariacoes || !campoBase || !inputBase) return;
 
-      const usaPrecosPorTamanho = tamanhos.length > 0;
-      painel.classList.toggle('hidden', !usaPrecosPorTamanho);
-      campoBase.classList.toggle('hidden', usaPrecosPorTamanho);
-      inputBase.disabled = usaPrecosPorTamanho;
-      inputBase.required = !usaPrecosPorTamanho;
+      const usaPizza = tamanhosPizza.length > 0;
+      const usaVariacoes = variacoes.length > 0;
+      const usaPrecosPorOpcao = usaPizza || usaVariacoes;
+      painelPizza.classList.toggle('hidden', !usaPizza);
+      painelVariacoes.classList.toggle('hidden', !usaVariacoes);
+      campoBase.classList.toggle('hidden', usaPrecosPorOpcao);
+      inputBase.disabled = usaPrecosPorOpcao;
+      inputBase.required = !usaPrecosPorOpcao;
 
-      if (!usaPrecosPorTamanho) {
-        lista.replaceChildren();
-        return;
-      }
-
-      const precosExistentes = precosPizzaExistentesDoForm(form);
-      const valoresAtuais = new Map(
-        [...lista.querySelectorAll('[data-pizza-product-price]')].map(input => [
-          String(input.dataset.tamanhoId || ''),
+      const precosPizzaExistentes = precosPizzaExistentesDoForm(form);
+      const valoresPizzaAtuais = new Map(
+        [...listaPizza.querySelectorAll('[data-pizza-product-price]')].map(input => [
+          String(input.dataset.opcaoId || ''),
           input.value,
         ]),
       );
-      lista.replaceChildren();
+      listaPizza.replaceChildren();
+      tamanhosPizza.forEach(tamanho => {
+        const valorAtual = valoresPizzaAtuais.get(tamanho.id);
+        const valorExistente = precosPizzaExistentes.get(tamanho.id);
+        listaPizza.appendChild(criarLinhaPrecoProduto({
+          nome: tamanho.nome,
+          id: tamanho.id,
+          campoId: 'produtoPizzaTamanhoId[]',
+          campoPreco: 'produtoPizzaTamanhoPreco[]',
+          datasetKey: 'pizzaProductPrice',
+          valor: valorAtual !== undefined && valorAtual !== ''
+            ? valorAtual
+            : (valorExistente !== undefined ? String(valorExistente) : ''),
+        }));
+      });
 
-      tamanhos.forEach(tamanho => {
-        const row = document.createElement('div');
-        row.className = 'product-pizza-price-row';
-        const label = document.createElement('strong');
-        label.textContent = tamanho.nome;
-        const hidden = document.createElement('input');
-        hidden.type = 'hidden';
-        hidden.name = 'produtoPizzaTamanhoId[]';
-        hidden.value = tamanho.id;
-        const input = document.createElement('input');
-        input.type = 'number';
-        input.name = 'produtoPizzaTamanhoPreco[]';
-        input.min = '0';
-        input.step = '0.01';
-        input.required = true;
-        input.placeholder = 'Preço';
-        input.dataset.pizzaProductPrice = 'true';
-        input.dataset.tamanhoId = tamanho.id;
-        const valorAtual = valoresAtuais.get(tamanho.id);
-        const valorExistente = precosExistentes.get(tamanho.id);
-        if (valorAtual !== undefined && valorAtual !== '') input.value = valorAtual;
-        else if (valorExistente !== undefined) input.value = String(valorExistente);
-        row.append(label, hidden, input);
-        lista.appendChild(row);
+      const precosVariacoesExistentes = precosVariacoesExistentesDoForm(form);
+      const valoresVariacoesAtuais = new Map(
+        [...listaVariacoes.querySelectorAll('[data-variation-product-price]')].map(input => [
+          String(input.dataset.opcaoId || ''),
+          input.value,
+        ]),
+      );
+      listaVariacoes.replaceChildren();
+      variacoes.forEach(opcao => {
+        const valorAtual = valoresVariacoesAtuais.get(opcao.id);
+        const valorExistente = precosVariacoesExistentes.get(opcao.id);
+        listaVariacoes.appendChild(criarLinhaPrecoProduto({
+          nome: opcao.nome,
+          id: opcao.id,
+          campoId: 'produtoVariacaoId[]',
+          campoPreco: 'produtoVariacaoPreco[]',
+          datasetKey: 'variationProductPrice',
+          valor: valorAtual !== undefined && valorAtual !== ''
+            ? valorAtual
+            : (valorExistente !== undefined ? String(valorExistente) : ''),
+        }));
       });
     }
 
     document.querySelectorAll('[data-product-form]').forEach(form => {
-      renderizarPrecosPizzaProduto(form);
+      renderizarPrecosProduto(form);
       form.querySelector('[data-product-category]')?.addEventListener(
         'change',
-        () => renderizarPrecosPizzaProduto(form),
+        () => renderizarPrecosProduto(form),
       );
     });
+
+    function criarLinhaVariacao({ id = '', nome = '' } = {}) {
+      const row = document.createElement('div');
+      row.className = 'pizza-size-row';
+      row.innerHTML = `
+        <input type="hidden" name="categoriaVariacaoId[]" value="${escaparHtml(id)}">
+        <input name="categoriaVariacaoNome[]" maxlength="50" placeholder="Ex.: Grande, 500ml ou Porção inteira" value="${escaparHtml(nome)}" required>
+        <button type="button" class="pizza-size-remove" data-remove-variation title="Remover opção">×</button>
+      `;
+      return row;
+    }
+
+    document.querySelectorAll('[data-add-variation]').forEach(button => {
+      button.addEventListener('click', () => {
+        const form = button.closest('form');
+        const list = form?.querySelector('[data-variation-list]');
+        if (!list) return;
+        if (list.querySelectorAll('.pizza-size-row').length >= 12) {
+          window.alert('Você pode cadastrar no máximo 12 opções por categoria.');
+          return;
+        }
+        list.appendChild(criarLinhaVariacao());
+        list.lastElementChild?.querySelector('input[name="categoriaVariacaoNome[]"]')?.focus();
+      });
+    });
+
+    document.addEventListener('click', event => {
+      const button = event.target.closest('[data-remove-variation]');
+      if (button) button.closest('.pizza-size-row')?.remove();
+    });
+
+    function atualizarVariacoesCategoria(form) {
+      const tipo = form.querySelector('[data-categoria-tipo-produto]')?.value || 'normal';
+      const bloco = form.querySelector('[data-categoria-variacoes-settings]');
+      const toggle = form.querySelector('[data-categoria-variacoes-toggle]');
+      const manager = form.querySelector('[data-categoria-variacoes-manager]');
+      const pizza = tipo === 'pizza';
+      if (!bloco || !toggle || !manager) return;
+      bloco.classList.toggle('hidden', pizza);
+      toggle.disabled = pizza;
+      manager.classList.toggle('hidden', pizza || !toggle.checked);
+      manager.querySelectorAll('input, button').forEach(input => {
+        input.disabled = pizza || !toggle.checked;
+      });
+    }
 
     function atualizarConfiguracaoPizzaCategoria(form) {
       const select = form.querySelector('[data-categoria-tipo-produto]');
@@ -11478,6 +11899,7 @@ if (podeReceberNotificacoes) {
           input.disabled = !pizza;
         });
       });
+      atualizarVariacoesCategoria(form);
     }
 
     document.querySelectorAll('[data-categoria-catalogo-form]').forEach(form => {
@@ -11485,6 +11907,10 @@ if (podeReceberNotificacoes) {
       form.querySelector('[data-categoria-tipo-produto]')?.addEventListener(
         'change',
         () => atualizarConfiguracaoPizzaCategoria(form),
+      );
+      form.querySelector('[data-categoria-variacoes-toggle]')?.addEventListener(
+        'change',
+        () => atualizarVariacoesCategoria(form),
       );
     });
 

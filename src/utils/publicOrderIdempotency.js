@@ -46,6 +46,11 @@ function hashPublicOrderPayload(data = {}) {
         : Number(item.precoBasePizza),
       tamanhoPizzaId: String(item.tamanhoPizzaId || ""),
       tamanhoPizzaNome: String(item.tamanhoPizzaNome || ""),
+      variacaoId: String(item.variacaoId || ""),
+      variacaoNome: String(item.variacaoNome || ""),
+      precoBaseVariacao: item.precoBaseVariacao == null
+        ? null
+        : Number(item.precoBaseVariacao),
       saboresPizza: (item.saboresPizza || []).map(sabor => ({
         produtoId: String(sabor?.produtoId || ""),
         nome: String(sabor?.nome || ""),

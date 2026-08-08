@@ -1099,7 +1099,6 @@
         display: none;
       }
     }
-  
 
     /* COMANDAFACIL: CARDS MOBILE VERTICAIS 2 COLUNAS v2 - INICIO */
     /*
@@ -1532,6 +1531,24 @@
                 produto.categoriaId?.tipoProduto === 'pizza'
                 && tamanhosCategoriaPizzaAtivos.length > 0
                 && precosPizzaExibicao.length === 0;
+              const variacoesCategoriaAtivas =
+                produto.categoriaId?.tipoProduto !== 'pizza'
+                && produto.categoriaId?.configuracaoVariacoes?.habilitado === true
+                  ? (produto.categoriaId?.configuracaoVariacoes?.opcoes || [])
+                      .filter(opcao => opcao.ativo !== false)
+                      .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0))
+                  : [];
+              const precosVariacoesExibicao = (produto.precosVariacoes || [])
+                .map(item => Number(item.preco))
+                .filter(Number.isFinite);
+              const idsVariacoesComPreco = new Set(
+                (produto.precosVariacoes || []).map(item => String(item.variacaoId || ''))
+              );
+              const variacoesProduto = variacoesCategoriaAtivas
+                .filter(opcao => idsVariacoesComPreco.has(String(opcao._id)));
+              const variacaoPrecificacaoPendente =
+                variacoesCategoriaAtivas.length > 0
+                && precosVariacoesExibicao.length === 0;
             %>
               <article
                 class="product-card"
@@ -1563,6 +1580,20 @@
                   (produto.precosPizza || []).map(item => ({
                     tamanhoId: String(item.tamanhoId || ''),
                     tamanhoNome: String(item.tamanhoNome || ''),
+                    preco: Number(item.preco || 0)
+                  }))
+                ) %>'
+                data-variations-enabled="<%= variacoesCategoriaAtivas.length ? 'true' : 'false' %>"
+                data-category-variations='<%= safeJsonForHtml(
+                  variacoesCategoriaAtivas.map(opcao => ({
+                    id: String(opcao._id),
+                    nome: String(opcao.nome || '')
+                  }))
+                ) %>'
+                data-product-variation-prices='<%= safeJsonForHtml(
+                  (produto.precosVariacoes || []).map(item => ({
+                    variacaoId: String(item.variacaoId || ''),
+                    variacaoNome: String(item.variacaoNome || ''),
                     preco: Number(item.preco || 0)
                   }))
                 ) %>'
@@ -1604,6 +1635,11 @@
                       <div class="pizza-half-badge">⚠️ Temporariamente indisponível</div>
                     <% } %>
                   <% } %>
+                  <% if (variacoesProduto.length) { %>
+                    <div class="pizza-half-badge">📏 <%= variacoesProduto.map(opcao => opcao.nome).join(' • ') %></div>
+                  <% } else if (variacaoPrecificacaoPendente) { %>
+                    <div class="pizza-half-badge">⚠️ Temporariamente indisponível</div>
+                  <% } %>
 
                   <h3 class="product-name"><%= produto.nome %></h3>
                   <% const avaliacao = avaliacoesPorProduto?.[String(produto._id)] || { media: '0.0', quantidade: 0 }; %>
@@ -1621,7 +1657,13 @@
                           "pt-BR",
                           { style: "currency", currency: "BRL" }
                         ) %>
-                      <% } else if (pizzaPrecificacaoPendente) { %>
+                      <% } else if (precosVariacoesExibicao.length) { %>
+                        <small style="display:block;font-size:9px;line-height:1;">A partir de</small>
+                        <%= Math.min(...precosVariacoesExibicao).toLocaleString(
+                          "pt-BR",
+                          { style: "currency", currency: "BRL" }
+                        ) %>
+                      <% } else if (pizzaPrecificacaoPendente || variacaoPrecificacaoPendente) { %>
                         <small style="display:block;font-size:10px;line-height:1.2;">Indisponível</small>
                       <% } else { %>
                         <%= Number(produto.preco || 0).toLocaleString(
@@ -1636,11 +1678,11 @@
                         type="button"
                         class="add-btn"
                         data-add-cart
-                        <%= pizzaPrecificacaoPendente ? 'disabled title="Preços por tamanho ainda não configurados"' : '' %>
+                        <%= (pizzaPrecificacaoPendente || variacaoPrecificacaoPendente) ? 'disabled title="Preços por opção ainda não configurados"' : '' %>
                       >
-                        <span><%= pizzaPrecificacaoPendente
+                        <span><%= (pizzaPrecificacaoPendente || variacaoPrecificacaoPendente)
                           ? 'Indisponível'
-                          : (produto.categoriaId?.tipoProduto === 'pizza' ? 'Escolher' : 'Pedir')
+                          : (produto.categoriaId?.tipoProduto === 'pizza' || variacoesProduto.length ? 'Escolher' : 'Pedir')
                         %></span>
                       </button>
                     </div>
@@ -2102,6 +2144,36 @@
     </div>
   </div>
 
+  <div class="pizza-modal" id="variationModal">
+    <div class="pizza-card">
+      <div class="addon-head">
+        <div>
+          <h2 id="variationModalTitle">Escolha uma opção</h2>
+          <p>Selecione o tamanho, volume ou porção desejada.</p>
+        </div>
+        <button type="button" class="modal-close" id="closeVariationModal" aria-label="Fechar">×</button>
+      </div>
+
+      <div class="pizza-select-grid">
+        <div class="form-field">
+          <label for="variationSelect">Opção</label>
+          <select id="variationSelect"></select>
+        </div>
+      </div>
+
+      <div class="pizza-price-preview">
+        <span>Preço</span>
+        <strong id="variationPricePreview">R$ 0,00</strong>
+        <p class="pizza-rule-note">O valor muda de acordo com a opção escolhida.</p>
+      </div>
+
+      <div class="addon-actions">
+        <button type="button" class="addon-cancel" id="cancelVariation">Cancelar</button>
+        <button type="button" class="addon-confirm" id="confirmVariation">Continuar</button>
+      </div>
+    </div>
+  </div>
+
   <div class="addon-modal" id="addonModal">
     <div class="addon-card">
       <div class="addon-head">
@@ -2291,8 +2363,13 @@
     const pizzaSabor2Field = document.querySelector("#pizzaSabor2Field");
     const pizzaPricePreview = document.querySelector("#pizzaPricePreview");
     const pizzaRuleNote = document.querySelector("#pizzaRuleNote");
+    const variationModal = document.querySelector("#variationModal");
+    const variationModalTitle = document.querySelector("#variationModalTitle");
+    const variationSelect = document.querySelector("#variationSelect");
+    const variationPricePreview = document.querySelector("#variationPricePreview");
     let pendingProduct = null;
     let pendingPizza = null;
+    let pendingVariation = null;
 
     let selectedCategory = "todos";
     let storeIsOpen = false;
@@ -2339,6 +2416,11 @@
           tamanhoNome: String(item.tamanhoNome || ""),
           preco: Number(item.preco || 0),
         })),
+        precosVariacoes: lerJsonArrayDataset(card, "productVariationPrices").map(item => ({
+          variacaoId: String(item.variacaoId || ""),
+          variacaoNome: String(item.variacaoNome || ""),
+          preco: Number(item.preco || 0),
+        })),
         categoria: {
           id: String(card.dataset.categoryId || ""),
           tipoProduto: String(card.dataset.categoryType || "normal"),
@@ -2347,6 +2429,11 @@
             card.dataset.pizzaPriceRule || "maior_sabor_escolhido",
           ),
           tamanhos: lerJsonArrayDataset(card, "pizzaSizes").map(item => ({
+            id: String(item.id || item._id || ""),
+            nome: String(item.nome || ""),
+          })),
+          variacoesHabilitadas: card.dataset.variationsEnabled === "true",
+          variacoes: lerJsonArrayDataset(card, "categoryVariations").map(item => ({
             id: String(item.id || item._id || ""),
             nome: String(item.nome || ""),
           })),
@@ -2528,6 +2615,64 @@
       preencherSelectSabores(pizzaSabor2, produtosCategoria, segundoPadrao, tamanhoId);
       atualizarModalPizza();
       pizzaModal.classList.add("open");
+      document.body.classList.add("modal-open");
+    }
+
+    function precoProdutoNaVariacao(produto, variacaoId = "") {
+      const item = (produto?.precosVariacoes || []).find(preco =>
+        String(preco.variacaoId || "") === String(variacaoId || ""),
+      );
+      return item ? Number(item.preco) : Number.NaN;
+    }
+
+    function variacoesDisponiveisProduto(produto) {
+      if (produto?.categoria?.variacoesHabilitadas !== true) return [];
+      const opcoes = produto?.categoria?.variacoes || [];
+      return opcoes.filter(opcao =>
+        Number.isFinite(precoProdutoNaVariacao(produto, opcao.id)),
+      );
+    }
+
+    function variacaoSelecionada() {
+      if (!pendingVariation?.variacoes?.length) return null;
+      return pendingVariation.variacoes.find(item =>
+        item.id === String(variationSelect.value || ""),
+      ) || null;
+    }
+
+    function atualizarModalVariacao() {
+      if (!pendingVariation) return;
+      const opcao = variacaoSelecionada();
+      const preco = opcao
+        ? precoProdutoNaVariacao(pendingVariation.produto, opcao.id)
+        : Number.NaN;
+      variationPricePreview.textContent = Number.isFinite(preco)
+        ? currency(preco)
+        : "Indisponível";
+      document.querySelector("#confirmVariation").disabled = !opcao || !Number.isFinite(preco);
+    }
+
+    function fecharModalVariacao() {
+      variationModal.classList.remove("open");
+      document.body.classList.remove("modal-open");
+      pendingVariation = null;
+    }
+
+    function abrirModalVariacao(produto) {
+      const variacoes = variacoesDisponiveisProduto(produto);
+      if (!variacoes.length) return;
+      pendingVariation = { produto, variacoes };
+      variationModalTitle.textContent = `Escolha uma opção para ${produto.name}`;
+      variationSelect.replaceChildren();
+      variacoes.forEach(opcao => {
+        const option = document.createElement("option");
+        option.value = opcao.id;
+        option.textContent = `${opcao.nome} — ${currency(precoProdutoNaVariacao(produto, opcao.id))}`;
+        variationSelect.appendChild(option);
+      });
+      if (variacoes[0]) variationSelect.value = variacoes[0].id;
+      atualizarModalVariacao();
+      variationModal.classList.add("open");
       document.body.classList.add("modal-open");
     }
 
@@ -2874,6 +3019,9 @@
         if (item.tamanhoPizza?.nome) {
           detalhesPizzaCarrinho.push(`📏 ${String(item.tamanhoPizza.nome)}`);
         }
+        if (item.variacao?.nome) {
+          detalhesPizzaCarrinho.push(`📏 ${String(item.variacao.nome)}`);
+        }
         if (item.pizzaMeioAMeio) {
           detalhesPizzaCarrinho.push(
             ...(item.saboresPizza || []).map(sabor =>
@@ -2944,6 +3092,11 @@
           tamanhoNome: String(item.tamanhoNome || ""),
           preco: Number(item.preco || 0),
         })),
+        precosVariacoes: (produto.precosVariacoes || []).map(item => ({
+          variacaoId: String(item.variacaoId || ""),
+          variacaoNome: String(item.variacaoNome || ""),
+          preco: Number(item.preco || 0),
+        })),
         image: String(produto.imagem || ""),
         adicionais: (produto.adicionais || []).map(adicional => ({
           _id: String(adicional.id || adicional._id || ""),
@@ -2962,8 +3115,13 @@
                 id: String(tamanho.id || tamanho._id || ""),
                 nome: String(tamanho.nome || ""),
               })),
+              variacoesHabilitadas: produto.categoria.variacoesHabilitadas === true,
+              variacoes: (produto.categoria.variacoes || []).map(opcao => ({
+                id: String(opcao.id || opcao._id || ""),
+                nome: String(opcao.nome || ""),
+              })),
             }
-          : { id: "", tipoProduto: "normal", permiteMeioAMeio: false, tamanhos: [] },
+          : { id: "", tipoProduto: "normal", permiteMeioAMeio: false, tamanhos: [], variacoesHabilitadas: false, variacoes: [] },
       }));
       const mapaProdutos = new Map(
         produtosNormalizados.map(produto => [produto.id, produto]),
@@ -3050,9 +3208,25 @@
             idsRemovidos.push(String(item.cartId || item.id));
             return [];
           }
+
+          const variacoes = produto.categoria?.tipoProduto !== "pizza"
+            && produto.categoria?.variacoesHabilitadas === true
+              ? (produto.categoria?.variacoes || [])
+              : [];
+          const variacaoId = String(item.variacao?.id || item.variacaoId || "");
+          const variacao = variacoes.length
+            ? variacoes.find(opcao => opcao.id === variacaoId)
+            : null;
+          if (variacoes.length && !variacao) {
+            idsRemovidos.push(String(item.cartId || item.id));
+            return [];
+          }
+
           const novoPreco = produto.categoria?.tipoProduto === "pizza"
             ? precoProdutoNoTamanho(produto, tamanho?.id || "")
-            : Number(produto.price || 0);
+            : variacoes.length
+              ? precoProdutoNaVariacao(produto, variacao?.id || "")
+              : Number(produto.price || 0);
           if (!Number.isFinite(novoPreco)) {
             idsRemovidos.push(String(item.cartId || item.id));
             return [];
@@ -3068,6 +3242,7 @@
             image: produto.image || "",
             categoria: produto.categoria,
             tamanhoPizza: tamanho ? { id: tamanho.id, nome: tamanho.nome } : null,
+            variacao: variacao ? { id: variacao.id, nome: variacao.nome } : null,
           };
         }
 
@@ -3098,10 +3273,13 @@
         const tamanhoKey = produtoCarrinho.tamanhoPizza?.id
           ? `:tamanho:${String(produtoCarrinho.tamanhoPizza.id)}`
           : "";
+        const variacaoKey = produtoCarrinho.variacao?.id
+          ? `:variacao:${String(produtoCarrinho.variacao.id)}`
+          : "";
 
         return [{
           ...produtoCarrinho,
-          cartId: `${pizzaKey}${tamanhoKey}:${addonsKey}`,
+          cartId: `${pizzaKey}${tamanhoKey}${variacaoKey}:${addonsKey}`,
           adicionais,
         }];
       });
@@ -3181,7 +3359,10 @@
       const tamanhoKey = product.tamanhoPizza?.id
         ? `:tamanho:${String(product.tamanhoPizza.id)}`
         : "";
-      const cartId = `${pizzaKey}${tamanhoKey}:${addonsKey}`;
+      const variacaoKey = product.variacao?.id
+        ? `:variacao:${String(product.variacao.id)}`
+        : "";
+      const cartId = `${pizzaKey}${tamanhoKey}${variacaoKey}:${addonsKey}`;
       const existing = cart.find(item => item.cartId === cartId);
 
       if (totalItems() >= PUBLIC_ORDER_LIMITS.maxTotalQuantity) {
@@ -3294,10 +3475,41 @@
               return;
             }
 
+            if (
+              product.categoria?.tipoProduto !== "pizza"
+              && product.categoria?.variacoesHabilitadas === true
+              && variacoesDisponiveisProduto(product).length > 0
+            ) {
+              abrirModalVariacao(product);
+              return;
+            }
+
             continuarProdutoParaCarrinho(product, product.adicionais || []);
           },
         );
       });
+
+    variationSelect.addEventListener("change", atualizarModalVariacao);
+    document.querySelector("#closeVariationModal").addEventListener("click", fecharModalVariacao);
+    document.querySelector("#cancelVariation").addEventListener("click", fecharModalVariacao);
+    variationModal.addEventListener("click", event => {
+      if (event.target === variationModal) fecharModalVariacao();
+    });
+    document.querySelector("#confirmVariation").addEventListener("click", () => {
+      if (!pendingVariation) return;
+      const opcao = variacaoSelecionada();
+      if (!opcao) return;
+      const preco = precoProdutoNaVariacao(pendingVariation.produto, opcao.id);
+      if (!Number.isFinite(preco)) return;
+      const produtoEscolhido = {
+        ...pendingVariation.produto,
+        price: preco,
+        variacao: { id: opcao.id, nome: opcao.nome },
+      };
+      const adicionais = pendingVariation.produto.adicionais || [];
+      fecharModalVariacao();
+      continuarProdutoParaCarrinho(produtoEscolhido, adicionais);
+    });
 
     document.querySelectorAll('input[name="pizzaModo"]').forEach(input => {
       input.addEventListener("change", atualizarModalPizza);
@@ -4182,6 +4394,7 @@
             preco: Number(item.price),
             quantidade: Number(item.quantity),
             tamanhoPizzaId: String(item.tamanhoPizza?.id || ""),
+            variacaoId: String(item.variacao?.id || ""),
             pizzaMeioAMeio: item.pizzaMeioAMeio === true,
             saboresPizza: item.pizzaMeioAMeio
               ? (item.saboresPizza || []).map(sabor => ({

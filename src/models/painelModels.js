@@ -80,6 +80,34 @@ const Categoria = mongoose.model(
           default: [],
         },
       },
+      configuracaoVariacoes: {
+        habilitado: {
+          type: Boolean,
+          default: false,
+        },
+        opcoes: {
+          type: [
+            {
+              nome: {
+                type: String,
+                required: true,
+                trim: true,
+                maxlength: 50,
+              },
+              ordem: {
+                type: Number,
+                default: 0,
+                min: 0,
+              },
+              ativo: {
+                type: Boolean,
+                default: true,
+              },
+            },
+          ],
+          default: [],
+        },
+      },
     },
     opts,
   ),
@@ -203,6 +231,28 @@ const Produto = mongoose.model(
               required: true,
             },
             tamanhoNome: {
+              type: String,
+              required: true,
+              trim: true,
+              maxlength: 50,
+            },
+            preco: {
+              type: Number,
+              required: true,
+              min: 0,
+            },
+          },
+        ],
+        default: [],
+      },
+      precosVariacoes: {
+        type: [
+          {
+            variacaoId: {
+              type: mongoose.Schema.Types.ObjectId,
+              required: true,
+            },
+            variacaoNome: {
               type: String,
               required: true,
               trim: true,
@@ -885,6 +935,21 @@ const Pedido = mongoose.model(
             default: "",
             trim: true,
             maxlength: 50,
+          },
+          variacaoId: {
+            type: mongoose.Schema.Types.ObjectId,
+            default: null,
+          },
+          variacaoNome: {
+            type: String,
+            default: "",
+            trim: true,
+            maxlength: 50,
+          },
+          precoBaseVariacao: {
+            type: Number,
+            default: null,
+            min: 0,
           },
           custoUnitarioSnapshot: { type: Number, default: 0, min: 0 },
           fichaTecnicaSnapshotCriado: {
