@@ -6796,7 +6796,7 @@
             <% if (config.mercadoPago && config.mercadoPago.conectado) { %>
               <div class="link-box" style="margin-bottom:14px">✅ Conta conectada — Pix automático disponível no catálogo.</div>
               <div class="link-box" style="margin-bottom:14px">
-                <strong>Taxa de serviço Comanda Fácil:</strong> 1,5%<br>
+                <strong>Taxa de serviço Comanda Fácil:</strong> 0,5%<br>
                 <strong>Tarifas Mercado Pago:</strong> conforme as condições da conta da loja<br>
                 <strong>Termos aceitos em:</strong>
                 <%= config.mercadoPago.termsAcceptedAt ? formatarDataHoraEstabelecimento(config.mercadoPago.termsAcceptedAt) : 'Aceite anterior não registrado' %><br>
@@ -6880,14 +6880,14 @@
                 <p>Leia com atenção antes de conectar sua conta.</p>
               </div>
               <div class="mp-terms-summary">
-                <div><strong>1,5%</strong><span>Taxa Comanda Fácil</span></div>
+                <div><strong>0,5%</strong><span>Taxa Comanda Fácil</span></div>
                 <div><strong>R$ 30,00</strong><span>Pedido de exemplo</span></div>
-                <div><strong>R$ 0,45</strong><span>Taxa no exemplo</span></div>
+                <div><strong>R$ 0,15</strong><span>Taxa no exemplo</span></div>
               </div>
               <div class="mp-terms-content">
                 <p>Ao conectar sua conta Mercado Pago, você autoriza o Comanda Fácil a processar os pagamentos online dos pedidos da sua loja.</p>
                 <ul>
-                  <li>o Comanda Fácil cobrará 1,5% sobre cada Pix online aprovado;</li>
+                  <li>o Comanda Fácil cobrará 0,5% sobre cada Pix online aprovado;</li>
                   <li>o Mercado Pago poderá descontar suas próprias tarifas;</li>
                   <li>o cliente continuará pagando somente o valor normal do pedido;</li>
                   <li>o restante será creditado na conta Mercado Pago da loja.</li>
@@ -6895,7 +6895,7 @@
               </div>
               <label class="mp-terms-accept">
                 <input type="checkbox" id="platformFeeTermsCheckbox">
-                <span><strong>Li e compreendi.</strong> Aceito os termos e a taxa de serviço de 1,5% do Comanda Fácil.</span>
+                <span><strong>Li e compreendi.</strong> Aceito os termos e a taxa de serviço de 0,5% do Comanda Fácil.</span>
               </label>
               <div class="mp-terms-actions">
                 <button type="button" class="button secondary" id="cancelPlatformFeeTerms">Cancelar</button>
