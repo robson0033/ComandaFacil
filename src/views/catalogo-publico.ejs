@@ -404,14 +404,33 @@
       align-items: start;
     }
 
+    /* Categorias em uma unica linha com rolagem horizontal */
     .categories {
       display: flex;
-      flex-wrap: wrap;
-      gap: 11px;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      max-width: 100%;
       margin-bottom: 28px;
+      padding: 2px 2px 8px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scroll-behavior: smooth;
+      scroll-snap-type: x proximity;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-inline: contain;
+      touch-action: pan-x;
+    }
+
+    .categories::-webkit-scrollbar {
+      display: none;
     }
 
     .cat-btn {
+      flex: 0 0 auto;
       min-height: 48px;
       padding: 0 18px;
       border: 1px solid var(--line);
@@ -420,6 +439,8 @@
       color: #3c241c;
       font-size: 15px;
       font-weight: 850;
+      white-space: nowrap;
+      scroll-snap-align: start;
       transition: 0.2s;
     }
 
@@ -2247,6 +2268,9 @@
     const categoryButtons =
       document.querySelectorAll(".cat-btn");
 
+    const categoryBar =
+      document.querySelector(".categories");
+
     const sections =
       document.querySelectorAll(".section");
 
@@ -2881,6 +2905,21 @@
             button.dataset.cat;
 
           filterProducts();
+
+          // Mantem a categoria selecionada visivel e centralizada na barra.
+          if (categoryBar) {
+            const barRect = categoryBar.getBoundingClientRect();
+            const buttonRect = button.getBoundingClientRect();
+            const deslocamento =
+              buttonRect.left
+              - barRect.left
+              - ((barRect.width - buttonRect.width) / 2);
+
+            categoryBar.scrollBy({
+              left: deslocamento,
+              behavior: "smooth"
+            });
+          }
         }
       );
     });
