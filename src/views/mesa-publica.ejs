@@ -1509,6 +1509,11 @@
   }
 }
 /* COMANDAFACIL: CARDS MOBILE VERTICAIS 2 COLUNAS v2 - FIM */
+
+/* CORREÇÃO: permite esconder produtos no filtro mesmo com display:flex !important no mobile */
+.products > .product.is-hidden {
+  display: none !important;
+}
 </style>
 </head>
 
@@ -2855,11 +2860,14 @@
             product.dataset.category ===
               currentCategory;
 
-          product.style.display =
+          const shouldShow =
             matchName &&
-            matchCategory
-              ? ''
-              : 'none';
+            matchCategory;
+
+          product.classList.toggle(
+            'is-hidden',
+            !shouldShow
+          );
         });
     }
 
