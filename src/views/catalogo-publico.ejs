@@ -1882,20 +1882,26 @@
     </aside>
   </main>
 
-  <button
-    type="button"
-    class="mobile-cart-toggle"
-    id="mobileCartToggle"
-    <%- lojaDisponivel === false ? 'style="display:none"' : '' %>
-  >
-    Meu pedido
-    <span
-      class="mobile-cart-count"
-      id="mobileCartCount"
+  <div class="public-order-actions" aria-label="Ações do pedido">
+    <button
+      type="button"
+      class="mobile-cart-toggle"
+      id="mobileCartToggle"
+      <%- lojaDisponivel === false ? 'hidden' : '' %>
     >
-      0
-    </span>
-  </button>
+      <span>🛒 Meu pedido</span>
+      <span
+        class="mobile-cart-count"
+        id="mobileCartCount"
+      >
+        0
+      </span>
+    </button>
+
+    <button type="button" id="openMyOrders">
+      📦 Meus pedidos
+    </button>
+  </div>
 
   <div
     class="order-modal"
@@ -4747,24 +4753,56 @@
     cursor: pointer;
   }
 
-  .mobile-cart-toggle {
-    position: fixed !important;
-    right: 168px !important;
-    bottom: 18px !important;
-    z-index: 90 !important;
-    display: inline-flex !important;
+  /*
+   * Os dois atalhos usam o mesmo contêiner.
+   * Isso evita posições separadas que se desalinhavam em outros tamanhos de tela.
+   */
+  .public-order-actions {
+    position: fixed;
+    right: calc(18px + env(safe-area-inset-right, 0px));
+    bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    z-index: 95;
+    display: flex;
+    align-items: stretch;
+    justify-content: flex-end;
+    gap: 10px;
+    pointer-events: none;
+  }
+
+  .public-order-actions > button {
+    position: static !important;
+    inset: auto !important;
+    transform: none !important;
+    margin: 0 !important;
     min-height: 48px !important;
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     padding: 0 16px !important;
+    border: 0;
     border-radius: 999px !important;
-    background: linear-gradient(135deg, var(--orange), var(--orange-2)) !important;
+    color: #fff;
+    font-weight: 900;
+    line-height: 1;
+    white-space: nowrap;
     box-shadow: 0 10px 30px rgba(0,0,0,.24) !important;
+    pointer-events: auto;
   }
 
-  #openMyOrders {
-    z-index: 90 !important;
+  .public-order-actions > .mobile-cart-toggle {
+    background: linear-gradient(135deg, var(--orange), var(--orange-2)) !important;
   }
 
-  @media (max-width: 560px) {
+  .public-order-actions > #openMyOrders {
+    background: #5a1e14 !important;
+  }
+
+  .public-order-actions > #mobileCartToggle[hidden] {
+    display: none !important;
+  }
+
+  @media (max-width: 600px) {
     .sidebar {
       align-items: flex-end !important;
       padding: 10px !important;
@@ -4776,29 +4814,48 @@
       border-radius: 20px !important;
     }
 
-    .mobile-cart-toggle {
-      left: 12px !important;
-      right: auto !important;
-      bottom: 12px !important;
-      min-height: 46px !important;
-      padding: 0 14px !important;
-      font-size: 13px !important;
+    /*
+     * Reserva o lado esquerdo para o WhatsApp.
+     * Os dois botões dividem igualmente o espaço restante.
+     */
+    .public-order-actions {
+      left: calc(76px + env(safe-area-inset-left, 0px));
+      right: calc(12px + env(safe-area-inset-right, 0px));
+      bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+      gap: 8px;
     }
 
-    #openMyOrders {
-      right: 12px !important;
-      bottom: 12px !important;
+    .public-order-actions > button {
+      flex: 1 1 0;
+      min-width: 0;
       min-height: 46px !important;
-      padding: 0 14px !important;
-      font-size: 13px !important;
+      padding: 0 10px !important;
+      font-size: 12.5px !important;
+    }
+
+    .public-order-actions .mobile-cart-count {
+      flex: 0 0 auto;
+    }
+  }
+
+  /*
+   * Em telas muito estreitas, sobe os atalhos acima do WhatsApp
+   * para evitar qualquer sobreposição.
+   */
+  @media (max-width: 360px) {
+    .public-order-actions {
+      left: calc(12px + env(safe-area-inset-left, 0px));
+      bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .public-order-actions > button {
+      font-size: 12px !important;
+      padding: 0 8px !important;
     }
   }
 
 
-
 </style>
-
-<button type="button" id="openMyOrders">📦 Meus pedidos</button>
 
 <dialog id="myOrdersDialog">
   <div class="my-orders-shell">
@@ -4818,26 +4875,7 @@
     </div>
   </div>
 
-  <%
-  const telefoneLimpo = String(user.telefone || '').replace(/\D/g, '');
 
-  const telefoneWhatsApp = telefoneLimpo.startsWith('55')
-    ? telefoneLimpo
-    : `55${telefoneLimpo}`;
-
-  const mensagemWhatsApp = encodeURIComponent(
-    'Olá, gostaria de mais informações.'
-  );
-%>
-
-<a
-  href="https://wa.me/<%= telefoneWhatsApp %>?text=<%= mensagemWhatsApp %>"
-  target="_blank"
-  rel="noopener noreferrer"
-  class="botao-whatsapp"
->
-  Falar no WhatsApp
-</a>
 </dialog>
 
 <dialog id="orderLookupLoading" aria-labelledby="orderLookupLoadingTitle">
