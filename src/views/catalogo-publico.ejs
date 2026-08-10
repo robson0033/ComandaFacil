@@ -404,14 +404,33 @@
       align-items: start;
     }
 
+    /* Categorias em uma unica linha com rolagem horizontal */
     .categories {
       display: flex;
-      flex-wrap: wrap;
-      gap: 11px;
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      max-width: 100%;
       margin-bottom: 28px;
+      padding: 2px 2px 8px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scroll-behavior: smooth;
+      scroll-snap-type: x proximity;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior-inline: contain;
+      touch-action: pan-x;
+    }
+
+    .categories::-webkit-scrollbar {
+      display: none;
     }
 
     .cat-btn {
+      flex: 0 0 auto;
       min-height: 48px;
       padding: 0 18px;
       border: 1px solid var(--line);
@@ -420,6 +439,8 @@
       color: #3c241c;
       font-size: 15px;
       font-weight: 850;
+      white-space: nowrap;
+      scroll-snap-align: start;
       transition: 0.2s;
     }
 
@@ -1100,6 +1121,93 @@
       }
     }
 
+    @media (max-width: 760px) {
+      .hero-inner {
+        padding: 24px 16px 88px;
+      }
+
+      .hero-main {
+        align-items: flex-start;
+      }
+
+      .hero-avatar {
+        width: 82px;
+        height: 82px;
+        flex-basis: 82px;
+        border-radius: 24px;
+      }
+
+      .hero-title {
+        font-size: 30px;
+      }
+
+      .toolbar-wrap {
+        margin-top: -36px;
+        padding: 0 12px;
+      }
+
+      .content-shell {
+        padding: 0 12px;
+      }
+
+      .categories {
+        gap: 8px;
+        margin-bottom: 22px;
+        padding-bottom: 6px;
+      }
+
+      .cat-btn {
+        min-height: 44px;
+        padding: 0 16px;
+        font-size: 14px;
+      }
+
+      .mobile-cart-toggle {
+        display: inline-flex;
+      }
+
+      .sidebar {
+        position: fixed;
+        inset: 0;
+        z-index: 80;
+        display: none;
+        align-items: flex-end;
+        padding: 16px;
+        background: rgba(18, 9, 6, 0.64);
+        backdrop-filter: blur(5px);
+      }
+
+      .sidebar.open {
+        display: flex;
+      }
+
+      .sidebar-panel {
+        width: 100%;
+        max-height: 92vh;
+        overflow: auto;
+      }
+
+      .order-form {
+        grid-template-columns: 1fr;
+      }
+
+      .pizza-mode-options,
+      .pizza-select-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .combined-payment-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .form-field.full,
+      .send-order-btn,
+      .form-message {
+        grid-column: auto;
+      }
+    }
+  
+
     /* COMANDAFACIL: CARDS MOBILE VERTICAIS 2 COLUNAS v2 - INICIO */
     /*
      * Ajuste somente visual para celular.
@@ -1704,12 +1812,22 @@
           <div class="cart-head">
             <h2>Meu pedido</h2>
 
-            <span
-              class="cart-badge"
-              id="cartCount"
-            >
-              0
-            </span>
+            <div class="cart-head-actions">
+              <span
+                class="cart-badge"
+                id="cartCount"
+              >
+                0
+              </span>
+              <button
+                type="button"
+                class="cart-modal-close"
+                id="closeCartModal"
+                aria-label="Fechar meu pedido"
+              >
+                ✕
+              </button>
+            </div>
           </div>
 
           <div
@@ -2247,6 +2365,9 @@
     const categoryButtons =
       document.querySelectorAll(".cat-btn");
 
+    const categoryBar =
+      document.querySelector(".categories");
+
     const sections =
       document.querySelectorAll(".section");
 
@@ -2282,6 +2403,9 @@
 
     const sidebarCart =
       document.querySelector("#sidebarCart");
+
+    const closeCartModal =
+      document.querySelector("#closeCartModal");
 
     const orderModal =
       document.querySelector("#orderModal");
@@ -2881,6 +3005,21 @@
             button.dataset.cat;
 
           filterProducts();
+
+          // Mantem a categoria selecionada visivel e centralizada na barra.
+          if (categoryBar) {
+            const barRect = categoryBar.getBoundingClientRect();
+            const buttonRect = button.getBoundingClientRect();
+            const deslocamento =
+              buttonRect.left
+              - barRect.left
+              - ((barRect.width - buttonRect.width) / 2);
+
+            categoryBar.scrollBy({
+              left: deslocamento,
+              behavior: "smooth"
+            });
+          }
         }
       );
     });
@@ -4049,6 +4188,11 @@
       }
     );
 
+    closeCartModal?.addEventListener(
+      "click",
+      () => sidebarCart.classList.remove("open")
+    );
+
     const trocoModal = document.querySelector("#trocoModal");
     const closeTrocoModalBtn = document.querySelector("#closeTrocoModal");
     const semTrocoBtn = document.querySelector("#semTrocoBtn");
@@ -4549,6 +4693,105 @@
   .rating-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:16px; }
   @media(max-width:560px){ .success-card,.rating-card{padding:22px 16px}.success-actions,.rating-actions{grid-template-columns:1fr}.success-actions .full{grid-column:auto}.rating-star-button{width:44px;height:44px} }
 
+
+
+  /* COMANDAFACIL: MEU PEDIDO EM MODAL + BOTOES FIXOS */
+  .content-shell {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .sidebar {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 120 !important;
+    display: none !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 18px !important;
+    background: rgba(20, 10, 6, .72) !important;
+    backdrop-filter: blur(5px);
+  }
+
+  .sidebar.open {
+    display: flex !important;
+  }
+
+  .sidebar-panel {
+    width: min(520px, 100%) !important;
+    max-height: min(88dvh, 760px) !important;
+    overflow: auto !important;
+    border-radius: 24px !important;
+  }
+
+  .cart-card {
+    border-radius: 24px !important;
+  }
+
+  .cart-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+
+  .cart-modal-close {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(255,255,255,.10);
+    color: #fff;
+    font-size: 17px;
+    cursor: pointer;
+  }
+
+  .mobile-cart-toggle {
+    position: fixed !important;
+    right: 168px !important;
+    bottom: 18px !important;
+    z-index: 90 !important;
+    display: inline-flex !important;
+    min-height: 48px !important;
+    padding: 0 16px !important;
+    border-radius: 999px !important;
+    background: linear-gradient(135deg, var(--orange), var(--orange-2)) !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,.24) !important;
+  }
+
+  #openMyOrders {
+    z-index: 90 !important;
+  }
+
+  @media (max-width: 560px) {
+    .sidebar {
+      align-items: flex-end !important;
+      padding: 10px !important;
+    }
+
+    .sidebar-panel {
+      width: 100% !important;
+      max-height: calc(100dvh - 20px) !important;
+      border-radius: 20px !important;
+    }
+
+    .mobile-cart-toggle {
+      left: 12px !important;
+      right: auto !important;
+      bottom: 12px !important;
+      min-height: 46px !important;
+      padding: 0 14px !important;
+      font-size: 13px !important;
+    }
+
+    #openMyOrders {
+      right: 12px !important;
+      bottom: 12px !important;
+      min-height: 46px !important;
+      padding: 0 14px !important;
+      font-size: 13px !important;
+    }
+  }
 
 
 
