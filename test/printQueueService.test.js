@@ -117,10 +117,12 @@ test("criação automática gera um job por impressora", async t => {
   assert.notEqual(created[0].impressoraChave, created[1].impressoraChave);
 });
 
-test("roteamento de impressora respeita Delivery, Mesa e Todas", () => {
+test("roteamento de impressora respeita Delivery, Mesa, Retirada, combinação e Todas", () => {
   const todas = printer({ origemPedidos: "todas" });
   const delivery = printer({ origemPedidos: "delivery" });
   const mesa = printer({ origemPedidos: "mesa" });
+  const retirada = printer({ origemPedidos: "retirada" });
+  const deliveryRetirada = printer({ origemPedidos: "delivery_retirada" });
   const legado = printer({ origemPedidos: undefined });
 
   assert.equal(queue.impressoraAceitaPedido(todas, order({ canal: "delivery" })), true);
@@ -128,8 +130,18 @@ test("roteamento de impressora respeita Delivery, Mesa e Todas", () => {
   assert.equal(queue.impressoraAceitaPedido(todas, order({ canal: "retirada" })), true);
   assert.equal(queue.impressoraAceitaPedido(delivery, order({ canal: "delivery" })), true);
   assert.equal(queue.impressoraAceitaPedido(delivery, order({ canal: "mesa" })), false);
+  assert.equal(queue.impressoraAceitaPedido(delivery, order({ canal: "retirada" })), false);
   assert.equal(queue.impressoraAceitaPedido(mesa, order({ canal: "mesa" })), true);
   assert.equal(queue.impressoraAceitaPedido(mesa, order({ canal: "delivery" })), false);
+  assert.equal(queue.impressoraAceitaPedido(mesa, order({ canal: "retirada" })), false);
+  assert.equal(queue.impressoraAceitaPedido(retirada, order({ canal: "retirada" })), true);
+  assert.equal(queue.impressoraAceitaPedido(retirada, order({ canal: "balcao" })), true);
+  assert.equal(queue.impressoraAceitaPedido(retirada, order({ canal: "delivery" })), false);
+  assert.equal(queue.impressoraAceitaPedido(retirada, order({ canal: "mesa" })), false);
+  assert.equal(queue.impressoraAceitaPedido(deliveryRetirada, order({ canal: "delivery" })), true);
+  assert.equal(queue.impressoraAceitaPedido(deliveryRetirada, order({ canal: "retirada" })), true);
+  assert.equal(queue.impressoraAceitaPedido(deliveryRetirada, order({ canal: "balcao" })), true);
+  assert.equal(queue.impressoraAceitaPedido(deliveryRetirada, order({ canal: "mesa" })), false);
   assert.equal(queue.impressoraAceitaPedido(legado, order({ canal: "retirada" })), true);
 });
 
@@ -160,6 +172,38 @@ test("criação automática envia apenas às impressoras compatíveis com a orig
   assert.deepEqual(
     created.map(job => job.impressora.deviceName).sort(),
     ["Delivery", "Geral"],
+  );
+});
+
+test("retirada automática vai para Retirada, Delivery + Retirada e Todas", async t => {
+  const original = PrintJob.create;
+  const created = [];
+  PrintJob.create = async docs => {
+    created.push(docs[0]);
+    return [{ ...docs[0], _id: crypto.randomUUID() }];
+  };
+  t.after(() => { PrintJob.create = original; });
+
+  const printers = [
+    printer({ deviceName: "Delivery", origemPedidos: "delivery" }),
+    printer({ deviceName: "Mesas", origemPedidos: "mesa" }),
+    printer({ deviceName: "Retirada", origemPedidos: "retirada" }),
+    printer({ deviceName: "DeliveryRetirada", origemPedidos: "delivery_retirada" }),
+    printer({ deviceName: "Geral", origemPedidos: "todas" }),
+  ];
+
+  const jobs = await queue.criarJobsAutomaticos(order({
+    canal: "retirada",
+    formaPagamento: "dinheiro",
+  }), {
+    configuracao: config(printers),
+    dono: {},
+  });
+
+  assert.equal(jobs.length, 3);
+  assert.deepEqual(
+    created.map(job => job.impressora.deviceName).sort(),
+    ["DeliveryRetirada", "Geral", "Retirada"],
   );
 });
 
@@ -260,10 +304,72 @@ test("claim é atômico, limitado a cinco tentativas e usa lease", async t => {
   t.after(() => { PrintJob.findOneAndUpdate = original; });
   await queue.reivindicarProximoJob("507f1f77bcf86cd799439012");
   assert.equal(query.tentativas.$lt, 5);
-  assert.ok(query.$or.some(item => item.leaseExpiresAt?.$lt));
+  assert.ok(query.$and.some(group =>
+    group.$or?.some(item => item.leaseExpiresAt?.$lt)));
+  assert.ok(query.$and.some(group =>
+    group.$or?.some(item => Object.prototype.hasOwnProperty.call(item, "nextAttemptAt"))));
   assert.equal(update.$inc.tentativas, 1);
   assert.match(update.$set.leaseToken, /^[0-9a-f-]{36}$/);
   assert.equal(update.$set.lockedBy, queue.INSTANCE_ID);
+});
+
+
+test("job legado sem nextAttemptAt continua reivindicável", async t => {
+  const original = PrintJob.findOneAndUpdate;
+  let query;
+  PrintJob.findOneAndUpdate = async q => {
+    query = q;
+    return null;
+  };
+  t.after(() => { PrintJob.findOneAndUpdate = original; });
+
+  await queue.reivindicarProximoJob("507f1f77bcf86cd799439012");
+  const nextAttemptGroup = query.$and.find(group =>
+    group.$or?.some(item => Object.prototype.hasOwnProperty.call(item, "nextAttemptAt")));
+  assert.ok(nextAttemptGroup);
+  assert.ok(nextAttemptGroup.$or.some(item => item.nextAttemptAt === null));
+});
+
+test("job esgotado deixa de ficar pendente para sempre", async t => {
+  const original = PrintJob.updateMany;
+  let query;
+  let update;
+  PrintJob.updateMany = async (q, u) => {
+    query = q;
+    update = u;
+    return { modifiedCount: 1 };
+  };
+  t.after(() => { PrintJob.updateMany = original; });
+
+  await queue.finalizarJobsEsgotados({ now: new Date("2026-08-11T18:45:56.796Z") });
+  assert.equal(query.tentativas.$gte, queue.MAX_ATTEMPTS);
+  assert.equal(update.$set.status, "falhou");
+  assert.match(update.$set.erro, /Limite de tentativas/);
+  assert.equal(update.$set.leaseToken, "");
+});
+
+test("reconciliação reconhece impressora atual por tipo, chave e origem", () => {
+  const delivery = printer({
+    deviceName: "Cozinha",
+    modo: "automatica",
+    origemPedidos: "delivery",
+  });
+  const chave = queue.calcularImpressoraChave(delivery);
+  assert.equal(queue.impressoraPodeAtenderJob(delivery, {
+    tipo: "automatica",
+    impressoraChave: chave,
+    pedido: { canal: "delivery" },
+  }), true);
+  assert.equal(queue.impressoraPodeAtenderJob(delivery, {
+    tipo: "automatica",
+    impressoraChave: chave,
+    pedido: { canal: "mesa" },
+  }), false);
+  assert.equal(queue.impressoraPodeAtenderJob({ ...delivery, modo: "desativada" }, {
+    tipo: "automatica",
+    impressoraChave: chave,
+    pedido: { canal: "delivery" },
+  }), false);
 });
 
 test("dois servidores disputando dependem do mesmo findOneAndUpdate atômico", () => {
@@ -564,6 +670,7 @@ test("lease expirado vira resultado desconhecido para reconciliação", async t 
   t.after(() => { PrintJob.updateMany = original; });
   await queue.recuperarLeasesExpirados();
   assert.ok(query.leaseExpiresAt.$lt instanceof Date);
+  assert.ok(query.status.$in.includes("enviado"));
   assert.equal(update.$set.status, "resultado_desconhecido");
 });
 

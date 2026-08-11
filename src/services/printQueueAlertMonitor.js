@@ -19,12 +19,18 @@ function buildStuckPrintJobQuery({ now = new Date(), stuckMs = DEFAULT_STUCK_MS 
       {
         status: "pendente",
         createdAt: { $lte: staleBefore },
-        nextAttemptAt: { $lte: now },
+        $or: [
+          { nextAttemptAt: null },
+          { nextAttemptAt: { $lte: now } },
+        ],
       },
       {
         status: "aguardando_retry",
         updatedAt: { $lte: staleBefore },
-        nextAttemptAt: { $lte: now },
+        $or: [
+          { nextAttemptAt: null },
+          { nextAttemptAt: { $lte: now } },
+        ],
       },
       {
         status: { $in: ["entregando", "recebido", "processando", "enviado"] },
@@ -46,6 +52,8 @@ function createPrintQueueAlertMonitor({
   now = () => new Date(),
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
+  isAgentOnline = () => true,
+  isProtocolEnabled = () => true,
 } = {}) {
   const stuckMs = integerValue(
     env.ALERT_QUEUE_STUCK_MS,
@@ -79,7 +87,22 @@ function createPrintQueueAlertMonitor({
   async function check() {
     const currentDate = now();
     try {
-      const jobs = await loadStuckJobs(currentDate);
+      const candidates = await loadStuckJobs(currentDate);
+      const jobs = candidates.filter(job => {
+        const storeId = String(job.estabelecimentoId || "");
+        if (!storeId) return false;
+
+        // Um job ainda não reivindicado não está "travado" se não existe
+        // agente pronto para consumi-lo. Nessa situação ele está apenas
+        // aguardando o computador do estabelecimento reconectar. O alerta
+        // crítico fica reservado para uma fila que deveria estar avançando.
+        if (["pendente", "aguardando_retry"].includes(String(job.status))) {
+          if (!isProtocolEnabled(storeId)) return false;
+          if (!isAgentOnline(storeId)) return false;
+        }
+        return true;
+      });
+
       const grouped = new Map();
       for (const job of jobs) {
         const storeId = String(job.estabelecimentoId || "");

@@ -5735,6 +5735,22 @@ exports.salvarImpressora = async (
       },
     );
 
+    // Jobs ainda não entregues que apontavam para uma impressora removida,
+    // desativada ou que deixou de atender a origem do pedido não podem ficar
+    // presos para sempre na fila. Eles são cancelados de forma segura e uma
+    // reimpressão manual continua disponível caso o operador precise.
+    try {
+      await printQueueService.reconciliarJobsComImpressorasAtuais(
+        idEstabelecimento,
+        impressoras,
+      );
+    } catch (reconcileError) {
+      // A configuração já foi salva. Uma falha do reconciliador não deve
+      // transformar o salvamento bem-sucedido em erro para o usuário; o
+      // worker periódico tentará novamente em seguida.
+      appLogger.error("Erro ao reconciliar fila após salvar impressoras:", reconcileError);
+    }
+
     return salvarERedirecionar(
       req,
       res,

@@ -42,6 +42,9 @@ const {
 const {
   verifyCriticalIndexes,
 } = require("./src/services/criticalIndexService");
+const {
+  isPrintProtocolV2EnabledFor,
+} = require("./src/config/printProtocolRollout");
 
 const SHUTDOWN_TIMEOUT_MS = 25_000;
 
@@ -290,10 +293,20 @@ async function boot({
     });
     printAgentHub.init(runtime.io);
     await printQueueService.reconciliarPedidosSemJob();
-    runtime.queueAlertMonitor = createPrintQueueAlertMonitor({ env });
+    await printQueueService.reconciliarJobsOrfaos();
+    await printQueueService.recuperarLeasesExpirados();
+    runtime.queueAlertMonitor = createPrintQueueAlertMonitor({
+      env,
+      isAgentOnline: estabelecimentoId => printAgentHub.isOnline(estabelecimentoId),
+      isProtocolEnabled: estabelecimentoId =>
+        isPrintProtocolV2EnabledFor(estabelecimentoId, env),
+    });
     runtime.queueAlertMonitor.start();
     runtime.reconcileTimer = setInterval(() => {
-      void printQueueService.reconciliarPedidosSemJob().catch(error =>
+      void (async () => {
+        await printQueueService.reconciliarPedidosSemJob();
+        await printQueueService.reconciliarJobsOrfaos();
+      })().catch(error =>
         logger.error(`Erro no reconciliador: ${sanitizeFatal(error)}`));
     }, 5 * 60 * 1000);
     runtime.reconcileTimer.unref?.();

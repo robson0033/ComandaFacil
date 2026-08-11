@@ -43,12 +43,16 @@ Os valores são opcionais. Os padrões acima significam:
 
 - um mesmo incidente não envia novo alerta antes de 15 minutos;
 - cinco respostas 5xx iguais em cinco minutos abrem o incidente;
-- um trabalho elegível parado por mais de três minutos é considerado preso;
+- um trabalho elegível parado por mais de três minutos é considerado preso somente quando o agente compatível está online e o protocolo da loja está habilitado;
+- trabalhos ainda `pendente`/`aguardando_retry` com o agente offline são considerados em espera normal e não abrem incidente crítico;
+- jobs órfãos de impressora removida/desativada são cancelados pelo reconciliador antes de contaminarem o monitor;
 - a fila é conferida a cada minuto;
 - o envio ao canal externo expira em cinco segundos.
 
 O monitor não cria, reenvia, conclui ou cancela trabalhos de impressão. Ele
-apenas consulta a fila e emite alertas.
+apenas consulta a fila e emite alertas. A limpeza de jobs órfãos e o encerramento
+de jobs que esgotaram o limite de tentativas pertencem ao serviço/reconciliador
+da fila, não ao monitor.
 
 ## Eventos cobertos
 

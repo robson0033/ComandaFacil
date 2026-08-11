@@ -258,6 +258,101 @@ test("monitor de fila detecta trabalho preso e envia recuperação", async () =>
     type === "resolve" && input.event === "print_queue_stuck"), true);
 });
 
+
+test("monitor não acusa fila travada enquanto agente está offline ou protocolo pausado", async () => {
+  const now = new Date("2026-08-11T18:45:56.796Z");
+  const jobs = [{
+    estabelecimentoId: "507f1f77bcf86cd799439012",
+    jobId: "550e8400-e29b-41d4-a716-446655440000",
+    status: "pendente",
+    createdAt: new Date(now.getTime() - 60 * 60_000),
+    nextAttemptAt: new Date(now.getTime() - 60 * 60_000),
+  }];
+  const calls = [];
+  const chain = () => ({
+    select() { return this; },
+    sort() { return this; },
+    limit() { return this; },
+    async lean() { return jobs; },
+  });
+
+  const offline = createPrintQueueAlertMonitor({
+    PrintJobModel: { find: chain },
+    alertService: {
+      trigger: input => calls.push(["trigger", input]),
+      resolve: input => calls.push(["resolve", input]),
+    },
+    logger: silentLogger(),
+    env: {
+      ALERT_QUEUE_STUCK_MS: "60000",
+      ALERT_QUEUE_CHECK_INTERVAL_MS: "15000",
+    },
+    now: () => now,
+    isAgentOnline: () => false,
+    isProtocolEnabled: () => true,
+  });
+  assert.deepEqual(await offline.check(), { checked: true, stuckJobs: 0, stores: 0 });
+  assert.equal(calls.some(([type, input]) =>
+    type === "trigger" && input.event === "print_queue_stuck"), false);
+
+  const paused = createPrintQueueAlertMonitor({
+    PrintJobModel: { find: chain },
+    alertService: {
+      trigger: input => calls.push(["trigger", input]),
+      resolve: input => calls.push(["resolve", input]),
+    },
+    logger: silentLogger(),
+    env: {
+      ALERT_QUEUE_STUCK_MS: "60000",
+      ALERT_QUEUE_CHECK_INTERVAL_MS: "15000",
+    },
+    now: () => now,
+    isAgentOnline: () => true,
+    isProtocolEnabled: () => false,
+  });
+  assert.deepEqual(await paused.check(), { checked: true, stuckJobs: 0, stores: 0 });
+});
+
+test("monitor continua acusando pendente antigo quando agente está online", async () => {
+  const now = new Date("2026-08-11T18:45:56.796Z");
+  const jobs = [{
+    estabelecimentoId: "507f1f77bcf86cd799439012",
+    jobId: "550e8400-e29b-41d4-a716-446655440000",
+    status: "pendente",
+    createdAt: new Date(now.getTime() - 10 * 60_000),
+    nextAttemptAt: new Date(now.getTime() - 10 * 60_000),
+  }];
+  const calls = [];
+  const monitor = createPrintQueueAlertMonitor({
+    PrintJobModel: {
+      find() {
+        return {
+          select() { return this; },
+          sort() { return this; },
+          limit() { return this; },
+          async lean() { return jobs; },
+        };
+      },
+    },
+    alertService: {
+      trigger: input => calls.push(["trigger", input]),
+      resolve: input => calls.push(["resolve", input]),
+    },
+    logger: silentLogger(),
+    env: {
+      ALERT_QUEUE_STUCK_MS: "60000",
+      ALERT_QUEUE_CHECK_INTERVAL_MS: "15000",
+    },
+    now: () => now,
+    isAgentOnline: () => true,
+    isProtocolEnabled: () => true,
+  });
+
+  assert.deepEqual(await monitor.check(), { checked: true, stuckJobs: 1, stores: 1 });
+  assert.equal(calls.some(([type, input]) =>
+    type === "trigger" && input.event === "print_queue_stuck"), true);
+});
+
 test("consulta de fila cobre estados vencidos sem reenviar trabalhos", () => {
   const query = buildStuckPrintJobQuery({
     now: new Date("2026-08-04T13:00:00.000Z"),

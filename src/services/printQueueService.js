@@ -171,6 +171,132 @@ function impressoraAceitaPedido(impressora = {}, pedido = {}) {
   return canalPedido === origemConfigurada;
 }
 
+
+function modosAceitosParaTipoJob(tipo) {
+  return String(tipo) === "manual"
+    ? ["manual", "manual_automatica"]
+    : ["automatica", "manual_automatica"];
+}
+
+function impressoraPodeAtenderJob(impressora = {}, job = {}) {
+  return modosAceitosParaTipoJob(job.tipo).includes(String(impressora.modo || ""))
+    && calcularImpressoraChave(impressora) === String(job.impressoraChave || "")
+    && impressoraAceitaPedido(impressora, job.pedido || {});
+}
+
+async function reconciliarJobsComImpressorasAtuais(
+  estabelecimentoId,
+  impressorasFornecidas = null,
+) {
+  if (shuttingDown || !estabelecimentoId) return { verificados: 0, cancelados: 0 };
+
+  let impressoras = impressorasFornecidas;
+  if (!Array.isArray(impressoras)) {
+    const configuracao = await Configuracao.findOne({ estabelecimentoId })
+      .select("impressoras")
+      .lean();
+    // Não cancela nada se a configuração não pôde ser encontrada.
+    if (!configuracao) return { verificados: 0, cancelados: 0 };
+    impressoras = configuracao.impressoras || [];
+  }
+
+  const jobs = await PrintJob.find({
+    estabelecimentoId,
+    status: { $in: ["pendente", "aguardando_retry"] },
+  })
+    .select("_id tipo impressoraChave pedido status")
+    .limit(500)
+    .lean();
+
+  const orfaos = jobs.filter(job =>
+    !impressoras.some(impressora => impressoraPodeAtenderJob(impressora, job)));
+  if (!orfaos.length) return { verificados: jobs.length, cancelados: 0 };
+
+  const ids = orfaos.map(job => job._id);
+  const result = await PrintJob.updateMany({
+    _id: { $in: ids },
+    estabelecimentoId,
+    status: { $in: ["pendente", "aguardando_retry"] },
+  }, {
+    $set: {
+      status: "cancelado",
+      erro: "Impressora removida, desativada ou não configurada para esta origem. Reimprima manualmente se necessário.",
+      lockedBy: "",
+      leaseToken: "",
+      leaseExpiresAt: null,
+    },
+  });
+
+  const cancelados = Number(result?.modifiedCount || 0);
+  if (cancelados > 0) {
+    appLogger.warn("print_queue_orphan_jobs_cancelled", {
+      estabelecimentoIdSuffix: String(estabelecimentoId).slice(-8),
+      cancelados,
+    });
+  }
+  return {
+    verificados: jobs.length,
+    cancelados,
+  };
+}
+
+async function reconciliarJobsOrfaos({ limit = 500 } = {}) {
+  if (shuttingDown) return { verificados: 0, cancelados: 0, lojas: 0 };
+
+  const idsLojas = await PrintJob.distinct("estabelecimentoId", {
+    status: { $in: ["pendente", "aguardando_retry"] },
+  });
+  const limiteLojas = Math.max(1, Math.min(2000, Number(limit) || 500));
+  const lojas = [...new Set(idsLojas
+    .map(id => String(id || ""))
+    .filter(Boolean))].slice(0, limiteLojas);
+  let verificados = 0;
+  let cancelados = 0;
+
+  for (const lojaId of lojas) {
+    const result = await reconciliarJobsComImpressorasAtuais(lojaId);
+    verificados += result.verificados;
+    cancelados += result.cancelados;
+  }
+
+  return { verificados, cancelados, lojas: lojas.length };
+}
+
+async function finalizarJobsEsgotados({ now = new Date() } = {}) {
+  if (shuttingDown) return { modifiedCount: 0 };
+  const result = await PrintJob.updateMany({
+    status: { $in: ["pendente", "aguardando_retry"] },
+    tentativas: { $gte: MAX_ATTEMPTS },
+    $and: [
+      {
+        $or: [
+          { nextAttemptAt: null },
+          { nextAttemptAt: { $lte: now } },
+        ],
+      },
+      {
+        $or: [
+          { leaseExpiresAt: null },
+          { leaseExpiresAt: { $lt: now } },
+        ],
+      },
+    ],
+  }, {
+    $set: {
+      status: "falhou",
+      erro: "Limite de tentativas de impressão atingido. Use Reimprimir para tentar novamente.",
+      lockedBy: "",
+      leaseToken: "",
+      leaseExpiresAt: null,
+    },
+  });
+  const finalizados = Number(result?.modifiedCount || 0);
+  if (finalizados > 0) {
+    appLogger.warn("print_queue_exhausted_jobs_failed", { finalizados });
+  }
+  return result;
+}
+
 function sanitizarImpressora(impressora = {}) {
   const allowed = [
     "nome", "tipoConexao", "deviceName", "ip", "porta", "papel", "modo",
@@ -482,11 +608,20 @@ async function reivindicarProximoJob(estabelecimentoId) {
   return PrintJob.findOneAndUpdate({
     estabelecimentoId,
     status: { $in: ["pendente", "aguardando_retry"] },
-    nextAttemptAt: { $lte: now },
     tentativas: { $lt: MAX_ATTEMPTS },
-    $or: [
-      { leaseExpiresAt: null },
-      { leaseExpiresAt: { $lt: now } },
+    $and: [
+      {
+        $or: [
+          { nextAttemptAt: null },
+          { nextAttemptAt: { $lte: now } },
+        ],
+      },
+      {
+        $or: [
+          { leaseExpiresAt: null },
+          { leaseExpiresAt: { $lt: now } },
+        ],
+      },
     ],
   }, {
     $set: {
@@ -756,7 +891,7 @@ async function reconciliarResumoDoAgente(estabelecimentoId, summary = {}) {
         estabelecimentoId,
         leaseToken: String(local.leaseId),
         status: {
-          $in: ["entregando", "recebido", "processando", "resultado_desconhecido"],
+          $in: ["entregando", "recebido", "processando", "enviado", "resultado_desconhecido"],
         },
       }, {
         $set: {
@@ -892,9 +1027,10 @@ async function drenarFilaDoEstabelecimento(estabelecimentoId, socket) {
 async function recuperarLeasesExpirados() {
   if (shuttingDown) return;
   const now = new Date();
+  await finalizarJobsEsgotados({ now });
   await PrintJob.updateMany({
     status: {
-      $in: ["entregando", "recebido", "processando", "resultado_desconhecido"],
+      $in: ["entregando", "recebido", "processando", "enviado", "resultado_desconhecido"],
     },
     leaseExpiresAt: { $lt: now },
   }, {
@@ -990,6 +1126,7 @@ module.exports = {
   calcularImpressoraChave,
   calcularImpressoraId,
   impressoraAceitaPedido,
+  impressoraPodeAtenderJob,
   normalizarOrigemPedidosImpressora,
   criarJobManual,
   criarJobsAutomaticos,
@@ -1002,6 +1139,9 @@ module.exports = {
   processarJob,
   programarRetry,
   recuperarLeasesExpirados,
+  finalizarJobsEsgotados,
+  reconciliarJobsComImpressorasAtuais,
+  reconciliarJobsOrfaos,
   reconciliarPedidosSemJob,
   reivindicarProximoJob,
   retryJob,
