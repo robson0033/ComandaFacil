@@ -352,6 +352,15 @@ const redirectAdminSection = section => (req, res) =>
 route.get('/admin/catalogo', loginRequired, carregarAssinatura, assinaturaRequired, permissao('catalogo'), redirectAdminSection('catalogo'));
 route.get('/admin/cardapio', loginRequired, carregarAssinatura, assinaturaRequired, permissao('catalogo'), redirectAdminSection('catalogo'));
 route.get('/admin/mesas', loginRequired, carregarAssinatura, assinaturaRequired, permissao('mesas'), redirectAdminSection('mesas'));
+
+route.get(
+  '/admin/api/mesas/resumo',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissao('mesas'),
+  admin.resumoMesas
+);
 route.get('/admin/funcionarios', loginRequired, carregarAssinatura, assinaturaRequired, permissao('funcionarios'), redirectAdminSection('funcionarios'));
 route.get('/admin/estoque', loginRequired, carregarAssinatura, assinaturaRequired, permissao('estoque'), redirectAdminSection('estoque'));
 route.get('/admin/relatorios', loginRequired, carregarAssinatura, assinaturaRequired, permissao('relatorios'), redirectAdminSection('relatorios'));

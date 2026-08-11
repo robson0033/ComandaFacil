@@ -4680,6 +4680,124 @@ exports.pagarContaMesa = async (
         : "Não foi possível finalizar o pagamento.",
     );
   }
+
+};
+
+exports.resumoMesas = async (
+  req,
+  res,
+) => {
+  try {
+    const idEstabelecimento =
+      estabelecimentoId(req);
+
+    const [mesas, pedidosPendentes] =
+      await Promise.all([
+        Mesa.find({
+          estabelecimentoId:
+            idEstabelecimento,
+        })
+          .select(
+            "_id numero status",
+          )
+          .sort({ numero: 1 })
+          .lean(),
+
+        Pedido.find({
+          estabelecimentoId:
+            idEstabelecimento,
+          canal: "mesa",
+          mesaId: { $ne: null },
+          excluido: { $ne: true },
+          pagamentoStatus:
+            "pendente",
+          status: { $ne: "cancelado" },
+        })
+          .select(
+            "_id mesaId total createdAt",
+          )
+          .sort({ createdAt: 1 })
+          .lean(),
+      ]);
+
+    const contasPorMesa =
+      new Map();
+
+    pedidosPendentes.forEach(
+      pedido => {
+        const idMesa = String(
+          pedido.mesaId?._id ||
+            pedido.mesaId ||
+            "",
+        );
+
+        if (!idMesa) {
+          return;
+        }
+
+        const conta =
+          contasPorMesa.get(idMesa) || {
+            quantidadePedidos: 0,
+            totalCentavos: 0,
+            pedidoIds: [],
+          };
+
+        conta.quantidadePedidos += 1;
+        conta.totalCentavos +=
+          totalParaCentavos(
+            pedido.total || 0,
+          );
+        conta.pedidoIds.push(
+          String(pedido._id),
+        );
+
+        contasPorMesa.set(
+          idMesa,
+          conta,
+        );
+      },
+    );
+
+    return res.json({
+      success: true,
+      agora:
+        new Date().toISOString(),
+      mesas: mesas.map(mesa => {
+        const conta =
+          contasPorMesa.get(
+            String(mesa._id),
+          ) || {
+            quantidadePedidos: 0,
+            totalCentavos: 0,
+            pedidoIds: [],
+          };
+
+        return {
+          id: String(mesa._id),
+          numero: mesa.numero,
+          status:
+            String(mesa.status || "livre"),
+          quantidadePedidos:
+            conta.quantidadePedidos,
+          totalCentavos:
+            conta.totalCentavos,
+          pedidoIds:
+            conta.pedidoIds,
+        };
+      }),
+    });
+  } catch (error) {
+    appLogger.error(
+      "Erro ao atualizar resumo das mesas:",
+      error,
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        "Não foi possível atualizar as mesas.",
+    });
+  }
 };
 
 /*

@@ -6040,6 +6040,8 @@
             <% listaMesas.forEach(mesa => { %>
               <article
                 class="table-card <%= mesa.status %>"
+                data-mesa-card="<%= mesa._id %>"
+                data-mesa-numero="<%= mesa.numero %>"
               >
                 <div class="table-number">
                   <%= mesa.numero %>
@@ -6053,7 +6055,10 @@
                 </p>
 
                 <div style="margin-top: 10px;">
-                  <span class="status <%= mesa.status %>">
+                  <span
+                    class="status <%= mesa.status %>"
+                    data-mesa-status
+                  >
                     <%= String(mesa.status || '')
                       .replaceAll('_', ' ')
                     %>
@@ -6063,13 +6068,13 @@
                 <div class="mesa-conta">
                   <small>Conta atual</small>
 
-                  <strong>
+                  <strong data-mesa-total>
                     <%= formatarMoeda(
                       mesa.totalConta
                     ) %>
                   </strong>
 
-                  <span>
+                  <span data-mesa-pedidos>
                     <%= mesa.quantidadePedidos || 0 %>
                     pedido(s) em aberto
                   </span>
@@ -6099,6 +6104,18 @@
                     >
                       Abrir cardápio da mesa
                     </a>
+                  <% } %>
+
+                  <% if (pode('imprimir_pedidos')) { %>
+                    <button
+                      type="button"
+                      class="mini-button mesa-print-all"
+                      data-print-mesa="<%= mesa._id %>"
+                      data-mesa-pedidos="<%= mesa.quantidadePedidos || 0 %>"
+                      <%= Number(mesa.quantidadePedidos || 0) > 0 ? '' : 'disabled' %>
+                    >
+                      🖨 Imprimir todos os pedidos
+                    </button>
                   <% } %>
 
                   <form
@@ -8939,7 +8956,11 @@
       const valor1 = form.querySelector('[data-valor-pagamento-1]');
       const valor2 = form.querySelector('[data-valor-pagamento-2]');
       const resumo = form.querySelector('[data-resumo-pagamento-combinado]');
-      const totalCentavos = Number(form.dataset.totalCentavos || 0);
+      const obterTotalCentavos = () =>
+        Math.max(
+          0,
+          Number(form.dataset.totalCentavos || 0),
+        );
       const camposCombinados = [forma1, forma2, valor1, valor2].filter(Boolean);
       const nomesPagamentoMesa = {
         dinheiro: 'Dinheiro',
@@ -8955,6 +8976,7 @@
 
       function atualizarSegundoValor() {
         if (!valor1 || !valor2 || !resumo) return;
+        const totalCentavos = obterTotalCentavos();
         const primeiroCentavos = centavosDeEntradaMonetaria(valor1.value);
         if (primeiroCentavos === null || primeiroCentavos <= 0 || primeiroCentavos >= totalCentavos) {
           valor2.value = '';
@@ -8994,6 +9016,7 @@
       form.addEventListener('submit', event => {
         if (modo?.value !== 'combinado') return;
         garantirFormasDiferentes();
+        const totalCentavos = obterTotalCentavos();
         const primeiroCentavos = centavosDeEntradaMonetaria(valor1?.value);
         const segundoCentavos = centavosDeEntradaMonetaria(valor2?.value);
         const valido = forma1?.value !== forma2?.value
@@ -10283,10 +10306,19 @@ function atualizarStatusAgente({
   }
 
   document.querySelectorAll(
-    '[data-agent-required], [data-print-order]'
+    '[data-agent-required], [data-print-order], [data-print-mesa]'
   ).forEach(button => {
-    const printBusy = Boolean(button.dataset && button.dataset.printBusy === 'true');
-    button.disabled = !online || printBusy;
+    const printBusy = Boolean(
+      button.dataset &&
+      button.dataset.printBusy === 'true'
+    );
+    const mesaSemPedidos =
+      button.matches('[data-print-mesa]') &&
+      Number(button.dataset.mesaPedidos || 0) <= 0;
+    button.disabled =
+      !online ||
+      printBusy ||
+      mesaSemPedidos;
   });
 
   if (online) {
@@ -11913,6 +11945,503 @@ if (podeReceberNotificacoes) {
         () => atualizarVariacoesCategoria(form),
       );
     });
+
+    /*
+    |--------------------------------------------------------------------------
+    | MESAS EM TEMPO REAL + IMPRESSÃO DOS PEDIDOS DA CONTA ATUAL
+    |--------------------------------------------------------------------------
+    */
+
+    const resumoMesasPorId =
+      new Map();
+
+    let atualizacaoResumoMesasPromise =
+      null;
+
+    function paginaMesasAtiva() {
+      return Boolean(
+        document
+          .querySelector('#page-mesas')
+          ?.classList.contains('ativa')
+      );
+    }
+
+    function formatarTotalMesa(
+      totalCentavos
+    ) {
+      return (
+        Number(totalCentavos || 0) /
+        100
+      ).toLocaleString(
+        'pt-BR',
+        {
+          style: 'currency',
+          currency: 'BRL'
+        }
+      );
+    }
+
+    function statusMesaTexto(
+      status
+    ) {
+      return String(status || '')
+        .replaceAll('_', ' ');
+    }
+
+    function atualizarCardMesa(
+      resumo
+    ) {
+      const mesaId =
+        String(resumo?.id || '');
+
+      if (!mesaId) {
+        return;
+      }
+
+      resumoMesasPorId.set(
+        mesaId,
+        resumo
+      );
+
+      const card =
+        document.querySelector(
+          `[data-mesa-card="${CSS.escape(mesaId)}"]`
+        );
+
+      if (!card) {
+        return;
+      }
+
+      const status =
+        String(
+          resumo.status || 'livre'
+        );
+
+      [
+        'livre',
+        'ocupada',
+        'aguardando_pagamento',
+        'paga',
+        'reservada',
+        'inativa'
+      ].forEach(nomeStatus => {
+        card.classList.remove(
+          nomeStatus
+        );
+      });
+
+      card.classList.add(status);
+
+      const statusBadge =
+        card.querySelector(
+          '[data-mesa-status]'
+        );
+
+      if (statusBadge) {
+        statusBadge.className =
+          `status ${status}`;
+        statusBadge.textContent =
+          statusMesaTexto(status);
+      }
+
+      const total =
+        card.querySelector(
+          '[data-mesa-total]'
+        );
+
+      if (total) {
+        total.textContent =
+          formatarTotalMesa(
+            resumo.totalCentavos
+          );
+      }
+
+      const quantidade =
+        Math.max(
+          0,
+          Number(
+            resumo.quantidadePedidos ||
+            0
+          )
+        );
+
+      const quantidadeElemento =
+        card.querySelector(
+          '[data-mesa-pedidos]'
+        );
+
+      if (quantidadeElemento) {
+        quantidadeElemento.textContent =
+          `${quantidade} pedido(s) em aberto`;
+      }
+
+      const pagamentoForm =
+        card.querySelector(
+          '.pagamento-form'
+        );
+
+      if (pagamentoForm) {
+        pagamentoForm.dataset.totalCentavos =
+          String(
+            Math.max(
+              0,
+              Number(
+                resumo.totalCentavos ||
+                0
+              )
+            )
+          );
+
+        const formaPagamento =
+          pagamentoForm.querySelector(
+            '[data-forma-pagamento-mesa]'
+          );
+
+        if (
+          formaPagamento?.value ===
+          'combinado'
+        ) {
+          formaPagamento.dispatchEvent(
+            new Event(
+              'change',
+              { bubbles: true }
+            )
+          );
+        }
+      }
+
+      const statusSelect =
+        card.querySelector(
+          '.status-form select[name="status"]'
+        );
+
+      if (
+        statusSelect &&
+        [...statusSelect.options].some(
+          option =>
+            option.value === status
+        )
+      ) {
+        statusSelect.value =
+          status;
+      }
+
+      const imprimirButton =
+        card.querySelector(
+          '[data-print-mesa]'
+        );
+
+      if (imprimirButton) {
+        imprimirButton.dataset.mesaPedidos =
+          String(quantidade);
+
+        const ocupado =
+          imprimirButton.dataset.printBusy ===
+          'true';
+
+        imprimirButton.disabled =
+          !printAgentConectado ||
+          ocupado ||
+          quantidade <= 0;
+      }
+    }
+
+    async function atualizarResumoMesas({
+      force = false
+    } = {}) {
+      if (
+        document.hidden ||
+        (
+          !force &&
+          !paginaMesasAtiva()
+        )
+      ) {
+        return null;
+      }
+
+      if (
+        atualizacaoResumoMesasPromise
+      ) {
+        return atualizacaoResumoMesasPromise;
+      }
+
+      atualizacaoResumoMesasPromise =
+        (async () => {
+          try {
+            const response =
+              await adminFetch(
+                '/admin/api/mesas/resumo',
+                {
+                  skipAdminLoading: true,
+                  headers: {
+                    Accept:
+                      'application/json'
+                  }
+                }
+              );
+
+            if (!response.ok) {
+              return null;
+            }
+
+            const result =
+              await response.json();
+
+            if (
+              !result.success ||
+              !Array.isArray(result.mesas)
+            ) {
+              return null;
+            }
+
+            result.mesas.forEach(
+              atualizarCardMesa
+            );
+
+            return result;
+          } catch (error) {
+            console.error(
+              'Não foi possível atualizar as mesas:',
+              error
+            );
+            return null;
+          }
+        })();
+
+      try {
+        return await atualizacaoResumoMesasPromise;
+      } finally {
+        atualizacaoResumoMesasPromise =
+          null;
+      }
+    }
+
+    async function imprimirPedidosDaMesa(
+      button
+    ) {
+      const mesaId =
+        String(
+          button?.dataset?.printMesa ||
+          ''
+        );
+
+      if (
+        !mesaId ||
+        button.dataset.printBusy ===
+          'true'
+      ) {
+        return;
+      }
+
+      await atualizarResumoMesas({
+        force: true
+      });
+
+      const resumo =
+        resumoMesasPorId.get(
+          mesaId
+        );
+
+      const pedidoIds =
+        Array.isArray(
+          resumo?.pedidoIds
+        )
+          ? resumo.pedidoIds.filter(
+              Boolean
+            )
+          : [];
+
+      if (!pedidoIds.length) {
+        window.alert(
+          'Esta mesa não possui pedidos em aberto para imprimir.'
+        );
+        atualizarCardMesa({
+          ...(resumo || {}),
+          id: mesaId,
+          quantidadePedidos: 0,
+          totalCentavos:
+            resumo?.totalCentavos || 0,
+          pedidoIds: []
+        });
+        return;
+      }
+
+      const numeroMesa =
+        resumo?.numero ||
+        button
+          .closest(
+            '[data-mesa-card]'
+          )
+          ?.dataset.mesaNumero ||
+        '';
+
+      const confirmado =
+        window.confirm(
+          `Imprimir ${pedidoIds.length} pedido(s) em aberto da Mesa ${numeroMesa}?`
+          + '\n\nOs pedidos serão enviados para as impressoras manuais configuradas.'
+        );
+
+      if (!confirmado) {
+        return;
+      }
+
+      const textoOriginal =
+        button.textContent;
+
+      button.dataset.printBusy =
+        'true';
+      button.disabled = true;
+      button.textContent =
+        `Enfileirando 0/${pedidoIds.length}...`;
+
+      let sucessos = 0;
+      const falhas = [];
+
+      try {
+        for (
+          let indice = 0;
+          indice < pedidoIds.length;
+          indice += 1
+        ) {
+          const pedidoId =
+            pedidoIds[indice];
+
+          button.textContent =
+            `Enfileirando ${indice + 1}/${pedidoIds.length}...`;
+
+          try {
+            await imprimirPedido(
+              pedidoId,
+              {
+                confirmReprint: true
+              }
+            );
+
+            sucessos += 1;
+          } catch (error) {
+            falhas.push(
+              error?.message ||
+              `Pedido ${indice + 1}`
+            );
+          }
+        }
+
+        if (
+          sucessos ===
+          pedidoIds.length
+        ) {
+          button.textContent =
+            `🖨 ${sucessos} pedido(s) na fila`;
+
+          window.setTimeout(
+            () => {
+              if (
+                button.dataset.printBusy !==
+                'true'
+              ) {
+                button.textContent =
+                  textoOriginal;
+              }
+            },
+            3000
+          );
+        } else {
+          window.alert(
+            `${sucessos} de ${pedidoIds.length} pedido(s) foram enviados para impressão.`
+            + (
+              falhas.length
+                ? `\n\nNão enviados:\n- ${falhas.join('\n- ')}`
+                : ''
+            )
+          );
+        }
+      } finally {
+        delete button.dataset.printBusy;
+
+        const quantidade =
+          Number(
+            resumoMesasPorId
+              .get(mesaId)
+              ?.quantidadePedidos ||
+            pedidoIds.length
+          );
+
+        button.disabled =
+          !printAgentConectado ||
+          quantidade <= 0;
+
+        if (
+          sucessos !==
+          pedidoIds.length
+        ) {
+          button.textContent =
+            textoOriginal;
+        }
+      }
+    }
+
+    document.addEventListener(
+      'click',
+      event => {
+        const button =
+          event.target.closest(
+            '[data-print-mesa]'
+          );
+
+        if (!button) {
+          return;
+        }
+
+        void imprimirPedidosDaMesa(
+          button
+        );
+      }
+    );
+
+    document
+      .querySelector(
+        '.menu-link[data-page="mesas"]'
+      )
+      ?.addEventListener(
+        'click',
+        () => {
+          window.setTimeout(
+            () => {
+              void atualizarResumoMesas({
+                force: true
+              });
+            },
+            0
+          );
+        }
+      );
+
+    document.addEventListener(
+      'visibilitychange',
+      () => {
+        if (
+          !document.hidden &&
+          paginaMesasAtiva()
+        ) {
+          void atualizarResumoMesas({
+            force: true
+          });
+        }
+      }
+    );
+
+    window.setInterval(
+      () => {
+        void atualizarResumoMesas();
+      },
+      4000
+    );
+
+    if (paginaMesasAtiva()) {
+      void atualizarResumoMesas({
+        force: true
+      });
+    }
 
 
   </script>
