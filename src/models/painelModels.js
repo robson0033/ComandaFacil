@@ -517,6 +517,12 @@ const Configuracao = mongoose.model(
               default: "desativada",
             },
 
+            origemPedidos: {
+              type: String,
+              enum: ["todas", "delivery", "mesa", "retirada", "delivery_retirada"],
+              default: "todas",
+            },
+
             copias: {
               type: Number,
               default: 1,

@@ -117,6 +117,52 @@ test("criação automática gera um job por impressora", async t => {
   assert.notEqual(created[0].impressoraChave, created[1].impressoraChave);
 });
 
+test("roteamento de impressora respeita Delivery, Mesa e Todas", () => {
+  const todas = printer({ origemPedidos: "todas" });
+  const delivery = printer({ origemPedidos: "delivery" });
+  const mesa = printer({ origemPedidos: "mesa" });
+  const legado = printer({ origemPedidos: undefined });
+
+  assert.equal(queue.impressoraAceitaPedido(todas, order({ canal: "delivery" })), true);
+  assert.equal(queue.impressoraAceitaPedido(todas, order({ canal: "mesa" })), true);
+  assert.equal(queue.impressoraAceitaPedido(todas, order({ canal: "retirada" })), true);
+  assert.equal(queue.impressoraAceitaPedido(delivery, order({ canal: "delivery" })), true);
+  assert.equal(queue.impressoraAceitaPedido(delivery, order({ canal: "mesa" })), false);
+  assert.equal(queue.impressoraAceitaPedido(mesa, order({ canal: "mesa" })), true);
+  assert.equal(queue.impressoraAceitaPedido(mesa, order({ canal: "delivery" })), false);
+  assert.equal(queue.impressoraAceitaPedido(legado, order({ canal: "retirada" })), true);
+});
+
+test("criação automática envia apenas às impressoras compatíveis com a origem", async t => {
+  const original = PrintJob.create;
+  const created = [];
+  PrintJob.create = async docs => {
+    created.push(docs[0]);
+    return [{ ...docs[0], _id: crypto.randomUUID() }];
+  };
+  t.after(() => { PrintJob.create = original; });
+
+  const printers = [
+    printer({ deviceName: "Delivery", origemPedidos: "delivery" }),
+    printer({ deviceName: "Mesas", origemPedidos: "mesa" }),
+    printer({ deviceName: "Geral", origemPedidos: "todas" }),
+  ];
+
+  const jobs = await queue.criarJobsAutomaticos(order({
+    canal: "delivery",
+    formaPagamento: "dinheiro",
+  }), {
+    configuracao: config(printers),
+    dono: {},
+  });
+
+  assert.equal(jobs.length, 2);
+  assert.deepEqual(
+    created.map(job => job.impressora.deviceName).sort(),
+    ["Delivery", "Geral"],
+  );
+});
+
 test("impressora manual não gera job automático", async t => {
   const original = PrintJob.create;
   let calls = 0;

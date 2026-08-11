@@ -22,6 +22,7 @@ function printerBody(value) {
       deviceName: "Printer",
       papel: "80mm",
       modo: "manual_automatica",
+      origemPedidos: "delivery",
       margemDireitaMm: value,
     }],
   };
@@ -39,6 +40,8 @@ test("normaliza zero e decimal sem substituir pelo padrão", () => {
   assert.equal(normalizeRightMarginMm("1.5"), 1.5);
   assert.equal(admin._testing.normalizarImpressoras(printerBody("0"))[0].margemDireitaMm, 0);
   assert.equal(admin._testing.normalizarImpressoras(printerBody("1.5"))[0].margemDireitaMm, 1.5);
+  assert.equal(admin._testing.normalizarImpressoras(printerBody("1.5"))[0].origemPedidos, "delivery");
+  assert.equal(admin._testing.normalizarImpressoras({ impressoras: [{}] })[0].origemPedidos, "todas");
 });
 
 test("rejeita espaçamento direito inválido, negativo e acima do limite", () => {

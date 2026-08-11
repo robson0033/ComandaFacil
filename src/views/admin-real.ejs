@@ -695,6 +695,40 @@
   min-width: 135px;
 }
 
+.order-payment-method-form {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 2px;
+}
+
+.order-payment-method-form .order-payment-split {
+  flex: 1 1 100%;
+  width: 100%;
+  order: 4;
+}
+
+.order-payment-method-form > .mini-button {
+  order: 3;
+}
+
+.order-payment-method-form label {
+  color: var(--cinza-600);
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.order-payment-method-form select {
+  min-width: 150px;
+}
+
+.order-payment-method-form .mini-button {
+  white-space: nowrap;
+}
+
 @media (max-width: 700px) {
   .order-card-header,
   .order-footer {
@@ -702,17 +736,29 @@
   }
 
   .order-actions,
-  .order-status-form {
+  .order-status-form,
+  .order-payment-method-form {
     width: 100%;
   }
 
-  .order-status-form {
+  .order-status-form,
+  .order-payment-method-form {
     display: grid;
     grid-template-columns: 1fr;
   }
 
+  .order-payment-method-form label {
+    white-space: normal;
+  }
+
+  .order-payment-method-form select {
+    width: 100%;
+    min-width: 0;
+  }
+
   .order-actions .mini-button,
-  .order-status-form .mini-button {
+  .order-status-form .mini-button,
+  .order-payment-method-form .mini-button {
     width: 100%;
   }
 }
@@ -4489,6 +4535,12 @@
             ? pagamentosPedido.map(item => `${nomesPagamento[item.formaPagamento] || item.formaPagamento}: ${formatarMoeda(Number(item.valorCentavos || 0) / 100)}`).join(' + ')
             : (nomesPagamento[pedido.formaPagamento] || pedido.formaPagamento || 'Não informado');
           const dataPagamentoPedido = pedido.pagoEm || pedido.pagamentoInformadoEm;
+          const pagamentoPixOnlineAprovado = pedido.pagamentoStatus === 'pago'
+            && String(pedido.mercadoPagoStatus || '') === 'approved'
+            && (
+              Boolean(String(pedido.mercadoPagoPaymentId || '').trim())
+              || String(pedido.formaPagamento || '') === 'pix_online'
+            );
         %>
 
         <article
@@ -4580,10 +4632,94 @@
               </div>
             <% } %>
 
-            <div>
+            <div data-payment-method-text>
               <strong>Forma de pagamento:</strong>
               <%= formaPagamentoTexto %>
             </div>
+
+            <% if (pedido.status !== 'cancelado' && !pagamentoPixOnlineAprovado) { %>
+              <form
+                action="/admin/pedidos/<%= pedido._id %>/forma-pagamento"
+                method="POST"
+                class="order-payment-method-form"
+                data-change-payment-method
+                data-total-centavos="<%= Math.round(Number(pedido.total || 0) * 100) %>"
+              >
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <label for="formaPagamento-<%= pedido._id %>">
+                  Corrigir pagamento
+                </label>
+                <select
+                  id="formaPagamento-<%= pedido._id %>"
+                  name="formaPagamento"
+                  required
+                  aria-label="Nova forma de pagamento"
+                  data-correcao-forma-pagamento
+                >
+                  <option value="">Alterar para...</option>
+                  <option value="dinheiro">Dinheiro</option>
+                  <option value="pix">Pix</option>
+                  <option value="cartao">Cartão</option>
+                  <option value="combinado">Combinar 2 pagamentos</option>
+                </select>
+
+                <div
+                  class="pagamento-combinado order-payment-split"
+                  data-correcao-pagamento-combinado
+                  hidden
+                >
+                  <div class="pagamento-combinado-linha">
+                    <label>
+                      1ª forma
+                      <select name="formaPagamento1" data-correcao-forma-1 disabled>
+                        <option value="dinheiro">Dinheiro</option>
+                        <option value="pix">Pix</option>
+                        <option value="cartao">Cartão</option>
+                      </select>
+                    </label>
+                    <label>
+                      Valor na 1ª forma
+                      <input
+                        type="text"
+                        name="valorPagamento1"
+                        inputmode="decimal"
+                        autocomplete="off"
+                        placeholder="0,00"
+                        data-correcao-valor-1
+                        disabled
+                      >
+                    </label>
+                  </div>
+                  <div class="pagamento-combinado-linha">
+                    <label>
+                      2ª forma
+                      <select name="formaPagamento2" data-correcao-forma-2 disabled>
+                        <option value="pix">Pix</option>
+                        <option value="cartao">Cartão</option>
+                        <option value="dinheiro">Dinheiro</option>
+                      </select>
+                    </label>
+                    <label>
+                      Valor na 2ª forma
+                      <input
+                        type="text"
+                        name="valorPagamento2"
+                        readonly
+                        data-correcao-valor-2
+                        disabled
+                      >
+                    </label>
+                  </div>
+                  <small data-correcao-resumo>
+                    Informe o valor da primeira forma. O restante será calculado automaticamente.
+                  </small>
+                </div>
+
+                <button type="submit" class="mini-button edit">
+                  Salvar pagamento
+                </button>
+              </form>
+            <% } %>
 
             <div data-payment-status-text>
               <strong>Status do pagamento:</strong>
@@ -4789,7 +4925,8 @@
               <% if (
                 pedido.pagamentoStatus !== 'pago' &&
                 pedido.status !== 'cancelado' &&
-                pedido.formaPagamento !== 'pix'
+                pedido.formaPagamento !== 'pix_online' &&
+                !(pedido.formaPagamento === 'pix' && pedido.mercadoPagoPaymentId)
               ) { %>
                 <form
                   action="/admin/pedidos/<%= pedido._id %>/confirmar-pagamento"
@@ -6928,7 +7065,7 @@
               <div class="panel-title">
                 <h2>Impressoras USB e de rede</h2>
                 <p>
-                  Configure até duas impressoras para cozinha, caixa ou balcão.
+                  Configure até duas impressoras e escolha se cada uma recebe pedidos de Delivery, Mesas, Retirada ou uma combinação de origens.
                 </p>
               </div>
 
@@ -6976,6 +7113,7 @@
                     porta: 9100,
                     papel: indice === 0 ? '80mm' : '58mm',
                     modo: 'desativada',
+                    origemPedidos: 'todas',
                     copias: 1,
                     fontePx: 13,
                     espacamentoLinhaPx: 4,
@@ -7077,6 +7215,29 @@
                           <option
                             value="<%= opcao[0] %>"
                             <%= impressora.modo === opcao[0]
+                              ? 'selected'
+                              : ''
+                            %>
+                          >
+                            <%= opcao[1] %>
+                          </option>
+                        <% }) %>
+                      </select>
+                    </div>
+
+                    <div class="field">
+                      <label>Imprimir pedidos de</label>
+                      <select name="impressoras[<%= indice %>][origemPedidos]">
+                        <% [
+                          ['todas', 'Todas as origens'],
+                          ['delivery', 'Somente Delivery'],
+                          ['mesa', 'Somente Mesas'],
+                          ['retirada', 'Somente Retirada'],
+                          ['delivery_retirada', 'Delivery + Retirada']
+                        ].forEach(opcao => { %>
+                          <option
+                            value="<%= opcao[0] %>"
+                            <%= (impressora.origemPedidos || 'todas') === opcao[0]
                               ? 'selected'
                               : ''
                             %>
@@ -7305,6 +7466,8 @@
               <% } %>
 
               <div class="printer-help">
+                <strong>Pedidos:</strong> “Todas as origens” imprime Delivery, Mesa e Retirada; você também pode limitar a impressora a “Somente Delivery”, “Somente Mesas”, “Somente Retirada” ou usar “Delivery + Retirada”.
+                <br>
                 <strong>USB:</strong> a impressora deve estar instalada no
                 Windows e o ComandaFácil Print Agent precisa estar aberto.
                 <br>
@@ -8948,6 +9111,118 @@
       });
     }
 
+    function atualizarCorrecaoPagamentoCombinado(form) {
+      if (!form) return { valido: false, resumo: '' };
+
+      const modo = form.querySelector('[data-correcao-forma-pagamento]');
+      const painel = form.querySelector('[data-correcao-pagamento-combinado]');
+      const forma1 = form.querySelector('[data-correcao-forma-1]');
+      const forma2 = form.querySelector('[data-correcao-forma-2]');
+      const valor1 = form.querySelector('[data-correcao-valor-1]');
+      const valor2 = form.querySelector('[data-correcao-valor-2]');
+      const resumo = form.querySelector('[data-correcao-resumo]');
+      const combinado = modo?.value === 'combinado';
+      const campos = [forma1, forma2, valor1, valor2].filter(Boolean);
+
+      if (painel) painel.hidden = !combinado;
+      campos.forEach(campo => {
+        campo.disabled = !combinado;
+      });
+
+      if (!combinado) {
+        if (valor2) valor2.value = '';
+        return { valido: Boolean(modo?.value), resumo: '' };
+      }
+
+      if (forma1 && forma2 && forma1.value === forma2.value) {
+        const alternativa = [...forma2.options].find(option => option.value !== forma1.value);
+        if (alternativa) forma2.value = alternativa.value;
+      }
+
+      const totalCentavos = Math.max(0, Number(form.dataset.totalCentavos || 0));
+      const primeiroCentavos = centavosDeEntradaMonetaria(valor1?.value);
+      const nomes = { dinheiro: 'Dinheiro', pix: 'Pix', cartao: 'Cartão' };
+
+      if (primeiroCentavos === null || primeiroCentavos <= 0 || primeiroCentavos >= totalCentavos) {
+        if (valor2) valor2.value = '';
+        if (resumo) {
+          resumo.textContent = totalCentavos > 1
+            ? `Informe um valor entre R$ 0,01 e R$ ${formatarCentavosPagamento(totalCentavos - 1)}.`
+            : 'Este pedido não possui valor suficiente para dividir o pagamento.';
+        }
+        return { valido: false, resumo: '' };
+      }
+
+      const segundoCentavos = totalCentavos - primeiroCentavos;
+      if (valor2) valor2.value = formatarCentavosPagamento(segundoCentavos);
+      const textoResumo = `${nomes[forma1?.value] || '1ª forma'}: R$ ${formatarCentavosPagamento(primeiroCentavos)} + ${nomes[forma2?.value] || '2ª forma'}: R$ ${formatarCentavosPagamento(segundoCentavos)}`;
+      if (resumo) resumo.textContent = `${textoResumo} = R$ ${formatarCentavosPagamento(totalCentavos)}.`;
+
+      return {
+        valido: Boolean(forma1?.value && forma2?.value && forma1.value !== forma2.value),
+        resumo: textoResumo,
+      };
+    }
+
+    document.addEventListener('change', event => {
+      const form = event.target.closest?.('[data-change-payment-method]');
+      if (!form) return;
+      if (event.target.matches?.('[data-correcao-forma-pagamento], [data-correcao-forma-1], [data-correcao-forma-2]')) {
+        atualizarCorrecaoPagamentoCombinado(form);
+      }
+    });
+
+    document.addEventListener('input', event => {
+      const form = event.target.closest?.('[data-change-payment-method]');
+      if (!form || !event.target.matches?.('[data-correcao-valor-1]')) return;
+      atualizarCorrecaoPagamentoCombinado(form);
+    });
+
+    document.querySelectorAll('[data-change-payment-method]').forEach(form => {
+      atualizarCorrecaoPagamentoCombinado(form);
+    });
+
+    document.addEventListener('submit', event => {
+      const form = event.target.closest?.('[data-change-payment-method]');
+      if (!form) return;
+
+      const select = form.querySelector('select[name="formaPagamento"]');
+      const nomes = {
+        dinheiro: 'Dinheiro',
+        pix: 'Pix',
+        cartao: 'Cartão',
+        combinado: '2 formas de pagamento',
+      };
+      const novaForma = select?.value || '';
+      if (!novaForma) {
+        event.preventDefault();
+        select?.focus();
+        return;
+      }
+
+      let descricao = nomes[novaForma] || novaForma;
+      if (novaForma === 'combinado') {
+        const resultado = atualizarCorrecaoPagamentoCombinado(form);
+        if (!resultado.valido) {
+          event.preventDefault();
+          form.querySelector('[data-correcao-valor-1]')?.focus();
+          return;
+        }
+        descricao = resultado.resumo;
+      }
+
+      const card = form.closest('.order-card');
+      const statusPago = card?.querySelector('[data-payment-status-badge]')?.textContent
+        ?.trim()
+        .toLowerCase() === 'pago';
+      const complemento = statusPago
+        ? ' Como este pedido já está pago, o Dashboard e os Relatórios passarão a contabilizar os valores nas formas escolhidas.'
+        : ' O status continuará pendente até o pagamento ser confirmado.';
+      if (!window.confirm(`Alterar o pagamento para ${descricao}?${complemento}`)) {
+        event.preventDefault();
+      }
+    });
+
     document.querySelectorAll('.pagamento-form').forEach(form => {
       const modo = form.querySelector('[data-forma-pagamento-mesa]');
       const painel = form.querySelector('[data-pagamento-combinado]');
@@ -10055,10 +10330,62 @@ function criarCardPedido(
         : ''
     }
 
-    <div style="margin-top:7px;">
+    <div style="margin-top:7px;" data-payment-method-text>
       <strong>Forma de pagamento:</strong>
       ${escaparHtml(textoFormaPagamentoPedido(pedido))}
     </div>
+
+    ${pedido.status !== 'cancelado' && !pedido.pagamentoPixOnlineAprovado ? `
+      <form
+        action="/admin/pedidos/${encodeURIComponent(pedido.id)}/forma-pagamento"
+        method="POST"
+        class="order-payment-method-form"
+        data-change-payment-method
+        data-total-centavos="${Math.round(Number(pedido.total || 0) * 100)}"
+      >
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <label>Corrigir pagamento</label>
+        <select name="formaPagamento" required aria-label="Nova forma de pagamento" data-correcao-forma-pagamento>
+          <option value="">Alterar para...</option>
+          <option value="dinheiro">Dinheiro</option>
+          <option value="pix">Pix</option>
+          <option value="cartao">Cartão</option>
+          <option value="combinado">Combinar 2 pagamentos</option>
+        </select>
+        <div class="pagamento-combinado order-payment-split" data-correcao-pagamento-combinado hidden>
+          <div class="pagamento-combinado-linha">
+            <label>
+              1ª forma
+              <select name="formaPagamento1" data-correcao-forma-1 disabled>
+                <option value="dinheiro">Dinheiro</option>
+                <option value="pix">Pix</option>
+                <option value="cartao">Cartão</option>
+              </select>
+            </label>
+            <label>
+              Valor na 1ª forma
+              <input type="text" name="valorPagamento1" inputmode="decimal" autocomplete="off" placeholder="0,00" data-correcao-valor-1 disabled>
+            </label>
+          </div>
+          <div class="pagamento-combinado-linha">
+            <label>
+              2ª forma
+              <select name="formaPagamento2" data-correcao-forma-2 disabled>
+                <option value="pix">Pix</option>
+                <option value="cartao">Cartão</option>
+                <option value="dinheiro">Dinheiro</option>
+              </select>
+            </label>
+            <label>
+              Valor na 2ª forma
+              <input type="text" name="valorPagamento2" readonly data-correcao-valor-2 disabled>
+            </label>
+          </div>
+          <small data-correcao-resumo>Informe o valor da primeira forma. O restante será calculado automaticamente.</small>
+        </div>
+        <button type="submit" class="mini-button edit">Salvar pagamento</button>
+      </form>
+    ` : ''}
 
     <div style="margin-top:7px;" data-payment-date-text>
       <strong>Data/hora do pagamento:</strong>
@@ -10171,7 +10498,8 @@ function criarCardPedido(
         ${
           pedido.pagamentoStatus !== 'pago' &&
           pedido.status !== 'cancelado' &&
-          pedido.formaPagamento !== 'pix'
+          pedido.formaPagamento !== 'pix_online' &&
+          !pedido.pagamentoPixOnlineGerenciado
             ? `
               <form
                 action="/admin/pedidos/${encodeURIComponent(pedido.id)}/confirmar-pagamento"
@@ -11126,9 +11454,11 @@ async function verificarNovosPedidos() {
             badge.textContent = String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ');
           }
           const statusText = existing.querySelector('[data-payment-status-text]');
-          if (statusText) statusText.textContent = `Status do pagamento: ${String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ')}`;
+          if (statusText) statusText.innerHTML = `<strong>Status do pagamento:</strong> ${escaparHtml(String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' '))}`;
+          const methodText = existing.querySelector('[data-payment-method-text]');
+          if (methodText) methodText.innerHTML = `<strong>Forma de pagamento:</strong> ${escaparHtml(textoFormaPagamentoPedido(pedido))}`;
           const dateText = existing.querySelector('[data-payment-date-text]');
-          if (dateText) dateText.textContent = `Data/hora do pagamento: ${pedido.pagoEm ? formatarDataPedido(pedido.pagoEm) : 'Ainda não confirmado'}`;
+          if (dateText) dateText.innerHTML = `<strong>Data/hora do pagamento:</strong> ${pedido.pagoEm ? escaparHtml(formatarDataPedido(pedido.pagoEm)) : 'Ainda não confirmado'}`;
           return;
         }
 

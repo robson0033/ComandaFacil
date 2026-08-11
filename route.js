@@ -395,6 +395,15 @@ route.post(
 );
 
 route.post(
+  '/admin/pedidos/:id/forma-pagamento',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissao('pedidos'),
+  admin.alterarFormaPagamentoPedido
+);
+
+route.post(
   '/admin/pedidos/:id/arquivar',
   loginRequired,
   carregarAssinatura,

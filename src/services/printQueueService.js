@@ -140,6 +140,37 @@ function calcularImpressoraChave(impressora = {}) {
     .digest("hex");
 }
 
+function normalizarOrigemPedidosImpressora(valor) {
+  const origem = String(valor || "todas").trim().toLowerCase();
+  return [
+    "delivery",
+    "mesa",
+    "retirada",
+    "delivery_retirada",
+  ].includes(origem)
+    ? origem
+    : "todas";
+}
+
+function normalizarCanalPedidoParaImpressao(valor) {
+  const canal = String(valor || "retirada").trim().toLowerCase();
+  // "balcao" é o valor legado usado por pedidos antigos de retirada no local.
+  return canal === "balcao" ? "retirada" : canal;
+}
+
+function impressoraAceitaPedido(impressora = {}, pedido = {}) {
+  const origemConfigurada = normalizarOrigemPedidosImpressora(
+    impressora.origemPedidos,
+  );
+  if (origemConfigurada === "todas") return true;
+
+  const canalPedido = normalizarCanalPedidoParaImpressao(pedido.canal);
+  if (origemConfigurada === "delivery_retirada") {
+    return ["delivery", "retirada"].includes(canalPedido);
+  }
+  return canalPedido === origemConfigurada;
+}
+
 function sanitizarImpressora(impressora = {}) {
   const allowed = [
     "nome", "tipoConexao", "deviceName", "ip", "porta", "papel", "modo",
@@ -269,7 +300,8 @@ async function criarJobsAutomaticos(pedido, options = {}) {
   if (!isOrderEligibleForAutomaticPrint(pedido)) return [];
   const { configuracao, dono } = await contextoDoPedido(pedido, options);
   const impressoras = (configuracao?.impressoras || []).filter(item =>
-    ["automatica", "manual_automatica"].includes(item.modo));
+    ["automatica", "manual_automatica"].includes(item.modo)
+    && impressoraAceitaPedido(item, pedido));
   const jobs = [];
   for (const impressora of impressoras) {
     const snapshot = await montarSnapshotValidado({
@@ -957,6 +989,8 @@ module.exports = {
   MAX_ATTEMPTS,
   calcularImpressoraChave,
   calcularImpressoraId,
+  impressoraAceitaPedido,
+  normalizarOrigemPedidosImpressora,
   criarJobManual,
   criarJobsAutomaticos,
   criarPedidoComJobsAutomaticos,

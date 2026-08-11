@@ -105,7 +105,6 @@ const {
   montarPlanoPagamentoCatalogo,
   montarPlanoPagamentoMesa,
   normalizarPagamentosPedido,
-  pedidoTemPixOnline,
   totalParaCentavos,
   valorFormaPagamentoCentavos,
 } = require("../services/mesaPagamentoService");
@@ -508,6 +507,19 @@ function normalizarImpressoras(body = {}) {
       ? campo("modo")
       : "desativada";
 
+    const origemPedidosPermitida = [
+      "todas",
+      "delivery",
+      "mesa",
+      "retirada",
+      "delivery_retirada",
+    ];
+    const origemPedidos = origemPedidosPermitida.includes(
+      campo("origemPedidos"),
+    )
+      ? campo("origemPedidos")
+      : "todas";
+
     impressoras.push({
       nome:
         nome ||
@@ -527,6 +539,7 @@ function normalizarImpressoras(body = {}) {
           ? "58mm"
           : "80mm",
       modo,
+      origemPedidos,
       copias: Math.min(
         5,
         Math.max(
@@ -6137,6 +6150,154 @@ exports.atualizarStatusPedido =
     }
   };
 
+
+exports.alterarFormaPagamentoPedido = async (req, res) => {
+  try {
+    const idEstabelecimento = estabelecimentoId(req);
+    const novaForma = String(req.body?.formaPagamento || "")
+      .trim()
+      .toLowerCase();
+    const formasPermitidas = new Set([
+      "dinheiro",
+      "pix",
+      "cartao",
+      "combinado",
+    ]);
+
+    if (!formasPermitidas.has(novaForma)) {
+      return erroERedirecionar(
+        req,
+        res,
+        "pedidos",
+        "Selecione uma forma de pagamento válida.",
+      );
+    }
+
+    const pedido = await Pedido.findOne({
+      _id: req.params.id,
+      estabelecimentoId: idEstabelecimento,
+      excluido: { $ne: true },
+      status: { $ne: "cancelado" },
+    });
+
+    if (!pedido) {
+      return erroERedirecionar(
+        req,
+        res,
+        "pedidos",
+        "Pedido não encontrado.",
+      );
+    }
+
+    const pagamentoOnlineAprovado = pedido.pagamentoStatus === "pago"
+      && String(pedido.mercadoPagoStatus || "") === "approved"
+      && (
+        Boolean(String(pedido.mercadoPagoPaymentId || "").trim())
+        || String(pedido.formaPagamento || "") === "pix_online"
+      );
+    if (pagamentoOnlineAprovado) {
+      return erroERedirecionar(
+        req,
+        res,
+        "pedidos",
+        "Este pagamento Pix online foi aprovado pelo provedor e não pode ser reclassificado manualmente.",
+      );
+    }
+
+    const formaAnterior = String(pedido.formaPagamento || "nao_informado");
+    const pagamentosAnteriores = Array.isArray(pedido.pagamentos)
+      ? pedido.pagamentos.map(item => ({
+          formaPagamento: String(item?.formaPagamento || ""),
+          valorCentavos: Number(item?.valorCentavos || 0),
+        }))
+      : [];
+
+    const planoPagamento = montarPlanoPagamentoMesa(
+      req.body || {},
+      totalParaCentavos(pedido.total || 0),
+    );
+
+    const jaEstaIgual = formaAnterior === planoPagamento.formaPagamento
+      && pagamentosAnteriores.length === planoPagamento.pagamentos.length
+      && pagamentosAnteriores.every((item, index) => {
+        const novo = planoPagamento.pagamentos[index];
+        return item.formaPagamento === novo?.formaPagamento
+          && item.valorCentavos === novo?.valorCentavos;
+      });
+
+    if (jaEstaIgual) {
+      return salvarERedirecionar(
+        req,
+        res,
+        "pedidos",
+        "A forma de pagamento já está configurada dessa maneira.",
+      );
+    }
+
+    pedido.formaPagamento = planoPagamento.formaPagamento;
+    pedido.pagamentos = planoPagamento.pagamentos;
+
+    // Ao corrigir a forma de pagamento, dados de troco anteriores deixam de ser
+    // confiáveis. Se o pagamento real foi em dinheiro, o caixa pode registrar o
+    // troco à parte; aqui preservamos apenas a forma efetivamente recebida.
+    pedido.precisaTroco = false;
+    pedido.trocoPara = null;
+    pedido.valorTroco = null;
+
+    adicionarHistoricoFinanceiro(pedido, {
+      tipo: "forma_pagamento_corrigida",
+      statusAnterior: pedido.pagamentoStatus || "pendente",
+      statusNovo: pedido.pagamentoStatus || "pendente",
+      formaPagamento: pedido.formaPagamento,
+      pagamentos: pedido.pagamentos,
+      usuarioId: req.session.user.id,
+      motivo: pedido.formaPagamento === "combinado"
+        ? `Pagamento corrigido de ${formaAnterior} para dois meios de pagamento.`
+        : `Forma de pagamento corrigida de ${formaAnterior} para ${pedido.formaPagamento}.`,
+    });
+
+    await pedido.save();
+
+    await registrarAuditoria({
+      estabelecimentoId: idEstabelecimento,
+      entidade: "pedido",
+      entidadeId: pedido._id,
+      acao: "forma_pagamento_corrigida",
+      usuarioId: req.session.user.id,
+      usuarioTipo: req.session.user.tipo,
+      dadosResumidos: {
+        codigoPedido: String(pedido.codigoPublico || pedido._id)
+          .slice(pedido.codigoPublico ? 0 : -6)
+          .toUpperCase(),
+        pagamentoStatus: pedido.pagamentoStatus || "pendente",
+        formaPagamento: pedido.formaPagamento,
+        pagamentos: pedido.pagamentos.map(item => ({
+          formaPagamento: String(item?.formaPagamento || ""),
+          valorCentavos: Number(item?.valorCentavos || 0),
+        })),
+        motivo: `${formaAnterior} -> ${pedido.formaPagamento}`,
+      },
+    });
+
+    const mensagem = pedido.pagamentoStatus === "pago"
+      ? "Pagamento atualizado. Dashboard e relatórios já considerarão a nova divisão."
+      : "Pagamento atualizado. O pedido continua pendente até a confirmação do pagamento.";
+
+    return salvarERedirecionar(req, res, "pedidos", mensagem);
+  } catch (error) {
+    appLogger.error("Erro ao alterar forma de pagamento do pedido:", error);
+
+    return erroERedirecionar(
+      req,
+      res,
+      "pedidos",
+      error?.statusCode && error.statusCode < 500
+        ? error.message
+        : "Não foi possível alterar a forma de pagamento.",
+    );
+  }
+};
+
 exports.confirmarPagamentoPedido =
   async (req, res) => {
     try {
@@ -6164,7 +6325,13 @@ exports.confirmarPagamentoPedido =
       }
 
       if (pedido.pagamentoStatus !== "pago") {
-        const possuiPixOnline = pedidoTemPixOnline(pedido);
+        const possuiPixOnline = valorFormaPagamentoCentavos(
+          pedido,
+          ["pix_online"],
+        ) > 0 || (
+          String(pedido.formaPagamento || "") === "pix"
+          && Boolean(String(pedido.mercadoPagoPaymentId || "").trim())
+        );
         const pagamentoCombinado = String(pedido.formaPagamento || "") === "combinado";
 
         if (possuiPixOnline && !pagamentoCombinado) {
@@ -6487,6 +6654,21 @@ exports.arquivarPedido = async (req, res) => {
           pagamentoStatus:
             pedido.pagamentoStatus ||
             'pendente',
+
+          pagamentoPixOnlineGerenciado:
+            String(pedido.formaPagamento || '') === 'pix_online'
+            || (
+              String(pedido.formaPagamento || '') === 'pix'
+              && Boolean(String(pedido.mercadoPagoPaymentId || '').trim())
+            ),
+
+          pagamentoPixOnlineAprovado:
+            pedido.pagamentoStatus === 'pago'
+            && String(pedido.mercadoPagoStatus || '') === 'approved'
+            && (
+              Boolean(String(pedido.mercadoPagoPaymentId || '').trim())
+              || String(pedido.formaPagamento || '') === 'pix_online'
+            ),
 
           createdAt:
             pedido.createdAt,
@@ -9060,12 +9242,27 @@ exports.imprimirPedidoRemoto = async (req, res) => {
         message: "A impressão do pedido Pix será liberada após a confirmação do pagamento.",
       });
     }
-    const impressoras = (configuracao?.impressoras || []).filter(item =>
+    const impressorasManuais = (configuracao?.impressoras || []).filter(item =>
       ["manual", "manual_automatica"].includes(item.modo));
-    if (!impressoras.length) {
+    if (!impressorasManuais.length) {
       return res.status(400).json({
         success: false,
         message: "Nenhuma impressora manual está configurada.",
+      });
+    }
+
+    const impressoras = impressorasManuais.filter(item =>
+      printQueueService.impressoraAceitaPedido(item, pedido));
+    if (!impressoras.length) {
+      const origem = pedido.canal === "delivery"
+        ? "Delivery"
+        : pedido.canal === "mesa"
+          ? "Mesa"
+          : "Retirada";
+      return res.status(400).json({
+        success: false,
+        code: "NO_PRINTER_FOR_ORDER_ORIGIN",
+        message: `Nenhuma impressora manual está configurada para pedidos de ${origem}.`,
       });
     }
 
