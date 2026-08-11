@@ -109,6 +109,10 @@ const {
   valorFormaPagamentoCentavos,
 } = require("../services/mesaPagamentoService");
 const {
+  filtrarComandasMesaParaPainel,
+  montarComandasMesaAbertas,
+} = require("../services/mesaComandaPainelService");
+const {
   montarPizzaMeioAMeio,
   normalizarIdsSabores,
   resolverTamanhoEPrecoPizza,
@@ -2459,6 +2463,25 @@ exports.admin = async (req, res) => {
       });
     }
 
+    // A tela de Pedidos precisa enxergar a conta aberta inteira da mesa,
+    // mesmo quando algum pedido da mesma comanda ficou fora do filtro de data.
+    // Os documentos continuam separados no banco (auditoria, estoque e impressão
+    // automática permanecem intactos); somente a visualização operacional é agrupada.
+    const pedidosMesaAbertosPainel = podePedidos
+      ? await Pedido.find({
+          estabelecimentoId: idEstabelecimento,
+          canal: "mesa",
+          mesaId: { $ne: null },
+          excluido: { $ne: true },
+          pagamentoStatus: "pendente",
+          status: { $ne: "cancelado" },
+        })
+          .populate("mesaId", "numero setor status")
+          .sort({ createdAt: 1 })
+          .limit(1000)
+          .lean()
+      : [];
+
     const idsDesativadosReferenciados =
       idsDeIngredientesDesativadosReferenciados(estoque, produtos);
     const ingredientesDesativadosReferenciados =
@@ -2960,6 +2983,25 @@ exports.admin = async (req, res) => {
       return true;
     });
 
+    const comandasMesaAbertasPainel = filtrarComandasMesaParaPainel(
+      montarComandasMesaAbertas(pedidosMesaAbertosPainel),
+      {
+        canal: pedidoCanalAtual,
+        status: pedidoStatusAtual,
+      },
+    );
+
+    const idsPedidosAgrupadosMesa = new Set(
+      comandasMesaAbertasPainel.flatMap(comanda => comanda.pedidoIds || []),
+    );
+
+    // Pedidos de uma mesa com conta aberta deixam de virar vários cards.
+    // Eles continuam existindo individualmente no banco e aparecem dentro do
+    // único card da comanda da mesa. Pedidos já pagos/fechados seguem históricos.
+    const listaPedidosPainel = listaPedidos.filter(
+      pedido => !idsPedidosAgrupadosMesa.has(String(pedido._id)),
+    );
+
     const filtrosPedidos = {
       periodoAtual: pedidoPeriodo.filtro,
       dataInicio: pedidoDataInicio,
@@ -3075,7 +3117,11 @@ exports.admin = async (req, res) => {
           podeArquivarPedidos ? pedidosArquivados : [],
         pedidosFiltradosPainel:
           podePedidos
-            ? listaPedidos
+            ? listaPedidosPainel
+            : [],
+        comandasMesaAbertasPainel:
+          podePedidos
+            ? comandasMesaAbertasPainel
             : [],
         filtrosPedidos,
 
@@ -4580,6 +4626,7 @@ exports.solicitarContaMesa = async (
   req,
   res,
 ) => {
+  const secaoRetorno = req.body?.retorno === "pedidos" ? "pedidos" : "mesas";
   try {
     const mesa = await Mesa.findOne({
       _id: req.params.id,
@@ -4591,7 +4638,7 @@ exports.solicitarContaMesa = async (
       return erroERedirecionar(
         req,
         res,
-        "mesas",
+        secaoRetorno,
         "Mesa não encontrada.",
       );
     }
@@ -4604,7 +4651,7 @@ exports.solicitarContaMesa = async (
     return salvarERedirecionar(
       req,
       res,
-      "mesas",
+      secaoRetorno,
       "Mesa marcada como aguardando pagamento.",
     );
   } catch (error) {
@@ -4613,7 +4660,7 @@ exports.solicitarContaMesa = async (
     return erroERedirecionar(
       req,
       res,
-      "mesas",
+      secaoRetorno,
       "Não foi possível solicitar a conta.",
     );
   }
@@ -4623,6 +4670,7 @@ exports.pagarContaMesa = async (
   req,
   res,
 ) => {
+  const secaoRetorno = req.body?.retorno === "pedidos" ? "pedidos" : "mesas";
   try {
     const idEstabelecimento =
       estabelecimentoId(req);
@@ -4637,7 +4685,7 @@ exports.pagarContaMesa = async (
       return erroERedirecionar(
         req,
         res,
-        "mesas",
+        secaoRetorno,
         "Mesa não encontrada.",
       );
     }
@@ -4678,7 +4726,7 @@ exports.pagarContaMesa = async (
     return salvarERedirecionar(
       req,
       res,
-      "mesas",
+      secaoRetorno,
       "Conta paga e mesa liberada.",
     );
   } catch (error) {
@@ -4687,7 +4735,7 @@ exports.pagarContaMesa = async (
     return erroERedirecionar(
       req,
       res,
-      "mesas",
+      secaoRetorno,
       error?.code === "MESA_PAYMENT_VALIDATION"
         ? error.message
         : "Não foi possível finalizar o pagamento.",
@@ -6605,6 +6653,14 @@ exports.arquivarPedido = async (req, res) => {
           canal:
             pedido.canal ||
             'retirada',
+
+          mesaId:
+            pedido.mesaId?._id
+              ? String(pedido.mesaId._id)
+              : (pedido.mesaId ? String(pedido.mesaId) : ''),
+
+          mesaNumero:
+            pedido.mesaId?.numero ?? null,
 
           origem,
 

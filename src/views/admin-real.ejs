@@ -523,6 +523,109 @@
   box-shadow: var(--sombra);
 }
 
+.order-card.table-tab-card {
+  border-width: 2px;
+  border-color: #cdddf5;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+}
+
+.table-tab-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #eef5ff;
+  color: #274f80;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.table-tab-orders {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.table-tab-order {
+  padding: 12px;
+  border: 1px solid var(--cinza-200);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.table-tab-order-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.table-tab-order-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.table-tab-order-title strong {
+  font-size: 13px;
+}
+
+.table-tab-order-title small {
+  color: var(--cinza-500);
+}
+
+.table-tab-order-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+.table-tab-order-actions .order-status-form select {
+  min-width: 120px;
+}
+
+.table-tab-payment {
+  display: grid;
+  gap: 9px;
+  min-width: min(100%, 420px);
+}
+
+.table-tab-payment > select {
+  min-width: 180px;
+}
+
+.table-tab-note {
+  margin-top: 8px;
+  color: var(--cinza-500);
+  font-size: 11px;
+}
+
+@media (max-width: 700px) {
+  .table-tab-order-actions,
+  .table-tab-order-actions .order-status-form,
+  .table-tab-payment {
+    width: 100%;
+  }
+
+  .table-tab-order-actions .order-status-form {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .table-tab-order-actions .mini-button,
+  .table-tab-payment .mini-button,
+  .table-tab-payment > select {
+    width: 100%;
+  }
+}
+
 .order-card-header {
   display: flex;
   align-items: flex-start;
@@ -3791,6 +3894,11 @@
       ? pedidosFiltradosPainel
       : [];
 
+  const listaComandasMesa =
+    typeof comandasMesaAbertasPainel !== 'undefined' && Array.isArray(comandasMesaAbertasPainel)
+      ? comandasMesaAbertasPainel
+      : [];
+
   const painelFiltrosPedidos =
     typeof filtrosPedidos !== 'undefined' && filtrosPedidos
       ? filtrosPedidos
@@ -4456,7 +4564,7 @@
       </form>
 
       <div class="orders-filter-result">
-        <span>Exibindo <strong id="ordersVisibleCount"><%= listaPedidos.length %></strong> pedido(s)</span>
+        <span>Exibindo <strong id="ordersVisibleCount"><%= listaComandasMesa.length + listaPedidos.length %></strong> card(s)</span>
         <span>
           <%= painelFiltrosPedidos.periodoAtual === 'hoje' ? 'Pedidos de hoje' : '' %>
           <%= painelFiltrosPedidos.periodoAtual === 'semana' ? 'Pedidos desta semana' : '' %>
@@ -4474,7 +4582,7 @@
         Nenhum pedido encontrado com essa pesquisa.
       </div>
 
-      <% if (!listaPedidos.length) { %>
+      <% if (!listaPedidos.length && !listaComandasMesa.length) { %>
        <div
         class="empty"
         id="ordersEmptyState"
@@ -4482,6 +4590,207 @@
         Nenhum pedido recebido.
       </div>
       <% } %>
+
+      <% listaComandasMesa.forEach(comanda => { %>
+        <%
+          const pedidosComanda = Array.isArray(comanda.pedidos) ? comanda.pedidos : [];
+          const pesquisaComanda = [
+            `mesa ${comanda.mesaNumero || ''}`,
+            comanda.mesaSetor,
+            ...pedidosComanda.flatMap(pedido => [
+              String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase(),
+              pedido.cliente,
+              pedido.telefoneCliente,
+              ...(pedido.itens || []).map(item => item.nome)
+            ])
+          ].filter(Boolean).join(' ').toLowerCase();
+        %>
+        <article
+          class="order-card table-tab-card"
+          data-mesa-card
+          data-mesa-open-card="<%= comanda.mesaId %>"
+          data-mesa-numero="<%= comanda.mesaNumero %>"
+          data-order-channel="mesa"
+          data-order-status="aberto"
+          data-order-search="<%= pesquisaComanda %>"
+        >
+          <div class="order-card-header">
+            <div class="order-number">
+              <div class="order-icon">🍽️</div>
+              <div>
+                <h3>Comanda — Mesa <%= comanda.mesaNumero || '?' %></h3>
+                <p>
+                  Aberta desde <%= comanda.primeiroPedidoEm ? formatarDataHoraEstabelecimento(comanda.primeiroPedidoEm) : '-' %>
+                  <% if (comanda.ultimoPedidoEm) { %>
+                    · último pedido <%= formatarDataHoraEstabelecimento(comanda.ultimoPedidoEm) %>
+                  <% } %>
+                </p>
+                <span class="order-origin mesa">🍽️ Mesa <%= comanda.mesaNumero || '?' %></span>
+              </div>
+            </div>
+            <div>
+              <span class="status preparo">Em aberto</span>
+              <span class="status pendente">Pendente</span>
+            </div>
+          </div>
+
+          <div class="table-tab-summary">
+            <span><strong data-open-table-count><%= comanda.quantidadePedidos || pedidosComanda.length %></strong> pedido(s) nesta comanda</span>
+            <span>Todos aparecem juntos enquanto a mesa não for paga.</span>
+            <% if (comanda.mesaSetor) { %><span>Setor: <%= comanda.mesaSetor %></span><% } %>
+          </div>
+
+          <div class="table-tab-orders" data-mesa-orders-list>
+            <% pedidosComanda.forEach(subpedido => { %>
+              <section
+                class="table-tab-order"
+                data-order-id="<%= subpedido._id %>"
+                data-suborder-total-centavos="<%= Math.round(Number(subpedido.total || 0) * 100) %>"
+              >
+                <div class="table-tab-order-header">
+                  <div class="table-tab-order-title">
+                    <strong>Pedido #<%= String(subpedido.codigoPublico || subpedido._id).slice(subpedido.codigoPublico ? 0 : -6).toUpperCase() %></strong>
+                    <small><%= formatarDataHoraEstabelecimento(subpedido.createdAt) %></small>
+                    <small>Cliente: <%= subpedido.cliente || `Mesa ${comanda.mesaNumero}` %></small>
+                    <span class="status <%= subpedido.status || 'novo' %>"><%= String(subpedido.status || 'novo').replaceAll('_', ' ') %></span>
+                  </div>
+
+                  <div class="table-tab-order-actions">
+                    <form
+                      action="/admin/pedidos/<%= subpedido._id %>/status"
+                      method="POST"
+                      class="order-status-form"
+                      <% if (subpedido.pagamentoStatus !== 'pago') { %>data-confirm-finalize-pending<% } %>
+                    >
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <select name="status" aria-label="Status do pedido <%= String(subpedido.codigoPublico || subpedido._id).slice(-6) %>">
+                        <option value="novo" <%= subpedido.status === 'novo' ? 'selected' : '' %>>Novo</option>
+                        <option value="preparo" <%= subpedido.status === 'preparo' ? 'selected' : '' %>>Em preparo</option>
+                        <option value="pronto" <%= subpedido.status === 'pronto' ? 'selected' : '' %>>Pronto</option>
+                        <option value="entregue" <%= subpedido.status === 'entregue' ? 'selected' : '' %>>Entregue</option>
+                        <option value="finalizado" <%= subpedido.status === 'finalizado' ? 'selected' : '' %>>Finalizado</option>
+                        <option value="cancelado" <%= subpedido.status === 'cancelado' ? 'selected' : '' %>>Cancelado</option>
+                      </select>
+                      <button type="submit" class="mini-button edit">Atualizar</button>
+                    </form>
+
+                    <% if (pode('imprimir_pedidos')) { %>
+                      <button type="button" class="mini-button print-order-button" data-print-order="<%= subpedido._id %>">🖨 Este pedido</button>
+                    <% } %>
+
+                    <% if (pode('arquivar_pedidos')) { %>
+                      <button type="button" class="mini-button delete-order-button" data-delete-order="<%= subpedido._id %>">🗃 Arquivar</button>
+                    <% } %>
+                  </div>
+                </div>
+
+                <div class="order-items">
+                  <% (subpedido.itens || []).forEach(item => { %>
+                    <div class="order-item">
+                      <div class="order-item-quantity"><%= item.quantidade %>x</div>
+                      <div>
+                        <div class="order-item-name"><%= item.nome %></div>
+                        <% if (item.pizzaMeioAMeio && Array.isArray(item.saboresPizza)) { %>
+                          <div class="order-item-addons" style="margin-top:5px;display:grid;gap:3px;overflow-wrap:anywhere">
+                            <% item.saboresPizza.forEach(sabor => { %>
+                              <span>🍕 <%= Number(sabor.fracao || 0.5) === 0.5 ? '1/2' : sabor.fracao %> <%= sabor.nome %></span>
+                            <% }) %>
+                          </div>
+                        <% } %>
+                        <% if (Array.isArray(item.adicionais) && item.adicionais.length) { %>
+                          <div class="order-item-addons" style="margin-top:5px;display:grid;gap:3px;overflow-wrap:anywhere">
+                            <% item.adicionais.filter(adicional => adicional && adicional.nome).forEach(adicional => { %>
+                              <span>+ <%= Number(adicional.quantidade || 1) > 1 ? `${Number(adicional.quantidade)}x ` : '' %><%= adicional.nome %><%= Number.isFinite(Number(adicional.preco)) ? ` — ${formatarMoeda(Number(adicional.preco) * Number(adicional.quantidade || 1))}` : '' %></span>
+                            <% }) %>
+                          </div>
+                        <% } %>
+                        <% if (item.observacao) { %><span class="order-item-note">Observação: <%= item.observacao %></span><% } %>
+                      </div>
+                      <div class="order-item-price"><%= formatarMoeda(Number(item.subtotal) || Number(item.preco || 0) * Number(item.quantidade || 0)) %></div>
+                    </div>
+                  <% }) %>
+                </div>
+
+                <% if (subpedido.observacao) { %>
+                  <div class="order-observation"><strong>Observação deste pedido:</strong> <%= subpedido.observacao %></div>
+                <% } %>
+
+                <div class="table-tab-note">Subtotal deste pedido: <strong><%= formatarMoeda(subpedido.total || 0) %></strong></div>
+              </section>
+            <% }) %>
+          </div>
+
+          <div class="order-footer">
+            <div class="order-total">
+              <span>Total da comanda da Mesa <%= comanda.mesaNumero || '?' %></span>
+              <strong data-open-table-total><%= formatarMoeda(comanda.total || 0) %></strong>
+            </div>
+
+            <div class="order-actions">
+              <form action="/admin/mesas/<%= comanda.mesaId %>/solicitar-conta" method="POST">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <input type="hidden" name="retorno" value="pedidos">
+                <button type="submit" class="mini-button edit">Marcar aguardando pagamento</button>
+              </form>
+
+              <form
+                action="/admin/mesas/<%= comanda.mesaId %>/pagar"
+                method="POST"
+                class="pagamento-form table-tab-payment"
+                data-total-centavos="<%= Math.round(Number(comanda.total || 0) * 100) %>"
+              >
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <input type="hidden" name="retorno" value="pedidos">
+                <select name="formaPagamento" aria-label="Forma de pagamento da comanda" data-forma-pagamento-mesa>
+                  <option value="dinheiro">Dinheiro</option>
+                  <option value="pix">Pix</option>
+                  <option value="cartao">Cartão</option>
+                  <option value="combinado">Combinar 2 pagamentos</option>
+                  <option value="nao_informado">Não informado</option>
+                </select>
+
+                <div class="pagamento-combinado" data-pagamento-combinado hidden>
+                  <div class="pagamento-combinado-linha">
+                    <label>1º meio
+                      <select name="formaPagamento1" data-forma-pagamento-1 disabled>
+                        <option value="dinheiro">Dinheiro</option>
+                        <option value="pix">Pix</option>
+                        <option value="cartao">Cartão</option>
+                      </select>
+                    </label>
+                    <label>Valor no 1º meio
+                      <input type="text" name="valorPagamento1" inputmode="decimal" autocomplete="off" placeholder="0,00" data-valor-pagamento-1 disabled>
+                    </label>
+                  </div>
+                  <div class="pagamento-combinado-linha">
+                    <label>2º meio
+                      <select name="formaPagamento2" data-forma-pagamento-2 disabled>
+                        <option value="pix">Pix</option>
+                        <option value="cartao">Cartão</option>
+                        <option value="dinheiro">Dinheiro</option>
+                      </select>
+                    </label>
+                    <label>Valor no 2º meio
+                      <input type="text" name="valorPagamento2" readonly data-valor-pagamento-2 disabled>
+                    </label>
+                  </div>
+                  <small data-resumo-pagamento-combinado>Informe o valor do primeiro meio. O restante será calculado automaticamente.</small>
+                </div>
+                <button type="submit" class="mini-button edit">💰 Pagar conta e liberar mesa</button>
+              </form>
+
+              <% if (pode('imprimir_pedidos')) { %>
+                <button
+                  type="button"
+                  class="mini-button mesa-print-all"
+                  data-print-mesa="<%= comanda.mesaId %>"
+                  data-mesa-pedidos="<%= comanda.quantidadePedidos || pedidosComanda.length %>"
+                >🖨 Imprimir todos os pedidos</button>
+              <% } %>
+            </div>
+          </div>
+        </article>
+      <% }) %>
 
       <% listaPedidos.forEach(pedido => { %>
         <%
@@ -11440,14 +11749,27 @@ async function verificarNovosPedidos() {
       result.agora ||
       new Date().toISOString();
 
+    let recarregarComandasMesa = false;
+
     result.pedidos.forEach(
       pedido => {
-        if (
-          document.querySelector(
-            `[data-order-id="${CSS.escape(pedido.id)}"]`
-          )
-        ) {
-          const existing = document.querySelector(`[data-order-id="${CSS.escape(pedido.id)}"]`);
+        const existing = document.querySelector(
+          `[data-order-id="${CSS.escape(pedido.id)}"]`
+        );
+
+        if (existing) {
+          const estaDentroDeComanda = Boolean(existing.closest('[data-mesa-open-card]'));
+          const deixouDeEstarAberto =
+            pedido.pagamentoStatus !== 'pendente' ||
+            pedido.status === 'cancelado';
+
+          if (estaDentroDeComanda && deixouDeEstarAberto) {
+            // Outra sessão/funcionário pode ter pago ou cancelado a conta.
+            // Recarrega para reconstruir a comanda com o total correto.
+            recarregarComandasMesa = true;
+            return;
+          }
+
           const badge = existing.querySelector('[data-payment-status-badge]');
           if (badge) {
             badge.className = `status ${pedido.pagamentoStatus || 'pendente'}`;
@@ -11462,38 +11784,48 @@ async function verificarNovosPedidos() {
           return;
         }
 
-        if (ordersEmptyState) {
-          ordersEmptyState.remove();
-        }
+        const novoPedidoMesaAberto =
+          pedido.canal === 'mesa' &&
+          Boolean(pedido.mesaId) &&
+          pedido.pagamentoStatus === 'pendente' &&
+          pedido.status !== 'cancelado';
 
-        if (ordersGrid) {
-          const card =
-            criarCardPedido(
-              pedido
-            );
+        if (novoPedidoMesaAberto) {
+          // A estrutura da comanda contém todos os pedidos abertos da mesa.
+          // Um reload curto é mais seguro do que montar apenas o pedido novo e
+          // correr o risco de exibir um total parcial quando 2 celulares enviam
+          // ao mesmo tempo.
+          recarregarComandasMesa = true;
+        } else {
+          if (ordersEmptyState) {
+            ordersEmptyState.remove();
+          }
 
-          ordersGrid.prepend(card);
-
-      applyOrdersFilters();
+          if (ordersGrid) {
+            const card = criarCardPedido(pedido);
+            ordersGrid.prepend(card);
+            applyOrdersFilters();
+          }
         }
 
         quantidadeNaoVisualizada += 1;
-
-        mostrarToastPedido(
-          pedido
-        );
-
+        mostrarToastPedido(pedido);
         tocarSomNovoPedido();
         mostrarNotificacaoDoSistema(pedido);
 
         if (document.hidden || !document.hasFocus()) {
           destacarTituloNovoPedido();
         }
-
       }
     );
 
     atualizarBadgePedidos();
+
+    if (recarregarComandasMesa) {
+      window.setTimeout(() => {
+        window.location.reload();
+      }, 350);
+    }
   } catch (error) {
     console.error(
       'Erro ao verificar pedidos:',
