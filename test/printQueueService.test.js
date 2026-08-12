@@ -93,6 +93,39 @@ test("schema possui jobId único e índice automático parcial", () => {
     options.partialFilterExpression?.tipo === "automatica"));
 });
 
+
+test("payload enviado ao agente remove metadados internos da comanda", () => {
+  const original = {
+    id: "507f1f77bcf86cd799439011",
+    numero: "COMANDA",
+    origem: "Mesa 1",
+    canal: "mesa",
+    mesaNumero: 1,
+    cliente: "Mesa 1 - 2 pedido(s)",
+    itens: [{ nome: "Xburger", quantidade: 1, preco: 18, subtotal: 18, adicionais: [] }],
+    total: 28,
+    documentoTipo: "comanda_mesa",
+    comandaMesaId: "507f1f77bcf86cd799439013",
+    comandaChave: "a".repeat(64),
+    comandaQuantidadePedidos: 2,
+    comandaPedidoIds: ["pedido-1", "pedido-2"],
+  };
+
+  const enviado = queue.sanitizarPedidoParaAgente(original);
+  assert.equal(enviado.numero, "COMANDA");
+  assert.equal(enviado.canal, "mesa");
+  assert.equal(enviado.total, 28);
+  assert.equal(enviado.documentoTipo, undefined);
+  assert.equal(enviado.comandaMesaId, undefined);
+  assert.equal(enviado.comandaChave, undefined);
+  assert.equal(enviado.comandaQuantidadePedidos, undefined);
+  assert.equal(enviado.comandaPedidoIds, undefined);
+
+  // O snapshot persistido precisa continuar intacto para deduplicação/reimpressão.
+  assert.equal(original.documentoTipo, "comanda_mesa");
+  assert.equal(original.comandaPedidoIds.length, 2);
+});
+
 test("criação automática gera um job por impressora", async t => {
   const original = PrintJob.create;
   const created = [];

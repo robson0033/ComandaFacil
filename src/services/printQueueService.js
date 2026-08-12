@@ -297,6 +297,25 @@ async function finalizarJobsEsgotados({ now = new Date() } = {}) {
   return result;
 }
 
+// Campos usados somente pelo servidor para identificar/deduplicar uma comanda
+// consolidada. O agente v1.3.0 valida o payload com allowlist estrita e rejeita
+// qualquer campo desconhecido. Eles permanecem persistidos no PrintJob, mas
+// nunca atravessam o protocolo v2 enviado ao computador da loja.
+const CAMPOS_PEDIDO_SOMENTE_SERVIDOR = new Set([
+  "documentoTipo",
+  "comandaMesaId",
+  "comandaChave",
+  "comandaQuantidadePedidos",
+  "comandaPedidoIds",
+]);
+
+function sanitizarPedidoParaAgente(pedido = {}) {
+  if (!pedido || typeof pedido !== "object" || Array.isArray(pedido)) return pedido;
+  return Object.fromEntries(
+    Object.entries(pedido).filter(([chave]) => !CAMPOS_PEDIDO_SOMENTE_SERVIDOR.has(chave)),
+  );
+}
+
 function sanitizarImpressora(impressora = {}) {
   const allowed = [
     "nome", "tipoConexao", "deviceName", "ip", "porta", "papel", "modo",
@@ -976,7 +995,7 @@ async function processarJob(job, socket) {
       deadline: new Date(Date.now() + LEASE_MS).toISOString(),
       modo: entregando.tipo,
       estabelecimento: entregando.estabelecimento,
-      pedido: entregando.pedido,
+      pedido: sanitizarPedidoParaAgente(entregando.pedido),
       impressoras: [entregando.impressora],
     }));
     await atualizarStatusDoAgente(entregando.estabelecimentoId, {
@@ -1160,4 +1179,5 @@ module.exports = {
   consultarResultadoDesconhecido,
   reconciliarResumoDoAgente,
   sanitizarImpressora,
+  sanitizarPedidoParaAgente,
 };

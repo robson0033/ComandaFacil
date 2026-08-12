@@ -137,4 +137,6 @@ test("backend aceita comanda pela rota existente de impressão e mantém a rota 
   assert.match(controller, /"pedido\.comandaChave"/);
   assert.match(queue, /comandaPedidoIds/);
   assert.match(queue, /documentoTipo/);
+  assert.match(queue, /sanitizarPedidoParaAgente/);
+  assert.match(queue, /pedido:\s*sanitizarPedidoParaAgente\(entregando\.pedido\)/);
 });
