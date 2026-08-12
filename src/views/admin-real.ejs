@@ -5319,6 +5319,7 @@
                     <th>Pedido</th>
                     <th>Data</th>
                     <th>Status final</th>
+                    <th>Financeiro</th>
                     <th>Motivo</th>
                     <th>Arquivado por</th>
                     <th>Arquivado em</th>
@@ -5330,6 +5331,13 @@
                       <td>#<%= String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase() %></td>
                       <td><%= formatarDataPlano(pedido.createdAt) %></td>
                       <td><%= pedido.status || '-' %></td>
+                      <td>
+                        <% if (pedido.pagamentoInconsistente) { %>
+                          <strong title="<%= pedido.pagamentoInconsistencia || 'Revisão financeira necessária.' %>">⚠ Conciliação necessária</strong>
+                        <% } else { %>
+                          <%= pedido.pagamentoStatus || '-' %>
+                        <% } %>
+                      </td>
                       <td><%= pedido.motivoExclusao || '-' %></td>
                       <td><%= pedido.excluidoPorNome || pedido.excluidoPorTipo || '-' %></td>
                       <td><%= formatarDataPlano(pedido.excluidoEm) %></td>

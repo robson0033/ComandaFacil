@@ -2481,6 +2481,181 @@ async function processPreapproval(event, preapproval) {
   }
 }
 
+function webhookStage(error, stage, code = "") {
+  if (error && typeof error === "object") {
+    if (!error.stage) error.stage = stage;
+    if (code && !error.code) error.code = code;
+  }
+  return error;
+}
+
+function isArchivedOrderFinancialStatus(status) {
+  return ["approved", "refunded", "charged_back"].includes(
+    String(status || "").trim().toLowerCase(),
+  );
+}
+
+function validatePersistedOrderAttemptPayment(payment, attempt, stage) {
+  try {
+    validatePaymentIdentity(payment, {
+      paymentId: attempt.paymentId,
+      amount: attempt.expectedAmount,
+      externalReference: attempt.externalReference,
+      collectorId: attempt.expectedCollectorId,
+    });
+    if (payment.currency_id && String(payment.currency_id) !== String(attempt.currency || "BRL")) {
+      throw new Error("Moeda do pagamento divergente.");
+    }
+  } catch (error) {
+    throw webhookStage(error, stage, "ORDER_PAYMENT_WEBHOOK_INVALID");
+  }
+}
+
+function appendAttemptWebhookEvent(attempt, event) {
+  if (!attempt || !event?.eventKey) return;
+  if (!Array.isArray(attempt.webhookEvents)) attempt.webhookEvents = [];
+  if (!attempt.webhookEvents.includes(event.eventKey)) {
+    attempt.webhookEvents.push(event.eventKey);
+  }
+}
+
+function archivedOrderReconciliationDetails({ pedido, attempt, payment }) {
+  return {
+    estabelecimentoIdSuffix: String(attempt.estabelecimentoId || "").slice(-8) || null,
+    pedidoIdSuffix: String(pedido?._id || attempt.pedidoId || "").slice(-8) || null,
+    paymentIdSuffix: String(payment?.id || attempt.paymentId || "").slice(-8) || null,
+    paymentStatus: String(payment?.status || "").slice(0, 40) || null,
+    amountCents: Number.isFinite(Number(attempt.expectedAmount))
+      ? Math.round(Number(attempt.expectedAmount) * 100)
+      : null,
+    reconciliationStatus: String(attempt.reconciliationStatus || "").slice(0, 80) || null,
+  };
+}
+
+async function processArchivedOrderPayment(event, pedido, payment, attempt) {
+  event.estabelecimentoId = attempt.estabelecimentoId;
+  event.pedidoId = pedido._id;
+  appendAttemptWebhookEvent(attempt, event);
+  validatePersistedOrderAttemptPayment(
+    payment,
+    attempt,
+    "webhook_archived_order_validation",
+  );
+
+  const now = new Date();
+  const status = String(payment.status || attempt.status || "").trim().toLowerCase();
+  const financialStatus = isArchivedOrderFinancialStatus(status);
+  const closedWithoutPayment = ["cancelled", "rejected"].includes(status);
+
+  attempt.status = status || attempt.status;
+  attempt.lastCheckedAt = now;
+  if (financialStatus) {
+    attempt.reconciliationStatus = "reconciliation_required";
+    if (Number(attempt.platformFeeCents || 0) > 0) {
+      attempt.platformFeeStatus = "reconciliation_required";
+      attempt.platformFeeNetCents = 0;
+    }
+  } else if (closedWithoutPayment) {
+    attempt.reconciliationStatus = "processed";
+    attempt.processedAt = attempt.processedAt || now;
+  }
+  await attempt.save();
+
+  pedido.mercadoPagoPaymentId = String(payment.id || pedido.mercadoPagoPaymentId || "");
+  pedido.mercadoPagoStatus = status;
+  const alreadyRecorded = Array.isArray(pedido.historicoFinanceiro)
+    && pedido.historicoFinanceiro.some(item =>
+      String(item.paymentId) === String(payment.id)
+      && String(item.tipo) === "pix_online_pedido_arquivado"
+      && String(item.status) === status);
+  if (!alreadyRecorded) {
+    if (!Array.isArray(pedido.historicoFinanceiro)) pedido.historicoFinanceiro = [];
+    pedido.historicoFinanceiro.push({
+      paymentId: String(payment.id || ""),
+      status,
+      tipo: "pix_online_pedido_arquivado",
+      statusAnterior: String(pedido.pagamentoStatus || ""),
+      statusNovo: String(pedido.pagamentoStatus || ""),
+      formaPagamento: "pix_online",
+      pagamentos: [{
+        formaPagamento: "pix_online",
+        valorCentavos: Math.max(0, Math.round(Number(attempt.expectedAmount || 0) * 100)),
+      }],
+      valor: Number(attempt.expectedAmount || 0),
+      motivo: financialStatus
+        ? "Evento financeiro recebido após o pedido ter sido arquivado; conciliação manual necessária."
+        : "Atualização do Pix recebida após o pedido ter sido arquivado.",
+      operationKey: `pix_arquivado:${String(payment.id || "")}:${status}`,
+      registradoEm: now,
+    });
+  }
+  if (financialStatus) {
+    pedido.pagamentoInconsistente = true;
+    pedido.pagamentoInconsistencia = status === "approved"
+      ? "Pagamento Pix aprovado após o pedido ter sido arquivado. Conciliação manual necessária."
+      : `Evento financeiro Pix (${status}) recebido após o pedido ter sido arquivado. Conciliação manual necessária.`;
+    if (Number(attempt.platformFeeCents || 0) > 0) {
+      pedido.platformFeeStatus = "reconciliation_required";
+      pedido.platformFeeNetCents = 0;
+    }
+  }
+  await pedido.save();
+
+  const details = archivedOrderReconciliationDetails({ pedido, attempt, payment });
+  if (financialStatus) {
+    appLogger.error("mercado_pago_archived_order_payment_detected", details);
+    operationalAlerts.trigger({
+      event: "mercado_pago_archived_order_payment_detected",
+      key: `mercado_pago_archived_order_payment_detected:${String(payment.id || attempt.paymentId)}`,
+      severity: "critical",
+      details,
+    });
+  } else {
+    appLogger.warn("mercado_pago_archived_order_payment_update", details);
+  }
+}
+
+async function processOrphanedOrderAttemptPayment(event, payment, attempt) {
+  event.estabelecimentoId = attempt.estabelecimentoId;
+  event.pedidoId = attempt.pedidoId;
+  appendAttemptWebhookEvent(attempt, event);
+  validatePersistedOrderAttemptPayment(
+    payment,
+    attempt,
+    "webhook_orphaned_order_validation",
+  );
+
+  const now = new Date();
+  const status = String(payment.status || attempt.status || "").trim().toLowerCase();
+  const financialStatus = isArchivedOrderFinancialStatus(status);
+  attempt.status = status || attempt.status;
+  attempt.lastCheckedAt = now;
+  if (financialStatus) {
+    attempt.reconciliationStatus = "reconciliation_required";
+    if (Number(attempt.platformFeeCents || 0) > 0) {
+      attempt.platformFeeStatus = "reconciliation_required";
+      attempt.platformFeeNetCents = 0;
+    }
+  } else if (["cancelled", "rejected"].includes(status)) {
+    attempt.reconciliationStatus = "processed";
+    attempt.processedAt = attempt.processedAt || now;
+  }
+  await attempt.save();
+
+  const details = archivedOrderReconciliationDetails({ pedido: null, attempt, payment });
+  if (financialStatus) {
+    appLogger.error("mercado_pago_orphaned_order_payment_detected", details);
+    operationalAlerts.trigger({
+      event: "mercado_pago_orphaned_order_payment_detected",
+      key: `mercado_pago_orphaned_order_payment_detected:${String(payment.id || attempt.paymentId)}`,
+      severity: "critical",
+      details,
+    });
+  } else {
+    appLogger.warn("mercado_pago_orphaned_order_attempt_update", details);
+  }
+}
+
 async function loadWebhookResource(data) {
   if (data.resourceType === "subscription_preapproval") {
     return {
@@ -2496,23 +2671,45 @@ async function loadWebhookResource(data) {
     const pedido = await Pedido.findOne({
       _id: attempt.pedidoId,
       estabelecimentoId: attempt.estabelecimentoId,
-      excluido: { $ne: true },
     });
-    if (!pedido) throw new Error("Pedido da tentativa de pagamento não encontrado.");
-    const { accessToken } = await configuracaoComToken(attempt.estabelecimentoId);
+    let accessToken;
+    try {
+      ({ accessToken } = await configuracaoComToken(attempt.estabelecimentoId));
+    } catch (error) {
+      throw webhookStage(error, "webhook_order_token_lookup", "ORDER_PAYMENT_TOKEN_LOOKUP_FAILED");
+    }
+    let resource;
+    try {
+      resource = await mp(`/v1/payments/${encodeURIComponent(data.resourceId)}`, {}, accessToken);
+    } catch (error) {
+      throw webhookStage(error, "webhook_order_resource_lookup", "ORDER_PAYMENT_RESOURCE_LOOKUP_FAILED");
+    }
+    if (!pedido) {
+      return {
+        kind: "orphaned_order_attempt",
+        attempt,
+        pedido: null,
+        resource,
+      };
+    }
     return {
-      kind: "order",
+      kind: pedido.excluido === true ? "archived_order" : "order",
       attempt,
       pedido,
-      resource: await mp(`/v1/payments/${encodeURIComponent(data.resourceId)}`, {}, accessToken),
+      resource,
     };
   }
   const pedido = await Pedido.findOne({
     mercadoPagoPaymentId: data.resourceId,
-    excluido: { $ne: true },
   });
   if (pedido) {
-    const { cfg, accessToken } = await configuracaoComToken(pedido.estabelecimentoId);
+    let cfg;
+    let accessToken;
+    try {
+      ({ cfg, accessToken } = await configuracaoComToken(pedido.estabelecimentoId));
+    } catch (error) {
+      throw webhookStage(error, "webhook_order_token_lookup", "ORDER_PAYMENT_TOKEN_LOOKUP_FAILED");
+    }
     const legacyExternalReference = `pedido:${pedido._id}`;
     let legacyAttempt = await OrderPaymentAttempt.findOne({
       paymentId: data.resourceId,
@@ -2535,15 +2732,21 @@ async function loadWebhookResource(data) {
         legacyReference: true,
       });
     }
-    return {
-      kind: "order",
-      pedido,
-      attempt: legacyAttempt,
-      resource: await mp(
+    let resource;
+    try {
+      resource = await mp(
         `/v1/payments/${encodeURIComponent(data.resourceId)}`,
         {},
         accessToken,
-      ),
+      );
+    } catch (error) {
+      throw webhookStage(error, "webhook_order_resource_lookup", "ORDER_PAYMENT_RESOURCE_LOOKUP_FAILED");
+    }
+    return {
+      kind: pedido.excluido === true ? "archived_order" : "order",
+      pedido,
+      attempt: legacyAttempt,
+      resource,
     };
   }
   return {
@@ -2556,13 +2759,29 @@ async function loadWebhookResource(data) {
 }
 
 async function processWebhookEvent(event, loaded) {
-  if (loaded.kind === "preapproval") {
-    return processPreapproval(event, loaded.resource);
+  let stage = "webhook_processing";
+  try {
+    if (loaded.kind === "preapproval") {
+      stage = "webhook_preapproval_processing";
+      return await processPreapproval(event, loaded.resource);
+    }
+    if (loaded.kind === "order") {
+      stage = "webhook_order_processing";
+      return await processOrderPayment(event, loaded.pedido, loaded.resource, loaded.attempt || null);
+    }
+    if (loaded.kind === "archived_order") {
+      stage = "webhook_archived_order_processing";
+      return await processArchivedOrderPayment(event, loaded.pedido, loaded.resource, loaded.attempt);
+    }
+    if (loaded.kind === "orphaned_order_attempt") {
+      stage = "webhook_orphaned_order_processing";
+      return await processOrphanedOrderAttemptPayment(event, loaded.resource, loaded.attempt);
+    }
+    stage = "webhook_subscription_processing";
+    return await processSubscriptionPayment(event, loaded.resource);
+  } catch (error) {
+    throw webhookStage(error, stage, "WEBHOOK_PROCESSING_FAILED");
   }
-  if (loaded.kind === "order") {
-    return processOrderPayment(event, loaded.pedido, loaded.resource, loaded.attempt || null);
-  }
-  return processSubscriptionPayment(event, loaded.resource);
 }
 
 exports.webhook = async (req, res) => {
@@ -2580,7 +2799,10 @@ exports.webhook = async (req, res) => {
     signatureValid = true;
     const loaded = await loadWebhookResource(data);
     if (String(loaded.resource?.id || "") !== String(authenticity.resourceId)) {
-      throw new Error("Recurso financeiro retornado é divergente.");
+      const error = new Error("Recurso financeiro retornado é divergente.");
+      error.code = "WEBHOOK_RESOURCE_IDENTITY_MISMATCH";
+      error.stage = "webhook_resource_identity";
+      throw error;
     }
     const effectiveAt = financialEffectiveDate(loaded.resource);
     const eventKey = webhookEventKey({
@@ -2730,7 +2952,10 @@ exports._testing = {
   obterOuCriarTentativa,
   parseSubscriptionReference,
   parseSubscriptionPixResponse,
+  processArchivedOrderPayment,
+  processOrphanedOrderAttemptPayment,
   processOrderPayment,
+  processWebhookEvent,
   processApprovedOrderPayment,
   processPreapproval,
   processSubscriptionPayment,
@@ -2741,6 +2966,7 @@ exports._testing = {
   webhookEventKey,
   webhookDiagnostic,
   mercadoPagoConfigStatus,
+  loadWebhookResource,
   orderAttemptExternalReference,
   isOpaqueOrderReference,
   applyOrderPayment,

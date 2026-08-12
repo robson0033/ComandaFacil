@@ -54,6 +54,7 @@ function clone(value) {
 function instalarAmbiente(t, {
   inicial = pedido(),
   jobsIniciais = [],
+  tentativasPix = [],
   falharJobs = false,
   falharAuditoria = false,
   semTransacao = false,
@@ -64,12 +65,14 @@ function instalarAmbiente(t, {
     pedidoFindOneAndUpdate: models.Pedido.findOneAndUpdate,
     jobFind: models.PrintJob.find,
     jobUpdateMany: models.PrintJob.updateMany,
+    paymentAttemptFindOne: models.OrderPaymentAttempt.findOne,
     auditFindOneAndUpdate: models.AuditoriaEvento.findOneAndUpdate,
     auditFindOne: models.AuditoriaEvento.findOne,
   };
   const estado = {
     pedido: clone(inicial),
     jobs: clone(jobsIniciais),
+    tentativasPix: clone(tentativasPix),
     auditorias: new Map(),
   };
   let filaTransacao = Promise.resolve();
@@ -120,6 +123,23 @@ function instalarAmbiente(t, {
   models.PrintJob.find = async filtro => estado.jobs.filter(job =>
     String(job.estabelecimentoId) === String(filtro.estabelecimentoId)
     && String(job.pedidoId) === String(filtro.pedidoId));
+  models.OrderPaymentAttempt.findOne = async filtro => estado.tentativasPix.find(attempt => {
+    if (String(attempt.estabelecimentoId) !== String(filtro.estabelecimentoId)) return false;
+    if (String(attempt.pedidoId) !== String(filtro.pedidoId)) return false;
+    if (filtro.paymentMethod && String(attempt.paymentMethod) !== String(filtro.paymentMethod)) return false;
+    const status = String(attempt.status || "");
+    const reconciliationStatus = String(attempt.reconciliationStatus || "");
+    return (filtro.$or || []).some(cond => {
+      if (cond.status?.$in) return cond.status.$in.includes(status);
+      if (typeof cond.reconciliationStatus === "string") {
+        return reconciliationStatus === cond.reconciliationStatus;
+      }
+      if (typeof cond.status === "string" && cond.reconciliationStatus?.$ne) {
+        return status === cond.status && reconciliationStatus !== cond.reconciliationStatus.$ne;
+      }
+      return false;
+    });
+  }) || null;
   models.PrintJob.updateMany = async (filtro, update) => {
     if (falharJobs) throw new Error("Falha simulada no cancelamento");
     let modifiedCount = 0;
@@ -146,6 +166,7 @@ function instalarAmbiente(t, {
     models.Pedido.findOneAndUpdate = originais.pedidoFindOneAndUpdate;
     models.PrintJob.find = originais.jobFind;
     models.PrintJob.updateMany = originais.jobUpdateMany;
+    models.OrderPaymentAttempt.findOne = originais.paymentAttemptFindOne;
     models.AuditoriaEvento.findOneAndUpdate = originais.auditFindOneAndUpdate;
     models.AuditoriaEvento.findOne = originais.auditFindOne;
   });
@@ -362,6 +383,65 @@ test("pedido pago, reconciliação, motivo inválido e outra loja são bloqueado
     arquivarPedido(args()),
     error => error.code === "PEDIDO_NAO_ENCONTRADO",
   );
+});
+
+test("Pix pendente bloqueia arquivamento mesmo antes de mercadoPagoPaymentId chegar ao pedido", async t => {
+  const estado = instalarAmbiente(t, {
+    tentativasPix: [{
+      _id: "attempt-1",
+      estabelecimentoId: LOJA,
+      pedidoId: PEDIDO,
+      paymentMethod: "pix",
+      status: "pending",
+      reconciliationStatus: "pending",
+      paymentId: "mp-28943129",
+    }],
+  });
+
+  await assert.rejects(
+    arquivarPedido(args()),
+    error => error.code === "PIX_EM_PROCESSAMENTO" && error.statusCode === 409,
+  );
+  assert.equal(estado.pedido.excluido, false);
+  assert.equal(estado.auditorias.size, 1);
+});
+
+test("Pix aprovado pendente de conciliação bloqueia arquivamento", async t => {
+  const estado = instalarAmbiente(t, {
+    tentativasPix: [{
+      _id: "attempt-2",
+      estabelecimentoId: LOJA,
+      pedidoId: PEDIDO,
+      paymentMethod: "pix",
+      status: "approved",
+      reconciliationStatus: "reconciliation_required",
+      paymentId: "mp-approved",
+    }],
+  });
+
+  await assert.rejects(
+    arquivarPedido(args()),
+    error => error.code === "PIX_RECONCILIACAO_NECESSARIA" && error.statusCode === 409,
+  );
+  assert.equal(estado.pedido.excluido, false);
+});
+
+test("tentativa Pix finalizada e conciliada não impede arquivamento", async t => {
+  const estado = instalarAmbiente(t, {
+    tentativasPix: [{
+      _id: "attempt-3",
+      estabelecimentoId: LOJA,
+      pedidoId: PEDIDO,
+      paymentMethod: "pix",
+      status: "approved",
+      reconciliationStatus: "processed",
+      paymentId: "mp-processed",
+    }],
+  });
+
+  const result = await arquivarPedido(args());
+  assert.equal(result.status, "arquivado");
+  assert.equal(estado.pedido.excluido, true);
 });
 
 test("E11000 da operationKey retorna evento existente", async t => {

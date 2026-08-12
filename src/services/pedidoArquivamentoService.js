@@ -1,7 +1,7 @@
 "use strict";
 
 const mongoose = require("mongoose");
-const { Pedido, PrintJob } = require("../models/painelModels");
+const { Pedido, PrintJob, OrderPaymentAttempt } = require("../models/painelModels");
 const { restaurarEstoqueDoPedido } = require("./estoqueService");
 const { registrarAuditoria } = require("./auditoriaService");
 
@@ -26,6 +26,53 @@ const ESTADOS_IMPRESSAO_CANCELAVEIS = [
   "aguardando_retry",
   "falhou",
 ];
+const ESTADOS_PIX_ARQUIVAMENTO_BLOQUEADOS = [
+  "creating",
+  "pending",
+  "in_process",
+  "authorized",
+];
+
+function tentativaPixExigeBloqueio(tentativa) {
+  if (!tentativa) return false;
+  const status = String(tentativa.status || "").trim().toLowerCase();
+  const reconciliacao = String(tentativa.reconciliationStatus || "").trim().toLowerCase();
+  return ESTADOS_PIX_ARQUIVAMENTO_BLOQUEADOS.includes(status)
+    || reconciliacao === "reconciliation_required"
+    || (status === "approved" && reconciliacao !== "processed");
+}
+
+async function buscarTentativaPixBloqueadora({ pedido, session }) {
+  return OrderPaymentAttempt.findOne(
+    {
+      estabelecimentoId: pedido.estabelecimentoId,
+      pedidoId: pedido._id,
+      paymentMethod: "pix",
+      $or: [
+        { status: { $in: ESTADOS_PIX_ARQUIVAMENTO_BLOQUEADOS } },
+        { reconciliationStatus: "reconciliation_required" },
+        { status: "approved", reconciliationStatus: { $ne: "processed" } },
+      ],
+    },
+    null,
+    { session },
+  );
+}
+
+function erroTentativaPixAtiva(tentativa) {
+  const status = String(tentativa?.status || "").trim().toLowerCase();
+  const reconciliacao = String(tentativa?.reconciliationStatus || "").trim().toLowerCase();
+  if (status === "approved" || reconciliacao === "reconciliation_required") {
+    return erroArquivamento(
+      "PIX_RECONCILIACAO_NECESSARIA",
+      "Este pedido possui um Pix aprovado ou pendente de conciliação. Conclua a conciliação financeira antes de arquivar.",
+    );
+  }
+  return erroArquivamento(
+    "PIX_EM_PROCESSAMENTO",
+    "Este pedido possui um pagamento Pix em andamento. Aguarde a confirmação, rejeição ou cancelamento antes de arquivar.",
+  );
+}
 
 function erroArquivamento(code, message, statusCode = 409) {
   const error = new Error(message);
@@ -218,6 +265,15 @@ async function arquivarPedido({
         bloqueio = error;
         return;
       }
+
+      const tentativaPix = await buscarTentativaPixBloqueadora({ pedido, session });
+      if (tentativaPixExigeBloqueio(tentativaPix)) {
+        const error = erroTentativaPixAtiva(tentativaPix);
+        await registrarBloqueio({ pedido, usuario, error, session });
+        bloqueio = error;
+        return;
+      }
+
       const jobs = await PrintJob.find(
         { estabelecimentoId, pedidoId: pedido._id },
         null,
@@ -266,6 +322,14 @@ async function arquivarPedido({
           validarPedidoParaArquivamento(pedido, usuario);
         } catch (error) {
           if (!error.statusCode || error.statusCode >= 500) throw error;
+          await registrarBloqueio({ pedido, usuario, error, session });
+          bloqueio = error;
+          return;
+        }
+
+        const tentativaPixAposRestauracao = await buscarTentativaPixBloqueadora({ pedido, session });
+        if (tentativaPixExigeBloqueio(tentativaPixAposRestauracao)) {
+          const error = erroTentativaPixAtiva(tentativaPixAposRestauracao);
           await registrarBloqueio({ pedido, usuario, error, session });
           bloqueio = error;
           return;
@@ -372,10 +436,13 @@ module.exports = {
   ESTADOS_ESTOQUE_BLOQUEADOS,
   ESTADOS_IMPRESSAO_BLOQUEADOS,
   ESTADOS_IMPRESSAO_CANCELAVEIS,
+  ESTADOS_PIX_ARQUIVAMENTO_BLOQUEADOS,
   arquivarPedido,
+  buscarTentativaPixBloqueadora,
   erroArquivamento,
   impressaoEmProcessamento,
   registrarBloqueio,
   transacaoIndisponivel,
+  tentativaPixExigeBloqueio,
   validarPedidoParaArquivamento,
 };

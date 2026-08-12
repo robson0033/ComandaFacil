@@ -2430,7 +2430,8 @@ exports.admin = async (req, res) => {
           })
             .select(
               "_id createdAt status pagamentoStatus motivoExclusao "
-              + "excluidoEm excluidoPor excluidoPorTipo",
+              + "excluidoEm excluidoPor excluidoPorTipo "
+              + "mercadoPagoStatus mercadoPagoPaymentId pagamentoInconsistente pagamentoInconsistencia",
             )
             .sort({ excluidoEm: -1 })
             .limit(200)
