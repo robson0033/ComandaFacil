@@ -976,6 +976,34 @@
       color: #176e42;
     }
 
+    .delivery-rule-notice {
+      grid-column: 1 / -1;
+      padding: 12px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1.45;
+      background: #fff4d6;
+      color: #7a4d00;
+      border: 1px solid #f3d38a;
+    }
+
+    .delivery-rule-notice.error {
+      background: #ffe1e1;
+      color: #9d1c1c;
+      border-color: #f0b7b7;
+    }
+
+    .delivery-rule-notice.success {
+      background: #dff7e9;
+      color: #176e42;
+      border-color: #bce7cf;
+    }
+
+    .delivery-rule-notice.hidden {
+      display: none;
+    }
+
     .checkout-summary {
       grid-column: 1 / -1;
       display: grid;
@@ -1990,7 +2018,11 @@
             <% for (const cidade of (cidadesEntrega || [])) { %>
               <option
                 value="<%= cidade.id %>"
+                data-cidade-nome="<%= cidade.nome %> - <%= cidade.uf %>"
                 data-taxa-centavos="<%= cidade.taxaCentavos %>"
+                data-pedido-minimo-centavos="<%= cidade.pedidoMinimoCentavos || 0 %>"
+                data-abaixo-minimo-modo="<%= cidade.abaixoMinimoModo || 'bloquear' %>"
+                data-taxa-abaixo-minimo-centavos="<%= cidade.taxaAbaixoMinimoCentavos || 0 %>"
               >
                 <%= cidade.nome %> - <%= cidade.uf %> — <%= (Number(cidade.taxaCentavos || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) %>
               </option>
@@ -2000,6 +2032,12 @@
             <small>Esta loja ainda não cadastrou cidades para entrega.</small>
           <% } %>
         </div>
+
+        <div
+          id="deliveryMinimumNotice"
+          class="delivery-rule-notice delivery-address-field hidden"
+          aria-live="polite"
+        ></div>
 
         <div class="form-field full delivery-address-field" id="enderecoField">
           <label for="ruaEntrega">Rua</label>
@@ -2445,6 +2483,7 @@
     const orderDeliveryFeeRow = document.querySelector("#orderDeliveryFeeRow");
     const orderDeliveryFee = document.querySelector("#orderDeliveryFee");
     const orderTotal = document.querySelector("#orderTotal");
+    const deliveryMinimumNotice = document.querySelector("#deliveryMinimumNotice");
     const formaPagamento = document.querySelector("#formaPagamento");
     const combinedPaymentPanel = document.querySelector("#combinedPaymentPanel");
     const formaPagamento1 = document.querySelector("#formaPagamento1");
@@ -3089,12 +3128,72 @@
       );
     }
 
-    function taxaEntregaSelecionadaCentavos() {
-      if (canalPedido?.value !== "delivery") return 0;
-      const taxa = Number(
-        cidadeEntregaId?.selectedOptions?.[0]?.dataset?.taxaCentavos,
+    function inteiroCentavos(value, fallback = 0) {
+      const numero = Number(value);
+      return Number.isSafeInteger(numero) && numero >= 0 ? numero : fallback;
+    }
+
+    function regraEntregaSelecionadaCliente() {
+      const delivery = canalPedido?.value === "delivery";
+      const opcao = cidadeEntregaId?.selectedOptions?.[0] || null;
+      const cidadeSelecionada = Boolean(cidadeEntregaId?.value && opcao);
+      const subtotalCentavos = Math.max(
+        0,
+        Math.round((subtotal() + Number.EPSILON) * 100),
       );
-      return Number.isSafeInteger(taxa) && taxa >= 0 ? taxa : 0;
+
+      if (!delivery || !cidadeSelecionada) {
+        return {
+          delivery,
+          cidadeSelecionada,
+          cidadeNome: "",
+          subtotalCentavos,
+          pedidoMinimoCentavos: 0,
+          faltamCentavos: 0,
+          abaixoDoMinimo: false,
+          bloqueado: false,
+          taxaEntregaCentavos: 0,
+          taxaNormalCentavos: 0,
+          taxaAbaixoMinimoCentavos: 0,
+          modo: "bloquear",
+        };
+      }
+
+      const taxaNormalCentavos = inteiroCentavos(opcao.dataset.taxaCentavos);
+      const pedidoMinimoCentavos = inteiroCentavos(opcao.dataset.pedidoMinimoCentavos);
+      const taxaAbaixoMinimoCentavos = inteiroCentavos(
+        opcao.dataset.taxaAbaixoMinimoCentavos,
+      );
+      const modo = opcao.dataset.abaixoMinimoModo === "taxa_especial"
+        ? "taxa_especial"
+        : "bloquear";
+      const abaixoDoMinimo = pedidoMinimoCentavos > 0
+        && subtotalCentavos < pedidoMinimoCentavos;
+      const bloqueado = abaixoDoMinimo && modo === "bloquear";
+      const taxaEntregaCentavos = abaixoDoMinimo && modo === "taxa_especial"
+        ? taxaAbaixoMinimoCentavos
+        : taxaNormalCentavos;
+
+      return {
+        delivery,
+        cidadeSelecionada,
+        cidadeNome: String(opcao.dataset.cidadeNome || "esta cidade"),
+        subtotalCentavos,
+        pedidoMinimoCentavos,
+        faltamCentavos: abaixoDoMinimo
+          ? Math.max(0, pedidoMinimoCentavos - subtotalCentavos)
+          : 0,
+        abaixoDoMinimo,
+        bloqueado,
+        taxaEntregaCentavos,
+        taxaNormalCentavos,
+        taxaAbaixoMinimoCentavos,
+        modo,
+      };
+    }
+
+    function taxaEntregaSelecionadaCentavos() {
+      return regraEntregaSelecionadaCliente().taxaEntregaCentavos;
     }
 
     function resumoFinanceiroPedido() {
@@ -3110,10 +3209,44 @@
       };
     }
 
+    function atualizarAvisoRegraEntrega(regra) {
+      if (!deliveryMinimumNotice) return;
+
+      deliveryMinimumNotice.className = "delivery-rule-notice delivery-address-field hidden";
+      deliveryMinimumNotice.textContent = "";
+
+      if (!regra.delivery || !regra.cidadeSelecionada || regra.pedidoMinimoCentavos <= 0) {
+        return;
+      }
+
+      if (regra.bloqueado) {
+        deliveryMinimumNotice.className = "delivery-rule-notice delivery-address-field error";
+        deliveryMinimumNotice.textContent =
+          `Para ${regra.cidadeNome}, o delivery é feito somente a partir de ${currency(regra.pedidoMinimoCentavos / 100)}. ` +
+          `Faltam ${currency(regra.faltamCentavos / 100)} em produtos para continuar.`;
+        return;
+      }
+
+      if (regra.abaixoDoMinimo && regra.modo === "taxa_especial") {
+        deliveryMinimumNotice.className = "delivery-rule-notice delivery-address-field";
+        deliveryMinimumNotice.textContent =
+          `O pedido mínimo de ${regra.cidadeNome} é ${currency(regra.pedidoMinimoCentavos / 100)}. ` +
+          `Como seu pedido está abaixo desse valor, a taxa de entrega será ${currency(regra.taxaAbaixoMinimoCentavos / 100)}. ` +
+          `Ao atingir o mínimo, a taxa normal será ${currency(regra.taxaNormalCentavos / 100)}.`;
+        return;
+      }
+
+      deliveryMinimumNotice.className = "delivery-rule-notice delivery-address-field success";
+      deliveryMinimumNotice.textContent =
+        `Pedido mínimo de ${currency(regra.pedidoMinimoCentavos / 100)} atingido para ${regra.cidadeNome}. ` +
+        `Taxa normal de entrega: ${currency(regra.taxaNormalCentavos / 100)}.`;
+    }
+
     function atualizarResumoFinanceiroPedido() {
       const resumo = resumoFinanceiroPedido();
       const delivery = canalPedido?.value === "delivery";
       const cidadeSelecionada = Boolean(cidadeEntregaId?.value);
+      const regra = regraEntregaSelecionadaCliente();
 
       if (orderSubtotal) orderSubtotal.textContent = currency(resumo.subtotal);
       if (orderDeliveryFeeRow) orderDeliveryFeeRow.classList.toggle("hidden", !delivery);
@@ -3123,7 +3256,20 @@
           : currency(resumo.taxaEntrega);
       }
       if (orderTotal) orderTotal.textContent = currency(resumo.total);
+      atualizarAvisoRegraEntrega(regra);
       atualizarPagamentoCombinado();
+    }
+
+    function validarRegraEntregaAntesDoEnvio() {
+      const regra = regraEntregaSelecionadaCliente();
+      if (!regra.bloqueado) return true;
+
+      atualizarAvisoRegraEntrega(regra);
+      formMessage.className = "form-message error";
+      formMessage.textContent =
+        `Delivery para ${regra.cidadeNome} somente a partir de ${currency(regra.pedidoMinimoCentavos / 100)}. ` +
+        `Adicione mais ${currency(regra.faltamCentavos / 100)} ao carrinho.`;
+      return false;
     }
 
     function renderCart() {
@@ -4520,6 +4666,9 @@
           avisarCarrinho(error.message);
           return;
         }
+
+        atualizarResumoFinanceiroPedido();
+        if (!validarRegraEntregaAntesDoEnvio()) return;
 
         const formData = new FormData(orderForm);
         const payload = {

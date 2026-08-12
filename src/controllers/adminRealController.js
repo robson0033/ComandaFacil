@@ -96,6 +96,7 @@ const {
   validatePublicOrderBase,
 } = require("../utils/publicOrderValidation");
 const {
+  avaliarRegraEntregaCidade,
   calcularTotaisPedidoComEntrega,
   montarDadosCidadeEntrega,
   validarTaxaEntregaCentavos,
@@ -5496,13 +5497,16 @@ exports.editarCidadeEntrega = async (req, res) => {
     cidade.nomeNormalizado = dados.nomeNormalizado;
     cidade.uf = dados.uf;
     cidade.taxaCentavos = dados.taxaCentavos;
+    cidade.pedidoMinimoCentavos = dados.pedidoMinimoCentavos;
+    cidade.abaixoMinimoModo = dados.abaixoMinimoModo;
+    cidade.taxaAbaixoMinimoCentavos = dados.taxaAbaixoMinimoCentavos;
     await cidade.save();
 
     return salvarERedirecionar(
       req,
       res,
       "configuracoes",
-      "Cidade e taxa de entrega atualizadas.",
+      "Cidade, taxa e regra de pedido mínimo atualizadas.",
     );
   } catch (error) {
     appLogger.error("delivery_city_update_failed", {
@@ -6809,7 +6813,7 @@ exports.catalogoPublico = async (req, res) => {
           estabelecimentoId: configuracao.estabelecimentoId,
           ativo: true,
         })
-          .select("nome uf taxaCentavos")
+          .select("nome uf taxaCentavos pedidoMinimoCentavos abaixoMinimoModo taxaAbaixoMinimoCentavos")
           .sort({ nome: 1, uf: 1 })
           .lean()
         : Promise.resolve([]),
@@ -6832,6 +6836,11 @@ exports.catalogoPublico = async (req, res) => {
         nome: cidade.nome,
         uf: cidade.uf,
         taxaCentavos: Number(cidade.taxaCentavos || 0),
+        pedidoMinimoCentavos: Number(cidade.pedidoMinimoCentavos || 0),
+        abaixoMinimoModo: cidade.abaixoMinimoModo === "taxa_especial"
+          ? "taxa_especial"
+          : "bloquear",
+        taxaAbaixoMinimoCentavos: Number(cidade.taxaAbaixoMinimoCentavos || 0),
       })),
       lojaDisponivel: acessoVenda.permitido,
     });
@@ -8058,7 +8067,7 @@ exports.criarPedidoCatalogo =
           estabelecimentoId: configuracao.estabelecimentoId,
           ativo: true,
         })
-          .select("_id nome uf taxaCentavos")
+          .select("_id nome uf taxaCentavos pedidoMinimoCentavos abaixoMinimoModo taxaAbaixoMinimoCentavos")
           .lean();
 
         if (!cidadeEntregaSelecionada) {
@@ -8503,10 +8512,48 @@ exports.criarPedidoCatalogo =
         });
       }
 
+      let regraEntregaCidade = null;
+      if (canal === "delivery") {
+        try {
+          regraEntregaCidade = avaliarRegraEntregaCidade({
+            subtotalProdutos: total,
+            cidade: cidadeEntregaSelecionada,
+          });
+        } catch (error) {
+          appLogger.error("delivery_city_minimum_rule_invalid", {
+            correlationId: req.correlationId,
+            estabelecimentoId: String(configuracao.estabelecimentoId),
+            cidadeEntregaId,
+            code: error?.code || "REGRA_PEDIDO_MINIMO_INVALIDA",
+          });
+          return res.status(409).json({
+            success: false,
+            code: "REGRA_ENTREGA_INDISPONIVEL",
+            message: "A regra de entrega desta cidade está indisponível. Escolha outra cidade ou fale com a loja.",
+          });
+        }
+
+        if (!regraEntregaCidade.permitido) {
+          const minimo = (regraEntregaCidade.pedidoMinimoCentavos / 100)
+            .toFixed(2)
+            .replace(".", ",");
+          const faltam = (regraEntregaCidade.faltamCentavos / 100)
+            .toFixed(2)
+            .replace(".", ",");
+          return res.status(422).json({
+            success: false,
+            code: "PEDIDO_MINIMO_DELIVERY",
+            pedidoMinimoCentavos: regraEntregaCidade.pedidoMinimoCentavos,
+            faltamCentavos: regraEntregaCidade.faltamCentavos,
+            message: `Para ${cidadeEntregaSelecionada.nome} - ${cidadeEntregaSelecionada.uf}, o delivery é feito somente a partir de R$ ${minimo}. Adicione mais R$ ${faltam} ao pedido para continuar.`,
+          });
+        }
+      }
+
       const resumoFinanceiro = calcularTotaisPedidoComEntrega({
         subtotalProdutos: total,
         taxaEntregaCentavos: canal === "delivery"
-          ? cidadeEntregaSelecionada.taxaCentavos
+          ? regraEntregaCidade.taxaEntregaCentavos
           : 0,
       });
       const subtotalProdutos = resumoFinanceiro.subtotalProdutos;

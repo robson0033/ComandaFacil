@@ -26,7 +26,7 @@ test("catálogo carrega somente cidades ativas da própria loja", () => {
     controller,
     /CidadeEntrega\.find\(\{\s*estabelecimentoId:\s*configuracao\.estabelecimentoId,\s*ativo:\s*true,/s,
   );
-  assert.match(controller, /\.select\("nome uf taxaCentavos"\)/);
+  assert.match(controller, /\.select\("nome uf taxaCentavos pedidoMinimoCentavos abaixoMinimoModo taxaAbaixoMinimoCentavos"\)/);
   assert.match(controller, /\.sort\(\{ nome: 1, uf: 1 \}\)/);
   assert.match(controller, /cidadesEntrega:\s*cidadesEntrega\.map\(/);
 });
@@ -55,7 +55,7 @@ test("backend busca a cidade ativa da loja e nunca aceita taxa enviada pelo nave
     controller,
     /CidadeEntrega\.findOne\(\{\s*_id:\s*cidadeEntregaId,\s*estabelecimentoId:\s*configuracao\.estabelecimentoId,\s*ativo:\s*true,/s,
   );
-  assert.match(controller, /\.select\("_id nome uf taxaCentavos"\)/);
+  assert.match(controller, /\.select\("_id nome uf taxaCentavos pedidoMinimoCentavos abaixoMinimoModo taxaAbaixoMinimoCentavos"\)/);
   assert.match(controller, /code:\s*"CIDADE_ENTREGA_OBRIGATORIA"/);
   assert.match(controller, /code:\s*"CIDADE_ENTREGA_INDISPONIVEL"/);
   assert.doesNotMatch(controller, /taxaEntrega(?:Centavos)?\s*=\s*Number\(req\.body/);

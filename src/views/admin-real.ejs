@@ -7115,8 +7115,8 @@
           <section class="panel">
             <div class="panel-header">
               <div class="panel-title">
-                <h2>Cidades e taxas de entrega</h2>
-                <p>Cadastre somente as cidades atendidas e informe a taxa cobrada em cada uma.</p>
+                <h2>Cidades, taxas e pedido mínimo</h2>
+                <p>Defina a taxa normal de cada cidade e, se quiser, um valor mínimo para delivery. Abaixo do mínimo você pode bloquear o pedido ou cobrar uma taxa especial.</p>
               </div>
             </div>
 
@@ -7156,7 +7156,7 @@
               </div>
 
               <div class="field">
-                <label for="cidadeEntregaTaxa">Taxa de entrega</label>
+                <label for="cidadeEntregaTaxa">Taxa normal de entrega</label>
                 <input
                   id="cidadeEntregaTaxa"
                   name="taxa"
@@ -7165,6 +7165,39 @@
                   placeholder="Ex.: 12,00"
                   required
                 >
+              </div>
+
+              <div class="field">
+                <label for="cidadeEntregaPedidoMinimo">Pedido mínimo para delivery</label>
+                <input
+                  id="cidadeEntregaPedidoMinimo"
+                  name="pedidoMinimo"
+                  inputmode="decimal"
+                  maxlength="9"
+                  placeholder="0,00 = sem mínimo"
+                  value="0,00"
+                  required
+                >
+              </div>
+
+              <div class="field">
+                <label for="cidadeEntregaAbaixoMinimoModo">Se ficar abaixo do mínimo</label>
+                <select id="cidadeEntregaAbaixoMinimoModo" name="abaixoMinimoModo" required>
+                  <option value="bloquear">Não aceitar o delivery</option>
+                  <option value="taxa_especial">Aceitar com taxa especial</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="cidadeEntregaTaxaAbaixoMinimo">Taxa especial abaixo do mínimo</label>
+                <input
+                  id="cidadeEntregaTaxaAbaixoMinimo"
+                  name="taxaAbaixoMinimo"
+                  inputmode="decimal"
+                  maxlength="6"
+                  placeholder="Ex.: 20,00"
+                >
+                <small>Preencha somente se escolher “Aceitar com taxa especial”. Esse valor substitui a taxa normal enquanto o pedido estiver abaixo do mínimo.</small>
               </div>
 
               <div class="field" style="align-self:end">
@@ -7218,13 +7251,43 @@
                     </div>
 
                     <div class="field">
-                      <label>Taxa de entrega</label>
+                      <label>Taxa normal de entrega</label>
                       <input
                         name="taxa"
                         inputmode="decimal"
                         maxlength="6"
                         value="<%= (Number(cidade.taxaCentavos || 0) / 100).toFixed(2).replace('.', ',') %>"
                         required
+                      >
+                    </div>
+
+                    <div class="field">
+                      <label>Pedido mínimo para delivery</label>
+                      <input
+                        name="pedidoMinimo"
+                        inputmode="decimal"
+                        maxlength="9"
+                        value="<%= (Number(cidade.pedidoMinimoCentavos || 0) / 100).toFixed(2).replace('.', ',') %>"
+                        required
+                      >
+                    </div>
+
+                    <div class="field">
+                      <label>Se ficar abaixo do mínimo</label>
+                      <select name="abaixoMinimoModo" required>
+                        <option value="bloquear" <%= cidade.abaixoMinimoModo !== 'taxa_especial' ? 'selected' : '' %>>Não aceitar o delivery</option>
+                        <option value="taxa_especial" <%= cidade.abaixoMinimoModo === 'taxa_especial' ? 'selected' : '' %>>Aceitar com taxa especial</option>
+                      </select>
+                    </div>
+
+                    <div class="field">
+                      <label>Taxa especial abaixo do mínimo</label>
+                      <input
+                        name="taxaAbaixoMinimo"
+                        inputmode="decimal"
+                        maxlength="6"
+                        value="<%= (Number(cidade.taxaAbaixoMinimoCentavos || 0) / 100).toFixed(2).replace('.', ',') %>"
+                        placeholder="Ex.: 20,00"
                       >
                     </div>
 

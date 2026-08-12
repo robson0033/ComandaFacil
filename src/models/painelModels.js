@@ -703,6 +703,31 @@ const cidadeEntregaSchema = new mongoose.Schema(
         message: "A taxa de entrega deve ser informada em centavos inteiros.",
       },
     },
+    pedidoMinimoCentavos: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 1_000_000,
+      validate: {
+        validator: Number.isSafeInteger,
+        message: "O pedido mínimo deve ser informado em centavos inteiros.",
+      },
+    },
+    abaixoMinimoModo: {
+      type: String,
+      enum: ["bloquear", "taxa_especial"],
+      default: "bloquear",
+    },
+    taxaAbaixoMinimoCentavos: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 50_000,
+      validate: {
+        validator: Number.isSafeInteger,
+        message: "A taxa abaixo do mínimo deve ser informada em centavos inteiros.",
+      },
+    },
     ativo: { type: Boolean, default: true, index: true },
     desativadoEm: { type: Date, default: null },
   },
