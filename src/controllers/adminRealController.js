@@ -9287,6 +9287,48 @@ const manualPrintRequestsInFlight = new Set();
 exports.imprimirPedidoRemoto = async (req, res) => {
   const lojaId = String(estabelecimentoId(req));
   const pedidoId = String(req.params.id || "");
+  const imprimirComandaMesa =
+    req.body?.scope === "mesa_comanda"
+    || req.body?.imprimirComandaMesa === true;
+
+  if (imprimirComandaMesa) {
+    try {
+      const pedidoReferencia = await Pedido.findOne({
+        _id: pedidoId,
+        estabelecimentoId: lojaId,
+        excluido: { $ne: true },
+      }).select("_id canal mesaId").lean();
+
+      if (!pedidoReferencia) {
+        return res.status(404).json({
+          success: false,
+          code: "PEDIDO_REFERENCIA_NAO_ENCONTRADO",
+          message: "Pedido de referência da comanda não encontrado.",
+        });
+      }
+
+      if (String(pedidoReferencia.canal || "") !== "mesa" || !pedidoReferencia.mesaId) {
+        return res.status(400).json({
+          success: false,
+          code: "PEDIDO_REFERENCIA_NAO_E_MESA",
+          message: "O pedido informado não pertence a uma mesa aberta.",
+        });
+      }
+
+      return responderImpressaoComandaMesa(req, res, {
+        lojaId,
+        mesaId: String(pedidoReferencia.mesaId),
+      });
+    } catch (error) {
+      appLogger.error("Erro ao resolver pedido de referência da comanda:", error);
+      return res.status(503).json({
+        success: false,
+        code: error?.code || "PRINT_TABLE_REFERENCE_FAILED",
+        message: error?.message || "Não foi possível localizar a comanda da mesa.",
+      });
+    }
+  }
+
   const requestLockKey = `${lojaId}:${pedidoId}`;
 
   if (manualPrintRequestsInFlight.has(requestLockKey)) {
@@ -9420,9 +9462,7 @@ exports.imprimirPedidoRemoto = async (req, res) => {
   }
 };
 
-exports.imprimirComandaMesaRemota = async (req, res) => {
-  const lojaId = String(estabelecimentoId(req));
-  const mesaId = String(req.params.id || "");
+async function responderImpressaoComandaMesa(req, res, { lojaId, mesaId }) {
 
   if (!mongoose.isValidObjectId(mesaId)) {
     return res.status(400).json({
@@ -9598,7 +9638,16 @@ exports.imprimirComandaMesaRemota = async (req, res) => {
   } finally {
     manualPrintRequestsInFlight.delete(requestLockKey);
   }
-};
+}
+
+exports.imprimirComandaMesaRemota = async (req, res) => responderImpressaoComandaMesa(
+  req,
+  res,
+  {
+    lojaId: String(estabelecimentoId(req)),
+    mesaId: String(req.params.id || ""),
+  },
+);
 
 exports.statusJobImpressao = async (req, res) => {
   let job = await PrintJob.findOne({

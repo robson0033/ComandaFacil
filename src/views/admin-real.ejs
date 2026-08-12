@@ -12969,8 +12969,21 @@ if (podeReceberNotificacoes) {
         'Enfileirando comanda...';
 
       try {
+        const pedidoReferenciaId =
+          Array.isArray(resumo?.pedidoIds)
+            ? resumo.pedidoIds
+                .map(item => String(item || '').trim())
+                .find(Boolean)
+            : '';
+
+        if (!pedidoReferenciaId) {
+          throw new Error(
+            'Não foi possível identificar um pedido aberto desta mesa. Atualize a página e tente novamente.'
+          );
+        }
+
         const response = await adminFetch(
-          `/admin/agente/mesas/${encodeURIComponent(mesaId)}/imprimir-comanda`,
+          `/admin/agente/pedidos/${encodeURIComponent(pedidoReferenciaId)}/imprimir`,
           {
             method: 'POST',
             skipAdminLoading: true,
@@ -12979,12 +12992,28 @@ if (podeReceberNotificacoes) {
                 'application/json'
             },
             body: JSON.stringify({
-              confirmReprint: true
+              confirmReprint: true,
+              scope: 'mesa_comanda'
             })
           }
         );
 
-        const result = await response.json();
+        const contentType = String(
+          response.headers.get('content-type') || ''
+        ).toLowerCase();
+
+        let result = {};
+        if (contentType.includes('application/json')) {
+          result = await response.json();
+        } else {
+          await response.text().catch(() => '');
+          const mensagem = response.status === 404
+            ? 'A rota de impressão não está disponível nesta versão do servidor. Faça o deploy do backend atualizado e tente novamente.'
+            : `O servidor devolveu uma resposta inválida ao imprimir a comanda (HTTP ${response.status}). Atualize a página e tente novamente.`;
+          const erroResposta = new Error(mensagem);
+          erroResposta.code = 'PRINT_NON_JSON_RESPONSE';
+          throw erroResposta;
+        }
 
         if (!response.ok) {
           throw new Error(
