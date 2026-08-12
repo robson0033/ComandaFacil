@@ -4253,7 +4253,7 @@
             </strong>
           </div>
 
-          <form action="/login/logout" method="POST" style="margin:0" data-admin-loading-skip>
+          <form action="/login/logout" method="POST" style="margin:0" data-admin-loading-skip data-admin-logout>
             <input type="hidden" name="_csrf" value="<%= csrfToken %>">
             <button class="logout" type="submit">Sair</button>
           </form>
@@ -7455,7 +7455,7 @@
                 </span>
 
                 <a
-                  href="https://github.com/robson0033/ComandaFacil/releases/latest/download/agente.7z"
+                  href="https://github.com/robson0033/ComandaFacil/releases/latest/download/agente.zip"
                   class="download-agent-button"
                   data-staged-agent-version="1.2.0"
                 >
@@ -9034,6 +9034,7 @@
     ]);
     let sessionRedirectInProgress = false;
     let pollingPedidosAtivo = true;
+    let pedidosPollAbortController = null;
     let pedidosStream = null;
     let printAgentStatusStream = null;
 
@@ -9058,6 +9059,8 @@
 
     function pararPollings() {
       pollingPedidosAtivo = false;
+      pedidosPollAbortController?.abort();
+      pedidosPollAbortController = null;
     }
 
     function fecharSse() {
@@ -9074,6 +9077,18 @@
       fecharSse();
       window.location.assign('/login');
     }
+
+    document.querySelector('form[data-admin-logout]')?.addEventListener(
+      'submit',
+      () => {
+        // O logout é navegação nativa. Interrompa antes as consultas passivas
+        // para que nenhuma requisição de novos pedidos dispute com a destruição
+        // da sessão e gere SESSION_INVALID no servidor.
+        sessionRedirectInProgress = true;
+        pararPollings();
+        fecharSse();
+      },
+    );
 
     function mostrarErroAdministrativo({ message, code, correlationId } = {}) {
       const container = document.querySelector('#orderToastContainer');
@@ -11787,6 +11802,8 @@ async function verificarNovosPedidos() {
   }
 
   verificandoPedidos = true;
+  const pollController = new AbortController();
+  pedidosPollAbortController = pollController;
 
   try {
     const url =
@@ -11796,6 +11813,7 @@ async function verificarNovosPedidos() {
 
     const response =
       await adminFetch(url, {
+        signal: pollController.signal,
         headers: {
           Accept:
             'application/json',
@@ -11895,11 +11913,16 @@ async function verificarNovosPedidos() {
       }, 350);
     }
   } catch (error) {
-    console.error(
-      'Erro ao verificar pedidos:',
-      error
-    );
+    if (error?.name !== 'AbortError' && !sessionRedirectInProgress) {
+      console.error(
+        'Erro ao verificar pedidos:',
+        error
+      );
+    }
   } finally {
+    if (pedidosPollAbortController === pollController) {
+      pedidosPollAbortController = null;
+    }
     verificandoPedidos = false;
   }
 }

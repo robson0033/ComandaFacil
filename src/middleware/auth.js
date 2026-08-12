@@ -21,6 +21,13 @@ function requisicaoEsperaJson(req) {
   );
 }
 
+function requisicaoPassivaDoPainel(req) {
+  if (String(req.method || "GET").toUpperCase() !== "GET") return false;
+  const path = String(req.path || "");
+  return path === "/admin/api/pedidos/novos"
+    || path === "/admin/api/pedidos/stream";
+}
+
 function encerrarSessao(req, callback) {
   markSessionEnding(req, "unknown");
   appState.closeSseConnectionsForSession(req.sessionID);
@@ -43,7 +50,8 @@ function encerrarSessao(req, callback) {
 }
 
 function negarAutenticacao(req, res) {
-  appLogger.warn("access_blocked", {
+  const passivePanelRequest = requisicaoPassivaDoPainel(req);
+  const logDetails = {
     correlationId: req.correlationId,
     code: "SESSION_INVALID",
     method: req.method,
@@ -54,7 +62,14 @@ function negarAutenticacao(req, res) {
     tenantPresent: Boolean(
       req.session?.user?.estabelecimentoId || req.session?.user?.id,
     ),
-  });
+  };
+  if (passivePanelRequest) {
+    // Polling/SSE pode encostar no logout ou na expiração natural da sessão.
+    // O acesso continua bloqueado com 401, mas não é incidente operacional.
+    appLogger.info("session_expired_passive_request", logDetails);
+  } else {
+    appLogger.warn("access_blocked", logDetails);
+  }
   return encerrarSessao(req, error => {
     clearSessionCookie(res, process.env.NODE_ENV === "production");
     if (error) {
