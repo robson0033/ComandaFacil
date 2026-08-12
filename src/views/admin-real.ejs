@@ -10960,10 +10960,7 @@ function atualizarStatusAgente({
     const mesaSemPedidos =
       button.matches('[data-print-mesa]') &&
       Number(button.dataset.mesaPedidos || 0) <= 0;
-    button.disabled =
-      !online ||
-      printBusy ||
-      mesaSemPedidos;
+    button.disabled = !online || printBusy || mesaSemPedidos;
   });
 
   if (online) {
@@ -12912,16 +12909,11 @@ if (podeReceberNotificacoes) {
           mesaId
         );
 
-      const pedidoIds =
-        Array.isArray(
-          resumo?.pedidoIds
-        )
-          ? resumo.pedidoIds.filter(
-              Boolean
-            )
-          : [];
+      const quantidade = Number(
+        resumo?.quantidadePedidos || 0
+      );
 
-      if (!pedidoIds.length) {
+      if (quantidade <= 0) {
         window.alert(
           'Esta mesa não possui pedidos em aberto para imprimir.'
         );
@@ -12940,15 +12932,27 @@ if (podeReceberNotificacoes) {
         resumo?.numero ||
         button
           .closest(
-            '[data-mesa-card]'
+            '[data-mesa-card], [data-mesa-open-card]'
           )
           ?.dataset.mesaNumero ||
         '';
 
+      const totalCentavos = Math.max(
+        0,
+        Number(resumo?.totalCentavos || 0)
+      );
+      const totalTexto =
+        (totalCentavos / 100)
+          .toLocaleString('pt-BR', {
+            style: 'currency',
+            currency: 'BRL'
+          });
+
       const confirmado =
         window.confirm(
-          `Imprimir ${pedidoIds.length} pedido(s) em aberto da Mesa ${numeroMesa}?`
-          + '\n\nOs pedidos serão enviados para as impressoras manuais configuradas.'
+          `Imprimir UMA ÚNICA comanda da Mesa ${numeroMesa} com ${quantidade} pedido(s)?`
+          + `\nTotal da comanda: ${totalTexto}`
+          + '\n\nTodos os itens sairão juntos no mesmo papel em cada impressora de Mesa configurada.'
         );
 
       if (!confirmado) {
@@ -12962,91 +12966,71 @@ if (podeReceberNotificacoes) {
         'true';
       button.disabled = true;
       button.textContent =
-        `Enfileirando 0/${pedidoIds.length}...`;
-
-      let sucessos = 0;
-      const falhas = [];
+        'Enfileirando comanda...';
 
       try {
-        for (
-          let indice = 0;
-          indice < pedidoIds.length;
-          indice += 1
-        ) {
-          const pedidoId =
-            pedidoIds[indice];
-
-          button.textContent =
-            `Enfileirando ${indice + 1}/${pedidoIds.length}...`;
-
-          try {
-            await imprimirPedido(
-              pedidoId,
-              {
-                confirmReprint: true
-              }
-            );
-
-            sucessos += 1;
-          } catch (error) {
-            falhas.push(
-              error?.message ||
-              `Pedido ${indice + 1}`
-            );
-          }
-        }
-
-        if (
-          sucessos ===
-          pedidoIds.length
-        ) {
-          button.textContent =
-            `🖨 ${sucessos} pedido(s) na fila`;
-
-          window.setTimeout(
-            () => {
-              if (
-                button.dataset.printBusy !==
-                'true'
-              ) {
-                button.textContent =
-                  textoOriginal;
-              }
+        const response = await adminFetch(
+          `/admin/agente/mesas/${encodeURIComponent(mesaId)}/imprimir-comanda`,
+          {
+            method: 'POST',
+            skipAdminLoading: true,
+            headers: {
+              'Content-Type':
+                'application/json'
             },
-            3000
-          );
-        } else {
-          window.alert(
-            `${sucessos} de ${pedidoIds.length} pedido(s) foram enviados para impressão.`
-            + (
-              falhas.length
-                ? `\n\nNão enviados:\n- ${falhas.join('\n- ')}`
-                : ''
-            )
+            body: JSON.stringify({
+              confirmReprint: true
+            })
+          }
+        );
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.message ||
+            'Não foi possível imprimir a comanda da mesa.'
           );
         }
+
+        button.textContent =
+          result.status === 'aguardando_agente'
+            ? '🖨 Comanda aguardando agente'
+            : '🖨 Comanda na fila';
+
+        window.setTimeout(
+          () => {
+            if (
+              button.dataset.printBusy !==
+              'true'
+            ) {
+              button.textContent =
+                textoOriginal;
+            }
+          },
+          3000
+        );
+      } catch (error) {
+        window.alert(
+          error?.message ||
+          'Não foi possível imprimir a comanda da mesa.'
+        );
+        button.textContent =
+          textoOriginal;
       } finally {
         delete button.dataset.printBusy;
 
-        const quantidade =
+        const quantidadeAtual =
           Number(
             resumoMesasPorId
               .get(mesaId)
               ?.quantidadePedidos ||
-            pedidoIds.length
+            quantidade
           );
 
         button.disabled =
           !printAgentConectado ||
-          quantidade <= 0;
-
-        if (
-          sucessos !==
-          pedidoIds.length
-        ) {
-          button.textContent =
-            textoOriginal;
-        }
+          quantidadeAtual <= 0;
       }
     }
 

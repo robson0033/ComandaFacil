@@ -113,6 +113,9 @@ const {
   montarComandasMesaAbertas,
 } = require("../services/mesaComandaPainelService");
 const {
+  montarPedidoComandaMesaParaImpressao,
+} = require("../services/mesaComandaImpressaoService");
+const {
   montarPizzaMeioAMeio,
   normalizarIdsSabores,
   resolverTamanhoEPrecoPizza,
@@ -9344,9 +9347,12 @@ exports.imprimirPedidoRemoto = async (req, res) => {
     )];
     const jobsExistentes = await PrintJob.find({
       estabelecimentoId: lojaId,
-      pedidoId: pedido._id,
       impressoraChave: { $in: impressoraChaves },
       status: { $in: BLOCKING_PRINT_STATUSES },
+      $or: [
+        { pedidoId: pedido._id },
+        { "pedido.comandaPedidoIds": String(pedido._id) },
+      ],
     })
       .sort({ createdAt: -1 })
       .limit(Math.max(50, impressoraChaves.length * 20))
@@ -9409,6 +9415,186 @@ exports.imprimirPedidoRemoto = async (req, res) => {
     });
   } catch (error) {
     return res.status(503).json({ success: false, message: error.message });
+  } finally {
+    manualPrintRequestsInFlight.delete(requestLockKey);
+  }
+};
+
+exports.imprimirComandaMesaRemota = async (req, res) => {
+  const lojaId = String(estabelecimentoId(req));
+  const mesaId = String(req.params.id || "");
+
+  if (!mongoose.isValidObjectId(mesaId)) {
+    return res.status(400).json({
+      success: false,
+      code: "MESA_ID_INVALIDO",
+      message: "Mesa inválida.",
+    });
+  }
+
+  const requestLockKey = `mesa:${lojaId}:${mesaId}`;
+
+  if (manualPrintRequestsInFlight.has(requestLockKey)) {
+    return res.status(409).json({
+      success: false,
+      code: "PRINT_REQUEST_IN_PROGRESS",
+      message: "Já existe uma solicitação de impressão desta comanda em andamento.",
+    });
+  }
+
+  manualPrintRequestsInFlight.add(requestLockKey);
+
+  try {
+    const [mesa, pedidos, configuracao, dono] = await Promise.all([
+      Mesa.findOne({
+        _id: mesaId,
+        estabelecimentoId: lojaId,
+      }).select("_id numero setor status").lean(),
+      Pedido.find({
+        estabelecimentoId: lojaId,
+        canal: "mesa",
+        mesaId,
+        excluido: { $ne: true },
+        pagamentoStatus: "pendente",
+        status: { $ne: "cancelado" },
+      }).sort({ createdAt: 1, _id: 1 }).lean(),
+      Configuracao.findOne({ estabelecimentoId: lojaId }).lean(),
+      registroModel.findById(lojaId).select("cpfCnpj").lean(),
+    ]);
+
+    if (!mesa) {
+      return res.status(404).json({
+        success: false,
+        message: "Mesa não encontrada.",
+      });
+    }
+
+    if (!pedidos.length) {
+      return res.status(409).json({
+        success: false,
+        code: "MESA_SEM_PEDIDOS_ABERTOS",
+        message: "Esta mesa não possui pedidos em aberto para imprimir.",
+      });
+    }
+
+    const pixPendente = pedidos.find(pedido =>
+      ["pix", "pix_online"].includes(String(pedido.formaPagamento || "").toLowerCase())
+      && String(pedido.pagamentoStatus || "pendente") !== "pago");
+    if (pixPendente) {
+      return res.status(409).json({
+        success: false,
+        code: "PIX_PAYMENT_REQUIRED_FOR_PRINT",
+        message: `A comanda contém o pedido #${String(pixPendente.codigoPublico || pixPendente._id).slice(-8).toUpperCase()} com Pix aguardando confirmação.`,
+      });
+    }
+
+    const pedidoComanda = montarPedidoComandaMesaParaImpressao({
+      pedidos,
+      mesa,
+      estabelecimentoId: lojaId,
+    });
+
+    const impressorasManuais = (configuracao?.impressoras || []).filter(item =>
+      ["manual", "manual_automatica"].includes(item.modo));
+    if (!impressorasManuais.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Nenhuma impressora manual está configurada.",
+      });
+    }
+
+    const impressoras = impressorasManuais.filter(item =>
+      printQueueService.impressoraAceitaPedido(item, pedidoComanda));
+    if (!impressoras.length) {
+      return res.status(400).json({
+        success: false,
+        code: "NO_PRINTER_FOR_ORDER_ORIGIN",
+        message: "Nenhuma impressora manual está configurada para pedidos de Mesa.",
+      });
+    }
+
+    const impressoraChaves = [...new Set(
+      impressoras.map(item => printQueueService.calcularImpressoraChave(item)),
+    )];
+
+    const jobsExistentes = await PrintJob.find({
+      estabelecimentoId: lojaId,
+      impressoraChave: { $in: impressoraChaves },
+      status: { $in: BLOCKING_PRINT_STATUSES },
+      "pedido.documentoTipo": "comanda_mesa",
+      "pedido.comandaChave": pedidoComanda.comandaChave,
+    })
+      .sort({ createdAt: -1 })
+      .limit(Math.max(50, impressoraChaves.length * 20))
+      .select("jobId tipo status createdAt concluidoEm impressoraChave")
+      .lean();
+
+    const confirmReprint = req.body?.confirmReprint === true;
+    const decision = evaluateManualPrintRequest({
+      jobs: jobsExistentes,
+      confirmReprint,
+      now: Date.now(),
+      cooldownMs: MANUAL_PRINT_COOLDOWN_MS,
+    });
+
+    if (decision.action === "confirm_reprint") {
+      const latestAt = decision.latestJob?.concluidoEm || decision.latestJob?.createdAt || null;
+      return res.status(409).json({
+        success: false,
+        code: "PRINT_REPRINT_CONFIRMATION_REQUIRED",
+        message: latestAt
+          ? `Esta mesma versão da comanda já foi impressa em ${new Date(latestAt).toLocaleString("pt-BR")}. Deseja imprimir outra via?`
+          : "Esta mesma versão da comanda já possui uma impressão registrada. Deseja imprimir outra via?",
+        latestJobId: decision.latestJob?.jobId || "",
+        latestStatus: decision.latestJob?.status || "",
+        latestPrintedAt: latestAt,
+      });
+    }
+
+    if (decision.action === "too_recent") {
+      return res.status(409).json({
+        success: false,
+        code: "PRINT_REPRINT_TOO_SOON",
+        message: `A comanda acabou de ser enviada para impressão. Aguarde ${decision.retryAfterSeconds} segundo(s) antes de pedir outra via.`,
+        retryAfterSeconds: decision.retryAfterSeconds,
+        latestJobId: decision.latestJob?.jobId || "",
+      });
+    }
+
+    const jobs = [];
+    for (const impressora of impressoras) {
+      jobs.push(await printQueueService.criarJobManual({
+        pedido: pedidoComanda,
+        impressora,
+        configuracao,
+        dono,
+      }));
+    }
+
+    const agentOnline = printAgentHub.isOnline(lojaId);
+    const totalCentavos = Math.round(Number(pedidoComanda.total || 0) * 100);
+    return res.status(202).json({
+      success: true,
+      status: agentOnline ? "pendente" : "aguardando_agente",
+      jobId: jobs[0].jobId,
+      jobIds: jobs.map(job => job.jobId),
+      documentoTipo: "comanda_mesa",
+      mesaId: String(mesa._id),
+      mesaNumero: mesa.numero,
+      quantidadePedidos: pedidos.length,
+      totalCentavos,
+      reprint: confirmReprint,
+      message: agentOnline
+        ? `Comanda da Mesa ${mesa.numero} adicionada à fila em uma única impressão por impressora.`
+        : `Comanda da Mesa ${mesa.numero} aguardando o agente reconectar.`,
+    });
+  } catch (error) {
+    appLogger.error("Erro ao imprimir comanda única da mesa:", error);
+    return res.status(error?.statusCode || 503).json({
+      success: false,
+      code: error?.code || "PRINT_TABLE_TAB_FAILED",
+      message: error?.message || "Não foi possível imprimir a comanda da mesa.",
+    });
   } finally {
     manualPrintRequestsInFlight.delete(requestLockKey);
   }

@@ -340,6 +340,13 @@ async function montarSnapshotValidado({
     pedido: {
       id: String(pedido._id),
       numero: text(pedido.codigoPublico, 8),
+      documentoTipo: text(pedido.documentoTipo, 40),
+      comandaMesaId: text(pedido.comandaMesaId, 80),
+      comandaChave: text(pedido.comandaChave, 128),
+      comandaQuantidadePedidos: Math.max(0, Math.trunc(number(pedido.comandaQuantidadePedidos))),
+      comandaPedidoIds: Array.isArray(pedido.comandaPedidoIds)
+        ? pedido.comandaPedidoIds.slice(0, 100).map(id => text(id, 80)).filter(Boolean)
+        : [],
       origem,
       canal: text(pedido.canal || "retirada", 30),
       mesaNumero,
