@@ -4,6 +4,10 @@ const mongoose = require("mongoose");
 const { Pedido, PrintJob, OrderPaymentAttempt } = require("../models/painelModels");
 const { restaurarEstoqueDoPedido } = require("./estoqueService");
 const { registrarAuditoria } = require("./auditoriaService");
+const {
+  ORDER_PIX_EXPIRATION_MS,
+  effectiveAttemptExpiration,
+} = require("./pedidoPixExpirationService");
 
 const ESTADOS_ESTOQUE_BLOQUEADOS = new Set([
   "preparando",
@@ -31,26 +35,37 @@ const ESTADOS_PIX_ARQUIVAMENTO_BLOQUEADOS = [
   "pending",
   "in_process",
   "authorized",
+  "expiration_pending",
 ];
 
-function tentativaPixExigeBloqueio(tentativa) {
+function tentativaPixExigeBloqueio(tentativa, agora = new Date()) {
   if (!tentativa) return false;
   const status = String(tentativa.status || "").trim().toLowerCase();
   const reconciliacao = String(tentativa.reconciliationStatus || "").trim().toLowerCase();
-  return ESTADOS_PIX_ARQUIVAMENTO_BLOQUEADOS.includes(status)
+  const expiraEm = effectiveAttemptExpiration(tentativa);
+  const tentativaAtivaNoPrazo = status === "expiration_pending"
+    || (ESTADOS_PIX_ARQUIVAMENTO_BLOQUEADOS.includes(status)
+      && (!expiraEm || expiraEm.getTime() > agora.getTime()));
+  return tentativaAtivaNoPrazo
     || reconciliacao === "reconciliation_required"
     || (status === "approved" && reconciliacao !== "processed");
 }
 
-async function buscarTentativaPixBloqueadora({ pedido, session }) {
+async function buscarTentativaPixBloqueadora({ pedido, session, agora = new Date() }) {
+  const recenteDepoisDe = new Date(agora.getTime() - ORDER_PIX_EXPIRATION_MS);
   return OrderPaymentAttempt.findOne(
     {
       estabelecimentoId: pedido.estabelecimentoId,
       pedidoId: pedido._id,
       paymentMethod: "pix",
       $or: [
-        { status: { $in: ESTADOS_PIX_ARQUIVAMENTO_BLOQUEADOS } },
-        { reconciliationStatus: "reconciliation_required" },
+        {
+          status: { $in: ["creating", "pending", "in_process", "authorized"] },
+          expiresAt: { $gt: agora },
+          createdAt: { $gt: recenteDepoisDe },
+        },
+        { status: "expiration_pending" },
+        { reconciliationStatus: { $in: ["expiration_pending", "reconciliation_required"] } },
         { status: "approved", reconciliationStatus: { $ne: "processed" } },
       ],
     },
@@ -62,6 +77,12 @@ async function buscarTentativaPixBloqueadora({ pedido, session }) {
 function erroTentativaPixAtiva(tentativa) {
   const status = String(tentativa?.status || "").trim().toLowerCase();
   const reconciliacao = String(tentativa?.reconciliationStatus || "").trim().toLowerCase();
+  if (status === "expiration_pending" || reconciliacao === "expiration_pending") {
+    return erroArquivamento(
+      "PIX_EXPIRACAO_PENDENTE",
+      "O prazo do Pix terminou, mas o cancelamento ainda está sendo confirmado no Mercado Pago. Aguarde a confirmação antes de arquivar.",
+    );
+  }
   if (status === "approved" || reconciliacao === "reconciliation_required") {
     return erroArquivamento(
       "PIX_RECONCILIACAO_NECESSARIA",
@@ -122,19 +143,25 @@ function validarPedidoParaArquivamento(pedido, usuario, agora = new Date()) {
   }
 
   const possuiHistorico = (pedido.historicoFinanceiro || []).length > 0;
-  const possuiPagamento = Boolean(pedido.mercadoPagoPaymentId)
-    || pedido.pagamentoStatus === "pago";
+  const pixExpiradoSemAprovacao = pedido.pagamentoStatus === "expirado"
+    && String(pedido.mercadoPagoStatus || "").toLowerCase() !== "approved"
+    && pedido.pagamentoInconsistente !== true;
+  const possuiPagamento = pedido.pagamentoStatus === "pago"
+    || (Boolean(pedido.mercadoPagoPaymentId) && !pixExpiradoSemAprovacao);
   if (
     possuiPagamento
     && pedido.status !== "cancelado"
     && pedido.pagamentoStatus !== "cancelado"
+    && pedido.pagamentoStatus !== "expirado"
   ) {
     throw erroArquivamento(
       "PAGAMENTO_ATIVO",
       "Cancele ou reembolse o pagamento antes de arquivar o pedido.",
     );
   }
-  if (usuario.tipo !== "proprietario" && (possuiPagamento || possuiHistorico)) {
+  if (usuario.tipo !== "proprietario"
+    && (possuiPagamento || possuiHistorico)
+    && !pixExpiradoSemAprovacao) {
     throw erroArquivamento(
       "ARQUIVAMENTO_EXCLUSIVO_PROPRIETARIO",
       "Somente o proprietário pode arquivar pedidos com histórico financeiro.",

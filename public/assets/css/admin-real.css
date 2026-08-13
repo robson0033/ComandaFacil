@@ -643,6 +643,29 @@
   min-width: 135px;
 }
 
+.order-payment-method-form {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 2px;
+}
+
+.order-payment-method-form label {
+  color: var(--cinza-600);
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.order-payment-method-form select {
+  min-width: 150px;
+}
+
+.order-payment-method-form .mini-button {
+  white-space: nowrap;
+}
+
 @media (max-width: 700px) {
   .order-card-header,
   .order-footer {
@@ -650,17 +673,29 @@
   }
 
   .order-actions,
-  .order-status-form {
+  .order-status-form,
+  .order-payment-method-form {
     width: 100%;
   }
 
-  .order-status-form {
+  .order-status-form,
+  .order-payment-method-form {
     display: grid;
     grid-template-columns: 1fr;
   }
 
+  .order-payment-method-form label {
+    white-space: normal;
+  }
+
+  .order-payment-method-form select {
+    width: 100%;
+    min-width: 0;
+  }
+
   .order-actions .mini-button,
-  .order-status-form .mini-button {
+  .order-status-form .mini-button,
+  .order-payment-method-form .mini-button {
     width: 100%;
   }
 }
@@ -2507,3 +2542,434 @@
         grid-template-columns: 1fr;
       }
     }
+
+
+/* =========================================================
+   PEDIDOS — CARDS OPERACIONAIS COMPACTOS V3
+   Alteracao somente visual: preserva formularios, rotas e JS.
+   ========================================================= */
+.orders-grid {
+  gap: 12px;
+}
+
+.order-card {
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid #e6ddd8;
+  border-left: 5px solid #cfc4bd;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 5px 16px rgba(63, 30, 13, .065);
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+
+.order-card:hover {
+  border-color: #ddcec5;
+  box-shadow: 0 9px 24px rgba(63, 30, 13, .09);
+  transform: translateY(-1px);
+}
+
+.order-card[data-order-channel="mesa"] {
+  border-left-color: #4f8edc;
+}
+
+.order-card[data-order-channel="delivery"] {
+  border-left-color: #f2a124;
+}
+
+.order-card[data-order-channel="retirada"],
+.order-card[data-order-channel="balcao"] {
+  border-left-color: #39a56a;
+}
+
+.order-card-header {
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  border-bottom: 1px solid #ece4df;
+  background: linear-gradient(90deg, #fff 0%, #fdfaf8 100%);
+}
+
+.order-card-header > div:last-child {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.order-card-header > div:last-child .status:first-child::before {
+  content: "Pedido · ";
+  opacity: .72;
+  font-weight: 800;
+}
+
+.order-card-header [data-payment-status-badge]::before {
+  content: "Pgto · ";
+  opacity: .72;
+  font-weight: 800;
+}
+
+.order-number {
+  gap: 10px;
+  min-width: 0;
+}
+
+.order-icon {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 12px;
+  font-size: 19px;
+  box-shadow: 0 5px 12px rgba(198, 40, 40, .16);
+}
+
+.order-number h3 {
+  font-size: 16px;
+  line-height: 1.15;
+  letter-spacing: -.15px;
+}
+
+.order-number p {
+  margin-top: 3px;
+  font-size: 11px;
+}
+
+.order-origin {
+  margin-top: 5px;
+  padding: 5px 8px;
+  gap: 5px;
+  font-size: 10.5px;
+  line-height: 1;
+}
+
+.order-card .status {
+  padding: 5px 8px;
+  font-size: 10.5px;
+  border: 1px solid rgba(0, 0, 0, .035);
+}
+
+.order-client-data {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px 14px;
+  margin: 0;
+  padding: 9px 14px 10px;
+  border-bottom: 1px solid #eee7e2;
+  background: #fff;
+  color: var(--cinza-700);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+.order-client-data > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.order-client-data strong {
+  color: #4a3931;
+  font-weight: 900;
+}
+
+.order-client-data .delivery-address {
+  grid-column: 1 / -1;
+  margin-top: 1px;
+  padding-top: 6px;
+  border-top: 1px dashed #e9dfd9;
+}
+
+.order-payment-method-form {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(170px, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  margin: 2px 0 0;
+  padding: 7px 8px;
+  border: 1px solid #f0dfd3;
+  border-radius: 10px;
+  background: #fff9f4;
+}
+
+.order-payment-method-form label {
+  color: #72594c;
+  font-size: 10.5px;
+}
+
+.order-payment-method-form select,
+.order-payment-method-form input,
+.order-status-form select {
+  min-height: 36px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  border-radius: 9px;
+  font-size: 12px;
+}
+
+.order-payment-method-form .order-payment-split {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.order-items {
+  gap: 5px;
+  margin: 0;
+  padding: 8px 14px;
+  background: #fdfcfb;
+}
+
+.order-item {
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid #f0ebe7;
+  border-radius: 9px;
+  background: #fff;
+  line-height: 1.3;
+}
+
+.order-item-quantity {
+  min-width: 28px;
+  font-size: 12px;
+}
+
+.order-item-name,
+.order-item-price {
+  font-size: 12.5px;
+}
+
+.order-item-addons,
+.order-item-note {
+  color: var(--cinza-600);
+  font-size: 11px;
+}
+
+.order-observation {
+  margin: 0 14px 8px;
+  padding: 8px 10px;
+  border: 1px solid #f4dfb4;
+  border-left: 3px solid #eeb647;
+  border-radius: 9px;
+  background: #fffaf0;
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+.order-footer {
+  display: grid;
+  grid-template-columns: minmax(165px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 9px 14px 10px;
+  border-top: 1px solid #e9e1dc;
+  background: #faf8f6;
+}
+
+.order-total {
+  min-width: 165px;
+  padding: 7px 10px;
+  border: 1px solid #cfe8da;
+  border-radius: 11px;
+  background: #f2fbf6;
+}
+
+.order-total span {
+  font-size: 10.5px;
+}
+
+.order-total strong {
+  margin-top: 1px;
+  font-size: 19px;
+  line-height: 1.15;
+}
+
+.order-total-breakdown {
+  gap: 2px;
+  margin-bottom: 5px;
+}
+
+.order-total-breakdown span {
+  font-size: 10px;
+}
+
+.order-actions {
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+
+.order-status-form {
+  align-items: center;
+  gap: 6px;
+}
+
+.order-status-form select {
+  min-width: 120px;
+}
+
+.order-actions .mini-button,
+.order-status-form .mini-button,
+.order-payment-method-form .mini-button,
+.whatsapp-order-button,
+.delete-order-button,
+.print-order-button {
+  min-height: 36px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  font-size: 11.5px;
+  line-height: 1.1;
+}
+
+@media (max-width: 1100px) {
+  .order-client-data {
+grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .order-card {
+border-left-width: 4px;
+  }
+
+  .order-client-data {
+grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .order-footer {
+grid-template-columns: 1fr;
+  }
+
+  .order-total {
+width: 100%;
+display: grid;
+grid-template-columns: minmax(0, 1fr) auto;
+align-items: end;
+gap: 8px 14px;
+  }
+
+  .order-total-breakdown {
+grid-column: 1 / -1;
+  }
+
+  .order-total strong {
+text-align: right;
+  }
+
+  .order-actions {
+justify-content: flex-start;
+  }
+}
+
+@media (max-width: 700px) {
+  .order-card {
+border-radius: 14px;
+  }
+
+  .order-card-header {
+flex-direction: row;
+align-items: flex-start;
+padding: 10px 11px;
+  }
+
+  .order-card-header > div:last-child {
+max-width: 46%;
+  }
+
+  .order-client-data {
+grid-template-columns: 1fr 1fr;
+gap: 6px 10px;
+padding: 9px 11px;
+  }
+
+  .order-payment-method-form {
+grid-template-columns: 1fr;
+  }
+
+  .order-payment-method-form label {
+white-space: normal;
+  }
+
+  .order-items {
+padding: 7px 11px;
+  }
+
+  .order-observation {
+margin-right: 11px;
+margin-left: 11px;
+  }
+
+  .order-footer {
+padding: 9px 11px 11px;
+  }
+
+  .order-actions {
+display: grid;
+grid-template-columns: repeat(2, minmax(0, 1fr));
+width: 100%;
+  }
+
+  .order-actions > form,
+  .order-actions > a,
+  .order-actions > button {
+width: 100%;
+margin: 0;
+  }
+
+  .order-status-form {
+grid-column: 1 / -1;
+display: grid;
+grid-template-columns: minmax(0, 1fr) auto;
+width: 100%;
+  }
+
+  .order-actions .mini-button,
+  .order-status-form .mini-button,
+  .whatsapp-order-button,
+  .delete-order-button,
+  .print-order-button {
+width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .order-card-header {
+gap: 8px;
+  }
+
+  .order-icon {
+width: 38px;
+height: 38px;
+flex-basis: 38px;
+font-size: 17px;
+  }
+
+  .order-number h3 {
+font-size: 14px;
+  }
+
+  .order-card-header > div:last-child {
+max-width: 48%;
+gap: 4px;
+  }
+
+  .order-card .status {
+padding: 4px 6px;
+font-size: 9.5px;
+  }
+
+  .order-client-data {
+grid-template-columns: 1fr;
+  }
+
+  .order-actions {
+grid-template-columns: 1fr;
+  }
+
+  .order-status-form {
+grid-template-columns: 1fr;
+  }
+}
+

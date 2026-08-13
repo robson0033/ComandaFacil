@@ -36,6 +36,7 @@ const appState = require("./src/runtime/appState");
 const { safeFlash } = require("./src/utils/safeFlash");
 const printAgentHub = require("./src/services/printAgentHub");
 const printQueueService = require("./src/services/printQueueService");
+const pagamentoController = require("./src/controllers/pagamentoController");
 const {
   createPrintQueueAlertMonitor,
 } = require("./src/services/printQueueAlertMonitor");
@@ -79,7 +80,16 @@ function configureApplication(app, {
     limit: "64kb",
     parameterLimit: 200,
   }));
-  app.use(express.json({ limit: "128kb", strict: true }));
+  app.use(express.json({
+    limit: "128kb",
+    strict: true,
+    verify: (req, res, buffer) => {
+      const requestPath = String(req.originalUrl || req.url || "").split("?")[0];
+      if (requestPath === "/webhook/whatsapp") {
+        req.rawBody = Buffer.from(buffer);
+      }
+    },
+  }));
   app.set("views", path.resolve(__dirname, "src", "views"));
   app.set("view engine", "ejs");
   app.use("/uploads", (req, res, next) => {
@@ -181,6 +191,10 @@ function createShutdown(runtime, {
         clearInterval(runtime.reconcileTimer);
         runtime.reconcileTimer = null;
       }
+      if (runtime.pixExpirationTimer) {
+        clearInterval(runtime.pixExpirationTimer);
+        runtime.pixExpirationTimer = null;
+      }
       runtime.queueAlertMonitor?.stop();
       state.closeSseConnections();
 
@@ -246,6 +260,7 @@ async function boot({
     io: null,
     sessionStore: null,
     reconcileTimer: null,
+    pixExpirationTimer: null,
     queueAlertMonitor: null,
     shutdown: null,
   };
@@ -295,6 +310,7 @@ async function boot({
     await printQueueService.reconciliarPedidosSemJob();
     await printQueueService.reconciliarJobsOrfaos();
     await printQueueService.recuperarLeasesExpirados();
+    await pagamentoController.reconciliarPixPedidosExpirados({ limit: 200 });
     runtime.queueAlertMonitor = createPrintQueueAlertMonitor({
       env,
       isAgentOnline: estabelecimentoId => printAgentHub.isOnline(estabelecimentoId),
@@ -310,6 +326,11 @@ async function boot({
         logger.error(`Erro no reconciliador: ${sanitizeFatal(error)}`));
     }, 5 * 60 * 1000);
     runtime.reconcileTimer.unref?.();
+    runtime.pixExpirationTimer = setInterval(() => {
+      void pagamentoController.reconciliarPixPedidosExpirados({ limit: 200 })
+        .catch(error => logger.error(`Erro ao expirar Pix de pedidos: ${sanitizeFatal(error)}`));
+    }, 30 * 1000);
+    runtime.pixExpirationTimer.unref?.();
     appState.setCheck("workersStarted", true);
 
     runtime.shutdown = createShutdown(runtime, {
@@ -338,6 +359,7 @@ async function boot({
   } catch (error) {
     appState.setState("failed");
     if (runtime.reconcileTimer) clearInterval(runtime.reconcileTimer);
+    if (runtime.pixExpirationTimer) clearInterval(runtime.pixExpirationTimer);
     runtime.queueAlertMonitor?.stop();
     try {
       await closeWithCallback(runtime.io, "close");

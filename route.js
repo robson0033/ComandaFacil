@@ -31,6 +31,10 @@ const pagamento = require(
   './src/controllers/pagamentoController'
 );
 
+const whatsapp = require(
+  './src/controllers/whatsappController'
+);
+
 
 const {
   loginRequired,
@@ -323,6 +327,21 @@ route.post(
   pagamento.webhook
 );
 
+// WhatsApp Cloud API: endpoint público usado pela Meta para verificar o
+// callback (GET) e entregar mensagens/status (POST). Não recebe CSRF nem
+// exige sessão; a autenticidade do POST é validada por X-Hub-Signature-256.
+route.get(
+  '/webhook/whatsapp',
+  limiteWebhook,
+  whatsapp.verificarWebhook
+);
+
+route.post(
+  '/webhook/whatsapp',
+  limiteWebhook,
+  whatsapp.receberWebhook
+);
+
 /*
 |--------------------------------------------------------------------------
 | PAINEL ADMINISTRATIVO
@@ -358,7 +377,7 @@ route.get(
   loginRequired,
   carregarAssinatura,
   assinaturaRequired,
-  permissao('mesas'),
+  permissaoQualquer('mesas', 'pedidos'),
   admin.resumoMesas
 );
 route.get('/admin/funcionarios', loginRequired, carregarAssinatura, assinaturaRequired, permissao('funcionarios'), redirectAdminSection('funcionarios'));
@@ -571,7 +590,7 @@ route.post(
   loginRequired,
   carregarAssinatura,
   assinaturaRequired,
-  permissao('mesas'),
+  permissaoQualquer('mesas', 'pedidos'),
   admin.solicitarContaMesa
 );
 
@@ -580,7 +599,7 @@ route.post(
   loginRequired,
   carregarAssinatura,
   assinaturaRequired,
-  permissao('mesas'),
+  permissaoQualquer('mesas', 'pedidos'),
   admin.pagarContaMesa
 );
 
@@ -682,6 +701,7 @@ route.post('/admin/agente/network/scan', loginRequired, carregarAssinatura, assi
 route.get('/admin/agente/impressoras', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.impressorasAgente);
 route.post('/admin/agente/teste', loginRequired, carregarAssinatura, assinaturaRequired, permissao('configurar_impressoras'), admin.testarImpressoraRemota);
 route.post('/admin/agente/pedidos/:id/imprimir', loginRequired, carregarAssinatura, assinaturaRequired, permissao('imprimir_pedidos'), admin.imprimirPedidoRemoto);
+route.post('/admin/agente/mesas/:id/imprimir-comanda', loginRequired, carregarAssinatura, assinaturaRequired, permissao('imprimir_pedidos'), admin.imprimirComandaMesaRemota);
 route.get('/admin/agente/jobs/:jobId', loginRequired, carregarAssinatura, assinaturaRequired, permissao('imprimir_pedidos'), admin.statusJobImpressao);
 route.post('/admin/agente/jobs/:jobId/retry', loginRequired, carregarAssinatura, assinaturaRequired, permissao('imprimir_pedidos'), admin.retryJobImpressao);
 route.post('/admin/agente/jobs/:jobId/reconcile', loginRequired, carregarAssinatura, assinaturaRequired, permissao('imprimir_pedidos'), admin.reconciliarJobImpressao);

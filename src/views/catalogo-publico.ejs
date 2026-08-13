@@ -2177,7 +2177,13 @@
         <img id="pixQrImage" alt="QR Code Pix" style="display:block;width:240px;max-width:100%;margin:12px auto">
         <textarea id="pixCopyCode" readonly style="width:100%;min-height:90px;padding:10px;border:1px solid #ddd;border-radius:10px"></textarea>
         <button type="button" class="send-order-btn" id="copyPixButton" style="margin-top:10px">Copiar código Pix</button>
+        <p id="pixExpirationInfo" style="margin:14px 0 6px;font-weight:800;color:#5a1e14">
+          QR Code válido por 10 minutos • expira em <strong id="pixCountdown">10:00</strong>
+        </p>
         <p id="pixPaymentStatus">Aguardando pagamento...</p>
+        <div id="pixExpiredNotice" hidden style="margin-top:12px;padding:12px;border-radius:12px;background:#fff0cf;color:#7a5200;font-weight:800">
+          ⏱️ Pagamento expirado. Este QR Code não pode mais ser usado. Se ainda quiser concluir a compra, faça um novo pedido.
+        </div>
       </section>
     </div>
   </div>
@@ -2465,6 +2471,7 @@
       document.querySelector("#closePixPaymentModal");
 
     let pixPollingTimer = null;
+    let pixExpirationTimer = null;
     let pixPollingStartedAt = 0;
     let pixPollingInFlight = false;
     let pixPollingContext = null;
@@ -4146,8 +4153,95 @@
       document.body.classList.add("modal-open");
     }
 
+    function clearPixExpirationTimer() {
+      if (pixExpirationTimer) clearInterval(pixExpirationTimer);
+      pixExpirationTimer = null;
+    }
+
+    function bloquearVisualPixAposPrazo() {
+      clearPixExpirationTimer();
+      const qr = document.querySelector("#pixQrImage");
+      const code = document.querySelector("#pixCopyCode");
+      const copyButton = document.querySelector("#copyPixButton");
+      const countdown = document.querySelector("#pixCountdown");
+      if (qr) { qr.removeAttribute("src"); qr.style.display = "none"; }
+      if (code) { code.value = ""; code.disabled = true; }
+      if (copyButton) copyButton.disabled = true;
+      if (countdown) countdown.textContent = "00:00";
+    }
+
+    function mostrarPixExpiracaoPendente() {
+      bloquearVisualPixAposPrazo();
+      const copyButton = document.querySelector("#copyPixButton");
+      const expirationInfo = document.querySelector("#pixExpirationInfo");
+      const notice = document.querySelector("#pixExpiredNotice");
+      if (copyButton) copyButton.textContent = "Prazo encerrado";
+      if (expirationInfo) expirationInfo.style.color = "#8a5a00";
+      if (notice) {
+        notice.hidden = false;
+        notice.textContent = "⏱️ O prazo de 10 minutos terminou. Estamos confirmando o cancelamento do Pix com o provedor.";
+      }
+      document.querySelector("#pixPaymentStatus").textContent = "Confirmando expiração do pagamento...";
+    }
+
+    function mostrarPixExpirado() {
+      bloquearVisualPixAposPrazo();
+      const copyButton = document.querySelector("#copyPixButton");
+      const expirationInfo = document.querySelector("#pixExpirationInfo");
+      const notice = document.querySelector("#pixExpiredNotice");
+      if (copyButton) copyButton.textContent = "Pix expirado";
+      if (expirationInfo) expirationInfo.style.color = "#a32121";
+      if (notice) {
+        notice.hidden = false;
+        notice.textContent = "⏱️ Pagamento expirado. O cancelamento foi confirmado e este QR Code não pode mais ser usado.";
+      }
+      document.querySelector("#pixPaymentStatus").textContent = "Pagamento expirado.";
+    }
+
+    function iniciarContagemPix(expiraEm) {
+      clearPixExpirationTimer();
+      const expirationTime = new Date(String(expiraEm || "")).getTime();
+      const countdown = document.querySelector("#pixCountdown");
+      if (!Number.isFinite(expirationTime)) {
+        if (countdown) countdown.textContent = "10:00";
+        return;
+      }
+      if (pixPollingContext) pixPollingContext.expiraEm = new Date(expirationTime).toISOString();
+      const atualizar = () => {
+        const restanteMs = expirationTime - Date.now();
+        if (restanteMs <= 0) {
+          mostrarPixExpiracaoPendente();
+          if (pixPollingContext && !pixPollingInFlight) void pollPixStatus();
+          return;
+        }
+        const segundos = Math.ceil(restanteMs / 1000);
+        const minutos = Math.floor(segundos / 60);
+        const resto = segundos % 60;
+        if (countdown) countdown.textContent = `${String(minutos).padStart(2, "0")}:${String(resto).padStart(2, "0")}`;
+      };
+      atualizar();
+      if (expirationTime > Date.now()) pixExpirationTimer = setInterval(atualizar, 1000);
+    }
+
+    function prepararVisualPixAtivo() {
+      const qr = document.querySelector("#pixQrImage");
+      const code = document.querySelector("#pixCopyCode");
+      const copyButton = document.querySelector("#copyPixButton");
+      const expirationInfo = document.querySelector("#pixExpirationInfo");
+      const notice = document.querySelector("#pixExpiredNotice");
+      if (qr) qr.style.display = "block";
+      if (code) code.disabled = false;
+      if (copyButton) { copyButton.disabled = false; copyButton.textContent = "Copiar código Pix"; }
+      if (expirationInfo) expirationInfo.style.color = "#5a1e14";
+      if (notice) {
+        notice.hidden = true;
+        notice.textContent = "";
+      }
+    }
+
     function closePixModal() {
       if (pixPollingTimer) clearTimeout(pixPollingTimer);
+      clearPixExpirationTimer();
       pixPollingTimer = null;
       pixPollingContext = null;
       pixPaymentModal.classList.remove("open");
@@ -4208,8 +4302,24 @@
           setTimeout(closePixModal, 700);
           return;
         }
-        if (["cancelado", "rejected", "cancelled", "canceled", "expired", "refunded", "charged_back"]
+        if (statusResult.pixExpiracaoPendente
+          || String(statusResult.pagamentoStatus || "").toLowerCase() === "expiracao_pendente") {
+          mostrarPixExpiracaoPendente();
+          schedulePixPolling(3000);
+          return;
+        }
+        if (statusResult.pixExpirado
+          || String(statusResult.pagamentoStatus || "").toLowerCase() === "expirado"
+          || ["expired", "cancelled", "canceled", "rejected"].includes(String(statusResult.status || "").toLowerCase())) {
+          mostrarPixExpirado();
+          if (pixPollingTimer) clearTimeout(pixPollingTimer);
+          pixPollingTimer = null;
+          pixPollingContext = null;
+          return;
+        }
+        if (["cancelado", "rejected", "cancelled", "canceled", "refunded", "charged_back"]
           .includes(String(statusResult.pagamentoStatus || statusResult.status || "").toLowerCase())) {
+          clearPixExpirationTimer();
           document.querySelector("#pixPaymentStatus").textContent = "Pagamento não aprovado.";
           if (pixPollingTimer) clearTimeout(pixPollingTimer);
           pixPollingTimer = null;
@@ -4524,6 +4634,17 @@
 
           const qr = document.querySelector("#pixQrImage");
           const code = document.querySelector("#pixCopyCode");
+          prepararVisualPixAtivo();
+          if (pixResult.expiracaoPendente) {
+            openPixPaymentModal();
+            mostrarPixExpiracaoPendente();
+            return;
+          }
+          if (pixResult.expirado) {
+            openPixPaymentModal();
+            mostrarPixExpirado();
+            return;
+          }
           qr.src = `data:image/png;base64,${pixResult.qrCodeBase64}`;
           code.value = pixResult.copiaCola || "";
           const valorPixTexto = currency(Number(pixResult.valorPix || 0));
@@ -4542,8 +4663,10 @@
           pixPollingStartedAt = Date.now();
           pixPollingContext = {
             token: result.acompanhamentoToken,
-            codigoPublico: result.codigoPublico || result.numeroPedido
+            codigoPublico: result.codigoPublico || result.numeroPedido,
+            expiraEm: pixResult.expiraEm || null
           };
+          iniciarContagemPix(pixResult.expiraEm);
           schedulePixPolling(2_000);
         }
 
@@ -4800,6 +4923,7 @@
   .customer-order-badge { padding:5px 8px; border-radius:999px; font-size:.72rem; font-weight:800; background:#efe7e2; }
   .customer-order-badge.pending { background:#fff0bf; color:#785300; }
   .customer-order-badge.paid { background:#dff6e6; color:#126330; }
+  .customer-order-badge.expired { background:#fde2e2; color:#a32121; }
   .customer-order-items { margin:10px 0; border-top:1px dashed #d9c9c0; border-bottom:1px dashed #d9c9c0; padding:8px 0; }
   .customer-order-item { display:grid; grid-template-columns:auto 1fr auto; gap:8px; padding:5px 0; align-items:start; }
   .customer-order-item strong { overflow-wrap:anywhere; }
@@ -5090,7 +5214,7 @@
     entregue: 'Entregue', finalizado: 'Finalizado', cancelado: 'Cancelado'
   }[status] || status || 'Não informado');
 
-  const paymentText = status => ({ pendente: 'Pendente', pago: 'Pago', cancelado: 'Cancelado' }[status] || status || 'Pendente');
+  const paymentText = status => ({ pendente: 'Pendente', pago: 'Pago', cancelado: 'Cancelado', expiracao_pendente: 'Expiração pendente', expirado: 'Pagamento expirado' }[status] || status || 'Pendente');
 
   window.registrarPedidoAcompanhamento = () => {
     document.querySelector('#openMyOrders').textContent = '📦 Consultar meus pedidos';
@@ -5188,7 +5312,11 @@
         statusText(order.status);
       const payment = card.querySelector('.payment-status');
       payment.classList.add(
-        order.pagamentoStatus === 'pago' ? 'paid' : 'pending'
+        order.pagamentoStatus === 'pago'
+          ? 'paid'
+          : order.pagamentoStatus === 'expirado'
+            ? 'expired'
+            : 'pending'
       );
       payment.textContent =
         `Pagamento: ${paymentText(order.pagamentoStatus)}`;

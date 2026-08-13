@@ -34,6 +34,23 @@ const {
   valorPixOnlinePedidoCentavos,
 } = require("../services/mesaPagamentoService");
 const { operationalAlerts } = require("../services/operationalAlertService");
+const {
+  ORDER_PIX_EXPIRATION_MINUTES,
+  ORDER_PIX_EXPIRATION_MS,
+  ORDER_PIX_ACTIVE_STATUSES,
+  ORDER_PIX_TERMINAL_UNPAID_STATUSES,
+  effectiveAttemptExpiration,
+  providerPixExpirationDate,
+  orderPixExpirationDate,
+  orderPixExpiredByClock,
+  orderPixApprovedAfterExpiration,
+  isRemoteTerminalUnpaidStatus,
+  markOrderPixExpirationPending,
+  markOrderPixExpired,
+  markMissingOrderAttemptPending,
+  findExpiredActiveAttempts,
+  findOrderForAttempt,
+} = require("../services/pedidoPixExpirationService");
 const { registroModel } = require("../models/registroModel");
 const {
   buildPlatformFeeSnapshot,
@@ -1507,12 +1524,14 @@ async function activeOrderPaymentAttempt({
     throw error;
   }
 
+  const now = new Date();
   const current = await OrderPaymentAttempt.findOne({
     estabelecimentoId: pedido.estabelecimentoId,
     pedidoId: pedido._id,
     paymentMethod: "pix",
-    status: { $in: ["creating", "pending", "in_process"] },
-    expiresAt: { $gt: new Date() },
+    status: { $in: ORDER_PIX_ACTIVE_STATUSES },
+    expiresAt: { $gt: now },
+    createdAt: { $gt: new Date(now.getTime() - ORDER_PIX_EXPIRATION_MS) },
     legacyReference: false,
   }).sort({ createdAt: -1 });
   if (current) {
@@ -1540,9 +1559,287 @@ async function activeOrderPaymentAttempt({
     status: "creating",
     paymentMethod: "pix",
     idempotencyKey: crypto.randomUUID(),
-    expiresAt: new Date(Date.now() + 30 * 60_000),
+    expiresAt: new Date(Date.now() + ORDER_PIX_EXPIRATION_MS),
     ...feeSnapshot,
   });
+}
+
+async function cancelarPixPendenteRemoto(paymentId, accessToken) {
+  const id = String(paymentId || "").trim();
+  if (!id || !accessToken) return null;
+  try {
+    return await mp(`/v1/payments/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify({ status: "cancelled" }),
+    }, accessToken);
+  } catch (error) {
+    // Não convertemos falha do provedor em expiração local definitiva. O worker
+    // manterá a tentativa em expiration_pending e fará novas consultas/cancelamentos.
+    appLogger.warn("order_pix_remote_expiration_cancel_failed", {
+      paymentIdSuffix: idSuffix(id),
+      providerCode: String(error?.code || "").slice(0, 80) || null,
+      errorName: String(error?.name || "Error").slice(0, 80),
+    });
+    return null;
+  }
+}
+
+async function registrarAprovacaoPixAposExpiracao({
+  pedido,
+  payment,
+  attempt,
+  correlationId = "",
+}) {
+  const now = new Date();
+  if (attempt) {
+    attempt.status = "approved";
+    attempt.lastCheckedAt = now;
+    attempt.reconciliationStatus = "reconciliation_required";
+    if (Number(attempt.platformFeeCents || 0) > 0) {
+      attempt.platformFeeStatus = "reconciliation_required";
+      attempt.platformFeeNetCents = 0;
+    }
+    await attempt.save();
+  }
+
+  if (!Array.isArray(pedido.historicoFinanceiro)) pedido.historicoFinanceiro = [];
+  const operationKey = `pix_aprovado_apos_expiracao:${String(payment.id || "")}`;
+  if (!pedido.historicoFinanceiro.some(item => String(item?.operationKey || "") === operationKey)) {
+    pedido.historicoFinanceiro.push({
+      paymentId: String(payment.id || ""),
+      status: "reconciliation_required:approved_after_expiration",
+      tipo: "pix_online_aprovado_apos_expiracao",
+      statusAnterior: String(pedido.pagamentoStatus || "pendente"),
+      statusNovo: "expirado",
+      formaPagamento: "pix_online",
+      pagamentos: [{
+        formaPagamento: "pix_online",
+        valorCentavos: Math.max(0, Math.round(Number(attempt?.expectedAmount || payment.transaction_amount || 0) * 100)),
+      }],
+      valor: Number(attempt?.expectedAmount || payment.transaction_amount || 0),
+      motivo: "Pagamento Pix aprovado depois do prazo de 10 minutos; conciliação manual necessária.",
+      operationKey,
+      registradoEm: now,
+    });
+  }
+  pedido.pagamentoStatus = "expirado";
+  pedido.mercadoPagoPaymentId = String(payment.id || pedido.mercadoPagoPaymentId || "");
+  pedido.mercadoPagoStatus = "approved";
+  pedido.pixExpiradoEm = pedido.pixExpiradoEm || now;
+  pedido.pagamentoInconsistente = true;
+  pedido.pagamentoInconsistencia = "Pagamento Pix aprovado após a expiração de 10 minutos. Conciliação manual necessária.";
+  if (Number(attempt?.platformFeeCents || 0) > 0) {
+    pedido.platformFeeStatus = "reconciliation_required";
+    pedido.platformFeeNetCents = 0;
+  }
+  await pedido.save();
+
+  const details = {
+    estabelecimentoIdSuffix: idSuffix(pedido.estabelecimentoId),
+    pedidoIdSuffix: idSuffix(pedido._id),
+    paymentIdSuffix: idSuffix(payment.id),
+    correlationId: String(correlationId || "").slice(0, 100) || null,
+  };
+  appLogger.error("mercado_pago_order_pix_approved_after_expiration", details);
+  operationalAlerts.trigger({
+    event: "mercado_pago_order_pix_approved_after_expiration",
+    key: `mercado_pago_order_pix_approved_after_expiration:${String(payment.id || "")}`,
+    severity: "critical",
+    details,
+  });
+  return { pedido, stateTransitionApplied: false, jobs: [] };
+}
+
+async function expirarPixPedidoSeNecessario({
+  pedido,
+  attempt = null,
+  accessToken = "",
+  now = new Date(),
+  correlationId = "",
+  consultarRemoto = true,
+}) {
+  if (!orderPixExpiredByClock(pedido, attempt, now)) {
+    return { expired: false, expirationPending: false, pedido, attempt };
+  }
+
+  const paymentId = String(attempt?.paymentId || pedido?.mercadoPagoPaymentId || "").trim();
+  const pendingReason = async (reason, remoteStatus = "") => {
+    const result = await markOrderPixExpirationPending({
+      pedido,
+      attempt,
+      now,
+      remoteStatus,
+      reason,
+    });
+    appLogger.warn("order_pix_expiration_pending_remote_confirmation", {
+      estabelecimentoIdSuffix: idSuffix(pedido?.estabelecimentoId),
+      pedidoIdSuffix: idSuffix(pedido?._id),
+      paymentIdSuffix: idSuffix(paymentId),
+      remoteStatus: String(remoteStatus || "").slice(0, 40) || null,
+      reason: String(reason || "").slice(0, 180),
+      correlationId: String(correlationId || "").slice(0, 100) || null,
+    });
+    return { expired: false, expirationPending: true, ...result };
+  };
+
+  // Sem paymentId ou credencial não há como provar que o QR remoto ficou inválido.
+  // O pedido permanece bloqueado para arquivamento e o worker tentará novamente.
+  if (!paymentId) {
+    return pendingReason("A tentativa atingiu o prazo sem paymentId confirmado pelo provedor.");
+  }
+  if (!consultarRemoto || !accessToken) {
+    return pendingReason("Não há credencial disponível para confirmar a expiração no Mercado Pago.");
+  }
+
+  let remotePayment = null;
+  try {
+    remotePayment = await mp(`/v1/payments/${encodeURIComponent(paymentId)}`, {}, accessToken);
+  } catch (error) {
+    appLogger.warn("order_pix_expiration_status_lookup_failed", {
+      paymentIdSuffix: idSuffix(paymentId),
+      providerCode: String(error?.code || "").slice(0, 80) || null,
+      errorName: String(error?.name || "Error").slice(0, 80),
+    });
+    return pendingReason("Falha ao consultar o status remoto antes de expirar o Pix.");
+  }
+
+  let remoteStatus = String(remotePayment?.status || "").trim().toLowerCase();
+
+  if (remoteStatus === "approved") {
+    const result = await applyOrderPayment(
+      pedido,
+      remotePayment,
+      attempt,
+      "expiration_reconciliation",
+      correlationId,
+    );
+    return {
+      expired: String(result?.pagamentoStatus || "") === "expirado",
+      expirationPending: String(result?.pagamentoStatus || "") === "expiracao_pendente",
+      approved: String(result?.pagamentoStatus || "") === "pago",
+      pedido: result,
+      attempt,
+    };
+  }
+
+  if (isRemoteTerminalUnpaidStatus(remoteStatus)) {
+    const result = await markOrderPixExpired({ pedido, attempt, now, remoteStatus });
+    appLogger.info("order_pix_expired", {
+      estabelecimentoIdSuffix: idSuffix(pedido.estabelecimentoId),
+      pedidoIdSuffix: idSuffix(pedido._id),
+      paymentIdSuffix: idSuffix(paymentId),
+      remoteStatus,
+      expirationMinutes: ORDER_PIX_EXPIRATION_MINUTES,
+      correlationId: String(correlationId || "").slice(0, 100) || null,
+    });
+    return { expired: true, expirationPending: false, ...result };
+  }
+
+  if (["pending", "in_process", "authorized"].includes(remoteStatus)) {
+    const cancelled = await cancelarPixPendenteRemoto(paymentId, accessToken);
+    if (!cancelled) {
+      return pendingReason("O Mercado Pago não confirmou o cancelamento do Pix.", remoteStatus);
+    }
+    remotePayment = cancelled;
+    remoteStatus = String(cancelled.status || "").trim().toLowerCase();
+
+    if (remoteStatus === "approved") {
+      const result = await applyOrderPayment(
+        pedido,
+        remotePayment,
+        attempt,
+        "expiration_cancel_race",
+        correlationId,
+      );
+      return {
+        expired: String(result?.pagamentoStatus || "") === "expirado",
+        expirationPending: String(result?.pagamentoStatus || "") === "expiracao_pendente",
+        approved: String(result?.pagamentoStatus || "") === "pago",
+        pedido: result,
+        attempt,
+      };
+    }
+
+    if (!isRemoteTerminalUnpaidStatus(remoteStatus)) {
+      return pendingReason(
+        "O cancelamento foi solicitado, mas o provedor ainda não retornou um estado terminal.",
+        remoteStatus,
+      );
+    }
+
+    const result = await markOrderPixExpired({ pedido, attempt, now, remoteStatus });
+    appLogger.info("order_pix_expired", {
+      estabelecimentoIdSuffix: idSuffix(pedido.estabelecimentoId),
+      pedidoIdSuffix: idSuffix(pedido._id),
+      paymentIdSuffix: idSuffix(paymentId),
+      remoteStatus,
+      expirationMinutes: ORDER_PIX_EXPIRATION_MINUTES,
+      correlationId: String(correlationId || "").slice(0, 100) || null,
+    });
+    return { expired: true, expirationPending: false, ...result };
+  }
+
+  return pendingReason(
+    "O provedor retornou um status não terminal; a expiração ainda precisa ser confirmada.",
+    remoteStatus,
+  );
+}
+
+async function reconciliarPixPedidosExpirados({ limit = 100 } = {}) {
+  const attempts = await findExpiredActiveAttempts({ limit });
+  const tokenCache = new Map();
+  const result = { encontrados: attempts.length, expirados: 0, pendentesConfirmacao: 0, aprovados: 0, falhas: 0 };
+
+  for (const attempt of attempts) {
+    try {
+      const pedido = await findOrderForAttempt(attempt);
+      if (!pedido) {
+        await markMissingOrderAttemptPending(attempt);
+        result.pendentesConfirmacao += 1;
+        continue;
+      }
+      if (pedido.pagamentoStatus === "pago") {
+        attempt.status = "approved";
+        attempt.reconciliationStatus = "processed";
+        attempt.processedAt = attempt.processedAt || new Date();
+        await attempt.save();
+        result.aprovados += 1;
+        continue;
+      }
+
+      const tenantKey = String(attempt.estabelecimentoId);
+      let accessToken = tokenCache.get(tenantKey);
+      if (accessToken === undefined) {
+        try {
+          ({ accessToken } = await configuracaoComToken(attempt.estabelecimentoId));
+        } catch {
+          accessToken = "";
+        }
+        tokenCache.set(tenantKey, accessToken);
+      }
+      const expiration = await expirarPixPedidoSeNecessario({
+        pedido,
+        attempt,
+        accessToken,
+        now: new Date(),
+        correlationId: "worker_pix_expiration",
+        consultarRemoto: Boolean(accessToken),
+      });
+      if (expiration.approved) result.aprovados += 1;
+      else if (expiration.expired) result.expirados += 1;
+      else if (expiration.expirationPending) result.pendentesConfirmacao += 1;
+    } catch (error) {
+      result.falhas += 1;
+      appLogger.error("order_pix_expiration_worker_failed", {
+        attemptIdSuffix: idSuffix(attempt?._id),
+        paymentIdSuffix: idSuffix(attempt?.paymentId),
+        errorName: String(error?.name || "Error").slice(0, 80),
+        errorMessage: String(error?.message || "Falha desconhecida").slice(0, 240),
+      });
+    }
+  }
+
+  return result;
 }
 
 exports.gerarPixPedido = async (req, res) => {
@@ -1590,16 +1887,69 @@ exports.gerarPixPedido = async (req, res) => {
         pagamentoCombinado,
       });
     }
-    if (pedido.mercadoPagoPaymentId && pedido.pixCopiaCola) {
+    if (pedido.pagamentoStatus === "expiracao_pendente" && !pedido.mercadoPagoPaymentId) {
       return res.json({
         success: true,
-        copiaCola: pedido.pixCopiaCola,
-        qrCodeBase64: pedido.pixQrCodeBase64,
+        expiracaoPendente: true,
         status: pedido.mercadoPagoStatus || "pending",
         expiraEm: pedido.pixExpiraEm,
         valorPix,
         pagamentoCombinado,
+        message: "O prazo do Pix terminou e a tentativa ainda precisa de conciliação antes de gerar outro pagamento.",
       });
+    }
+    if (pedido.mercadoPagoPaymentId) {
+      const existingAttempt = await OrderPaymentAttempt.findOne({
+        estabelecimentoId: pedido.estabelecimentoId,
+        pedidoId: pedido._id,
+        paymentMethod: "pix",
+        paymentId: String(pedido.mercadoPagoPaymentId),
+      }).sort({ createdAt: -1 });
+      if (["expirado", "expiracao_pendente"].includes(String(pedido.pagamentoStatus || ""))
+        || orderPixExpiredByClock(pedido, existingAttempt)) {
+        let existingAccessToken = "";
+        try {
+          ({ accessToken: existingAccessToken } = await configuracaoComToken(cfgPublica.estabelecimentoId));
+        } catch {}
+        const expiration = await expirarPixPedidoSeNecessario({
+          pedido,
+          attempt: existingAttempt,
+          accessToken: existingAccessToken,
+          correlationId: req.correlationId,
+          consultarRemoto: Boolean(existingAccessToken),
+        });
+        if (expiration.expired || String(expiration.pedido?.pagamentoStatus || pedido.pagamentoStatus) === "expirado") {
+          return res.json({
+            success: true,
+            expirado: true,
+            status: String(expiration.pedido?.mercadoPagoStatus || "expired"),
+            expiraEm: expiration.pedido?.pixExpiraEm || pedido.pixExpiraEm,
+            valorPix,
+            pagamentoCombinado,
+            message: "Este QR Code Pix expirou e o cancelamento foi confirmado. O pedido pode ser arquivado pela loja.",
+          });
+        }
+        return res.json({
+          success: true,
+          expiracaoPendente: true,
+          status: String(expiration.pedido?.mercadoPagoStatus || pedido.mercadoPagoStatus || "pending"),
+          expiraEm: expiration.pedido?.pixExpiraEm || pedido.pixExpiraEm,
+          valorPix,
+          pagamentoCombinado,
+          message: "O prazo de 10 minutos terminou. Estamos confirmando o cancelamento do Pix antes de liberar o arquivamento.",
+        });
+      }
+      if (pedido.pixCopiaCola) {
+        return res.json({
+          success: true,
+          copiaCola: pedido.pixCopiaCola,
+          qrCodeBase64: pedido.pixQrCodeBase64,
+          status: pedido.mercadoPagoStatus || "pending",
+          expiraEm: pedido.pixExpiraEm,
+          valorPix,
+          pagamentoCombinado,
+        });
+      }
     }
     const { cfg: cfgPrivada, accessToken } = await configuracaoComToken(cfgPublica.estabelecimentoId);
     const platformFeeConfig = getCurrentPlatformFeeConfig();
@@ -1639,6 +1989,10 @@ exports.gerarPixPedido = async (req, res) => {
         payment_method_id: "pix",
         external_reference: attempt.externalReference,
         notification_url: `${baseUrl(req)}/webhook/mercado-pago`,
+        // A janela comercial continua sendo 10 minutos (attempt.expiresAt).
+        // O provedor recebe a menor expiração Pix aceita por sua API e o
+        // ComandaFacil solicita cancelamento remoto ao fim dos 10 minutos.
+        date_of_expiration: providerPixExpirationDate().toISOString(),
         payer: { email: payerEmail, first_name: pedido.cliente || "Cliente" },
       }),
     }, accessToken);
@@ -1652,9 +2006,16 @@ exports.gerarPixPedido = async (req, res) => {
 
     attempt.paymentId = String(data.id);
     attempt.status = String(data.status || "pending");
-    attempt.expiresAt = data.date_of_expiration
+    const requestedExpiration = effectiveAttemptExpiration(attempt)
+      || new Date(Date.now() + ORDER_PIX_EXPIRATION_MS);
+    const providerExpiration = data.date_of_expiration
       ? new Date(data.date_of_expiration)
-      : attempt.expiresAt;
+      : null;
+    attempt.expiresAt = providerExpiration
+      && !Number.isNaN(providerExpiration.getTime())
+      && providerExpiration < requestedExpiration
+        ? providerExpiration
+        : requestedExpiration;
     attempt.lastCheckedAt = new Date();
     await attempt.save();
 
@@ -1671,7 +2032,11 @@ exports.gerarPixPedido = async (req, res) => {
     pedido.mercadoPagoStatus = String(data.status || "pending");
     pedido.pixCopiaCola = data.point_of_interaction?.transaction_data?.qr_code || "";
     pedido.pixQrCodeBase64 = data.point_of_interaction?.transaction_data?.qr_code_base64 || "";
-    pedido.pixExpiraEm = data.date_of_expiration ? new Date(data.date_of_expiration) : null;
+    pedido.pixExpiraEm = attempt.expiresAt;
+    pedido.pixExpiradoEm = null;
+    pedido.pixExpiracaoStatusRemoto = "";
+    pedido.pixExpiracaoUltimaTentativaEm = null;
+    pedido.pixExpiracaoErro = "";
     pedido.platformFeePercent = attempt.platformFeePercent;
     pedido.platformFeeCents = attempt.platformFeeCents;
     pedido.platformFeeStatus = attempt.platformFeeStatus || (platformFeeConfig.enabled ? "requested" : "not_applied");
@@ -1748,11 +2113,14 @@ exports.statusPagamentoPedido = async (req, res) => {
   if (!pedido) return res.status(404).json({ success: false, message: "Pedido não encontrado." });
   const cooldownPassed = !pedido.mercadoPagoLastCheckedAt
     || Date.now() - new Date(pedido.mercadoPagoLastCheckedAt).getTime() >= 2_500;
-  if (pedido.pagamentoStatus === "pendente" && pedido.mercadoPagoPaymentId && cooldownPassed) {
+  const expirationDue = orderPixExpiredByClock(pedido, null);
+  if (["pendente", "expiracao_pendente"].includes(String(pedido.pagamentoStatus || ""))
+    && pedido.mercadoPagoPaymentId
+    && (cooldownPassed || expirationDue)) {
     const claimed = await Pedido.findOneAndUpdate({
       _id: pedido._id,
       estabelecimentoId: cfg.estabelecimentoId,
-      pagamentoStatus: "pendente",
+      pagamentoStatus: { $in: ["pendente", "expiracao_pendente"] },
       $or: [
         { mercadoPagoCheckLockedUntil: null },
         { mercadoPagoCheckLockedUntil: { $lt: new Date() } },
@@ -1782,34 +2150,57 @@ exports.statusPagamentoPedido = async (req, res) => {
             status: String(claimed.mercadoPagoStatus || "pending"),
             paymentMethod: "pix",
             idempotencyKey: `legacy-${crypto.randomUUID()}`,
-            expiresAt: claimed.pixExpiraEm || new Date(Date.now() + 24 * 60 * 60_000),
+            expiresAt: claimed.pixExpiraEm
+              || new Date(new Date(claimed.createdAt || Date.now()).getTime() + ORDER_PIX_EXPIRATION_MS),
             legacyReference: true,
           });
         }
-        const payment = await mp(`/v1/payments/${encodeURIComponent(claimed.mercadoPagoPaymentId)}`, {}, accessToken);
-        await applyOrderPayment(claimed, payment, attempt, "status_fallback", req.correlationId);
+        if (orderPixExpiredByClock(claimed, attempt)) {
+          await expirarPixPedidoSeNecessario({
+            pedido: claimed,
+            attempt,
+            accessToken,
+            correlationId: req.correlationId,
+            consultarRemoto: true,
+          });
+        } else {
+          const payment = await mp(`/v1/payments/${encodeURIComponent(claimed.mercadoPagoPaymentId)}`, {}, accessToken);
+          await applyOrderPayment(claimed, payment, attempt, "status_fallback", req.correlationId);
+        }
       } finally {
         await Pedido.updateOne({ _id: pedido._id }, { $set: { mercadoPagoCheckLockedUntil: null } });
       }
     }
   }
   const current = await Pedido.findById(pedido._id)
-    .select("pagamentoStatus pagoEm mercadoPagoStatus formaPagamento pagamentos")
+    .select("pagamentoStatus pagoEm mercadoPagoStatus formaPagamento pagamentos pixExpiraEm pixExpiradoEm pixExpiracaoStatusRemoto pixExpiracaoErro")
     .lean();
   const statusPix = current?.mercadoPagoStatus || pedido.mercadoPagoStatus || "pending";
   const pagamentoCombinado = String(
     current?.formaPagamento || pedido.formaPagamento || "",
   ) === "combinado";
+  const currentPaymentStatus = current?.pagamentoStatus || pedido.pagamentoStatus;
+  const expiration = current?.pixExpiraEm || pedido.pixExpiraEm || null;
+  const expirationTime = expiration ? new Date(expiration).getTime() : NaN;
   return res.json({
     success: true,
-    pagamentoStatus: current?.pagamentoStatus || pedido.pagamentoStatus,
+    pagamentoStatus: currentPaymentStatus,
     status: statusPix,
-    pixAprovado: statusPix === "approved",
+    pixAprovado: statusPix === "approved" && currentPaymentStatus === "pago",
+    pixExpirado: currentPaymentStatus === "expirado",
+    pixExpiracaoPendente: currentPaymentStatus === "expiracao_pendente",
+    expiraEm: expiration,
+    expiradoEm: current?.pixExpiradoEm || null,
+    segundosRestantes: Number.isFinite(expirationTime)
+      ? Math.max(0, Math.ceil((expirationTime - Date.now()) / 1000))
+      : null,
     pagamentoCombinado,
     aguardandoPagamentoRestante:
       pagamentoCombinado
       && statusPix === "approved"
-      && (current?.pagamentoStatus || pedido.pagamentoStatus) !== "pago",
+      && currentPaymentStatus !== "pago"
+      && currentPaymentStatus !== "expirado"
+      && currentPaymentStatus !== "expiracao_pendente",
     pagoEm: current?.pagoEm || null,
   });
 };
@@ -1955,6 +2346,15 @@ function assertStockCompleted(result) {
     && ["concluido", "ja_concluido"].includes(result.status)) return result;
   const error = new Error("Movimentação de estoque pendente.");
   error.code = result?.errorCode || "ESTOQUE_PENDENTE";
+  error.retryable = result?.retryable !== false;
+  throw error;
+}
+
+function assertStockRestored(result) {
+  if (result?.success
+    && ["restaurado", "ja_restaurado", "nao_baixado"].includes(result.status)) return result;
+  const error = new Error("Restauração de estoque pendente.");
+  error.code = result?.errorCode || "ESTOQUE_RESTAURACAO_PENDENTE";
   error.retryable = result?.retryable !== false;
   throw error;
 }
@@ -2148,7 +2548,7 @@ async function applyOrderPayment(
   confirmationSource = "webhook",
   correlationId = "",
 ) {
-  const { cfg } = await configuracaoComToken(pedido.estabelecimentoId);
+  const { cfg, accessToken } = await configuracaoComToken(pedido.estabelecimentoId);
   const expectedReference = attempt?.externalReference || `pedido:${pedido._id}`;
   if (attempt) {
     if (String(attempt.estabelecimentoId) !== String(pedido.estabelecimentoId)
@@ -2167,6 +2567,85 @@ async function applyOrderPayment(
   });
   if (payment.currency_id && String(payment.currency_id) !== String(attempt?.currency || "BRL")) {
     throw new Error("Moeda do pagamento divergente.");
+  }
+  const paymentStatus = String(payment.status || "").trim().toLowerCase();
+  if (paymentStatus === "approved" && orderPixApprovedAfterExpiration(payment, attempt, pedido)) {
+    const lateApproval = await registrarAprovacaoPixAposExpiracao({
+      pedido,
+      payment,
+      attempt,
+      correlationId,
+    });
+    return lateApproval.pedido || pedido;
+  }
+  if (paymentStatus !== "approved"
+    && (isRemoteTerminalUnpaidStatus(paymentStatus) || orderPixExpiredByClock(pedido, attempt))) {
+    let remoteStatus = paymentStatus;
+    let terminalPayment = payment;
+
+    if (["pending", "in_process", "authorized"].includes(paymentStatus)) {
+      const cancelled = await cancelarPixPendenteRemoto(
+        attempt?.paymentId || pedido.mercadoPagoPaymentId || payment.id,
+        accessToken,
+      );
+      if (cancelled?.status) {
+        terminalPayment = cancelled;
+        remoteStatus = String(cancelled.status).toLowerCase();
+      } else {
+        const pending = await markOrderPixExpirationPending({
+          pedido,
+          attempt,
+          now: new Date(),
+          remoteStatus: paymentStatus,
+          reason: "O prazo local terminou, mas o cancelamento remoto ainda não foi confirmado.",
+        });
+        appLogger.warn("order_pix_expiration_pending_from_payment_status", {
+          pedidoIdSuffix: idSuffix(pedido._id),
+          paymentIdSuffix: idSuffix(payment.id),
+          providerStatus: paymentStatus || null,
+          confirmationSource,
+          correlationId: String(correlationId || "").slice(0, 100) || null,
+        });
+        return pending.pedido || pedido;
+      }
+    }
+
+    if (remoteStatus === "approved") {
+      return applyOrderPayment(
+        pedido,
+        terminalPayment,
+        attempt,
+        `${confirmationSource}_expiration_race`,
+        correlationId,
+      );
+    }
+
+    if (!isRemoteTerminalUnpaidStatus(remoteStatus)) {
+      const pending = await markOrderPixExpirationPending({
+        pedido,
+        attempt,
+        now: new Date(),
+        remoteStatus,
+        reason: "O provedor ainda não retornou um estado terminal para a expiração do Pix.",
+      });
+      return pending.pedido || pedido;
+    }
+
+    const expired = await markOrderPixExpired({
+      pedido,
+      attempt,
+      now: new Date(),
+      remoteStatus,
+    });
+    appLogger.info("order_pix_expired_from_payment_status", {
+      pedidoIdSuffix: idSuffix(pedido._id),
+      paymentIdSuffix: idSuffix(payment.id),
+      providerStatus: paymentStatus || null,
+      remoteStatus: remoteStatus || null,
+      confirmationSource,
+      correlationId: String(correlationId || "").slice(0, 100) || null,
+    });
+    return expired.pedido || pedido;
   }
   pedido.mercadoPagoStatus = String(payment.status || "");
   const alreadyRecorded = pedido.historicoFinanceiro.some(item =>
@@ -2191,7 +2670,7 @@ async function applyOrderPayment(
     });
     pedido = approved.pedido || pedido;
   } else if (["cancelled", "rejected", "refunded", "charged_back"].includes(payment.status)) {
-    assertStockCompleted(await restaurarEstoqueDoPedido(pedido._id));
+    assertStockRestored(await restaurarEstoqueDoPedido(pedido._id));
     pedido.pagamentoStatus = "cancelado";
     if (["refunded", "charged_back"].includes(payment.status)
       && Number(attempt?.platformFeeCents || 0) > 0) {
@@ -2545,7 +3024,7 @@ async function processArchivedOrderPayment(event, pedido, payment, attempt) {
   const now = new Date();
   const status = String(payment.status || attempt.status || "").trim().toLowerCase();
   const financialStatus = isArchivedOrderFinancialStatus(status);
-  const closedWithoutPayment = ["cancelled", "rejected"].includes(status);
+  const closedWithoutPayment = ORDER_PIX_TERMINAL_UNPAID_STATUSES.includes(status);
 
   attempt.status = status || attempt.status;
   attempt.lastCheckedAt = now;
@@ -2636,7 +3115,7 @@ async function processOrphanedOrderAttemptPayment(event, payment, attempt) {
       attempt.platformFeeStatus = "reconciliation_required";
       attempt.platformFeeNetCents = 0;
     }
-  } else if (["cancelled", "rejected"].includes(status)) {
+  } else if (ORDER_PIX_TERMINAL_UNPAID_STATUSES.includes(status)) {
     attempt.reconciliationStatus = "processed";
     attempt.processedAt = attempt.processedAt || now;
   }
@@ -2936,6 +3415,7 @@ exports.webhook = async (req, res) => {
 };
 
 exports.assinaturaDoUsuario = assinaturaDoUsuario;
+exports.reconciliarPixPedidosExpirados = reconciliarPixPedidosExpirados;
 exports._testing = {
   SUBSCRIPTION_PIX_EXPIRATION_MINUTES,
   cancelarPreapprovalRemoto,
@@ -2970,5 +3450,9 @@ exports._testing = {
   orderAttemptExternalReference,
   isOpaqueOrderReference,
   applyOrderPayment,
+  expirarPixPedidoSeNecessario,
+  reconciliarPixPedidosExpirados,
+  registrarAprovacaoPixAposExpiracao,
+  assertStockRestored,
   validarRedirectMercadoPago,
 };

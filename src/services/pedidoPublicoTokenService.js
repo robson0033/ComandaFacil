@@ -92,6 +92,7 @@ function statusPagamentoPublico(status) {
   return {
     pago: "pago",
     cancelado: "cancelado",
+    expirado: "expirado",
     pendente: "pendente",
   }[String(status)] || "pendente";
 }

@@ -16,6 +16,9 @@ const {
   PrintAgent,
   PrintJob,
   PlatformFeeTermsAcceptance,
+  WhatsAppConfiguracao,
+  WhatsAppConversa,
+  WhatsAppMensagem,
 } = require("../src/models/painelModels");
 const { registroModel } = require("../src/models/registroModel");
 
@@ -295,6 +298,62 @@ const definitions = [
     expectedType: "objectId",
   },
   {
+    model: WhatsAppConfiguracao,
+    key: { estabelecimentoId: 1 },
+    options: { unique: true, name: "whatsapp_config_tenant_unique" },
+    expectedType: "objectId",
+  },
+  {
+    model: WhatsAppConfiguracao,
+    key: { phoneNumberIdHash: 1 },
+    options: {
+      unique: true,
+      partialFilterExpression: { phoneNumberIdHash: { $type: "string", $gt: "" } },
+      name: "whatsapp_phone_number_id_hash_unique",
+    },
+    expectedType: "string",
+  },
+  {
+    model: WhatsAppConversa,
+    key: { estabelecimentoId: 1, clienteWaId: 1 },
+    options: { unique: true, name: "whatsapp_conversa_tenant_cliente_unique" },
+    expectedType: "objectId",
+  },
+  {
+    model: WhatsAppConversa,
+    key: { estabelecimentoId: 1, modo: 1, updatedAt: -1 },
+    options: { name: "whatsapp_conversa_tenant_modo_data" },
+    expectedType: "objectId",
+  },
+  {
+    model: WhatsAppConversa,
+    key: { expiresAt: 1 },
+    options: { expireAfterSeconds: 0, name: "whatsapp_conversa_retention_ttl" },
+    expectedType: "date",
+  },
+  {
+    model: WhatsAppMensagem,
+    key: { metaMessageIdHash: 1 },
+    options: {
+      unique: true,
+      partialFilterExpression: { metaMessageIdHash: { $type: "string", $gt: "" } },
+      name: "whatsapp_message_meta_id_unique",
+    },
+    expectedType: "string",
+  },
+  {
+    model: WhatsAppMensagem,
+    key: { conversaId: 1, createdAt: -1 },
+    options: { name: "whatsapp_message_conversation_data" },
+    expectedType: "objectId",
+  },
+  {
+    model: WhatsAppMensagem,
+    key: { expiresAt: 1 },
+    options: { expireAfterSeconds: 0, name: "whatsapp_message_retention_ttl" },
+    expectedType: "date",
+  },
+  {
     model: OAuthState,
     key: { expiresAt: 1 },
     options: {
@@ -337,6 +396,14 @@ const purposes = {
   platform_fee_terms_tenant_version_status: "consultar histórico de aceite da taxa por loja e versão",
   platform_fee_terms_active_unique: "garantir um aceite ativo por loja, versão e texto",
   pedido_taxa_pix_relatorio: "consultar taxas Pix pagas por loja e data de pagamento",
+  whatsapp_config_tenant_unique: "manter uma configuração de automação WhatsApp por loja",
+  whatsapp_phone_number_id_hash_unique: "impedir que o mesmo número WhatsApp seja vinculado a duas lojas",
+  whatsapp_conversa_tenant_cliente_unique: "manter uma conversa canônica por cliente e loja",
+  whatsapp_conversa_tenant_modo_data: "listar atendimentos recentes por loja e modo",
+  whatsapp_conversa_retention_ttl: "remover identificadores de conversas inativas após o período de retenção",
+  whatsapp_message_meta_id_unique: "deduplicar mensagens e reentregas do webhook da Meta",
+  whatsapp_message_conversation_data: "listar mensagens de uma conversa em ordem temporal",
+  whatsapp_message_retention_ttl: "remover conteúdo de mensagens do WhatsApp após o período de retenção",
 };
 
 function canonicalize(value) {

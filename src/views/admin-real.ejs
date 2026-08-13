@@ -1174,72 +1174,138 @@
   text-align: center;
 }
 
-.ranking-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+.category-sales-panel {
   margin-top: 20px;
 }
 
-.ranking-list {
-  display: grid;
-  gap: 12px;
-}
-
-.ranking-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px;
+.category-sales-scroll {
+  max-height: 340px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   border: 1px solid var(--cinza-200);
   border-radius: 14px;
   background: #fff;
 }
 
-.ranking-item strong {
-  display: block;
-  font-size: 14px;
+.category-sales-head,
+.category-sales-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.9fr) minmax(220px, 2fr) minmax(110px, 0.55fr);
+  align-items: center;
+  gap: 14px;
 }
 
-.ranking-item span {
-  display: block;
-  margin-top: 4px;
-  color: var(--cinza-500);
-  font-size: 12px;
+.category-sales-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--cinza-200);
+  background: #fffaf7;
+  color: var(--cinza-700);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-transform: uppercase;
 }
 
-.ranking-badge {
-  min-width: 46px;
-  padding: 8px 10px;
+.category-sales-row {
+  min-height: 52px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--cinza-100);
+}
+
+.category-sales-row:last-child {
+  border-bottom: 0;
+}
+
+.category-sales-row:hover {
+  background: #fffaf7;
+}
+
+.category-sales-category {
+  min-width: 0;
+}
+
+.category-sales-category span {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  padding: 6px 9px;
+  overflow: hidden;
+  border: 1px solid #ffd8c5;
   border-radius: 999px;
-  background: #f5f5f5;
-  text-align: center;
+  background: #fff1e9;
+  color: #a63f13;
   font-size: 12px;
   font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.ranking-badge.top {
+.category-sales-product {
+  min-width: 0;
+  color: var(--cinza-900);
+  font-size: 13px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.category-sales-product.muted {
+  color: var(--cinza-500);
+  font-weight: 700;
+}
+
+.category-sales-qty {
+  justify-self: end;
+  min-width: 64px;
+  padding: 7px 10px;
+  border-radius: 999px;
   background: #dcf6e8;
   color: #177544;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 950;
 }
 
-.ranking-badge.low {
-  background: #fff0cf;
-  color: #946200;
+.category-sales-qty.zero {
+  background: #f2f3f5;
+  color: var(--cinza-500);
 }
 
 @media (max-width: 900px) {
-  .ranking-grid {
-    grid-template-columns: 1fr;
-  }
-
   .chart-wrapper {
     grid-template-columns: 1fr;
   }
 
   .chart-y {
     display: none;
+  }
+
+  .category-sales-scroll {
+    max-height: 310px;
+  }
+
+  .category-sales-head,
+  .category-sales-row {
+    grid-template-columns: minmax(92px, .8fr) minmax(130px, 1.5fr) 72px;
+    gap: 8px;
+  }
+
+  .category-sales-head {
+    padding: 9px 10px;
+    font-size: 9px;
+  }
+
+  .category-sales-row {
+    padding: 8px 10px;
+  }
+
+  .category-sales-category span,
+  .category-sales-product,
+  .category-sales-qty {
+    font-size: 11px;
   }
 }
 
@@ -1882,6 +1948,7 @@
 
     .status.ocupada,
     .status.cancelado,
+    .status.expirado,
     .status.inativo {
       background: #fde2e2;
       color: #a32121;
@@ -1890,7 +1957,8 @@
     .status.baixo,
     .status.reservada,
     .status.aguardando_pagamento,
-    .status.pendente {
+    .status.pendente,
+    .status.expiracao_pendente {
       background: #fff0cf;
       color: #946200;
     }
@@ -3712,6 +3780,436 @@
         width: 100%;
       }
     }
+
+
+    /* =========================================================
+       PEDIDOS — CARDS OPERACIONAIS COMPACTOS V3
+       Alteracao somente visual: preserva formularios, rotas e JS.
+       ========================================================= */
+    .orders-grid {
+      gap: 12px;
+    }
+
+    .order-card {
+      position: relative;
+      overflow: hidden;
+      padding: 0;
+      border: 1px solid #e6ddd8;
+      border-left: 5px solid #cfc4bd;
+      border-radius: 16px;
+      background: #fff;
+      box-shadow: 0 5px 16px rgba(63, 30, 13, .065);
+      transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+    }
+
+    .order-card:hover {
+      border-color: #ddcec5;
+      box-shadow: 0 9px 24px rgba(63, 30, 13, .09);
+      transform: translateY(-1px);
+    }
+
+    .order-card[data-order-channel="mesa"] {
+      border-left-color: #4f8edc;
+    }
+
+    .order-card[data-order-channel="delivery"] {
+      border-left-color: #f2a124;
+    }
+
+    .order-card[data-order-channel="retirada"],
+    .order-card[data-order-channel="balcao"] {
+      border-left-color: #39a56a;
+    }
+
+    .order-card-header {
+      align-items: center;
+      gap: 12px;
+      padding: 11px 14px;
+      border-bottom: 1px solid #ece4df;
+      background: linear-gradient(90deg, #fff 0%, #fdfaf8 100%);
+    }
+
+    .order-card-header > div:last-child {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .order-card-header > div:last-child .status:first-child::before {
+      content: "Pedido · ";
+      opacity: .72;
+      font-weight: 800;
+    }
+
+    .order-card-header [data-payment-status-badge]::before {
+      content: "Pgto · ";
+      opacity: .72;
+      font-weight: 800;
+    }
+
+    .order-number {
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .order-icon {
+      width: 42px;
+      height: 42px;
+      flex: 0 0 42px;
+      border-radius: 12px;
+      font-size: 19px;
+      box-shadow: 0 5px 12px rgba(198, 40, 40, .16);
+    }
+
+    .order-number h3 {
+      font-size: 16px;
+      line-height: 1.15;
+      letter-spacing: -.15px;
+    }
+
+    .order-number p {
+      margin-top: 3px;
+      font-size: 11px;
+    }
+
+    .order-origin {
+      margin-top: 5px;
+      padding: 5px 8px;
+      gap: 5px;
+      font-size: 10.5px;
+      line-height: 1;
+    }
+
+    .order-card .status {
+      padding: 5px 8px;
+      font-size: 10.5px;
+      border: 1px solid rgba(0, 0, 0, .035);
+    }
+
+    .order-client-data {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px 14px;
+      margin: 0;
+      padding: 9px 14px 10px;
+      border-bottom: 1px solid #eee7e2;
+      background: #fff;
+      color: var(--cinza-700);
+      font-size: 11.5px;
+      line-height: 1.35;
+    }
+
+    .order-client-data > div {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .order-client-data strong {
+      color: #4a3931;
+      font-weight: 900;
+    }
+
+    .order-client-data .delivery-address {
+      grid-column: 1 / -1;
+      margin-top: 1px;
+      padding-top: 6px;
+      border-top: 1px dashed #e9dfd9;
+    }
+
+    .order-payment-method-form {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: auto minmax(170px, 1fr) auto;
+      align-items: center;
+      gap: 7px;
+      width: 100%;
+      margin: 2px 0 0;
+      padding: 7px 8px;
+      border: 1px solid #f0dfd3;
+      border-radius: 10px;
+      background: #fff9f4;
+    }
+
+    .order-payment-method-form label {
+      color: #72594c;
+      font-size: 10.5px;
+    }
+
+    .order-payment-method-form select,
+    .order-payment-method-form input,
+    .order-status-form select {
+      min-height: 36px;
+      padding-top: 7px;
+      padding-bottom: 7px;
+      border-radius: 9px;
+      font-size: 12px;
+    }
+
+    .order-payment-method-form .order-payment-split {
+      grid-column: 1 / -1;
+      width: 100%;
+    }
+
+    .order-items {
+      gap: 5px;
+      margin: 0;
+      padding: 8px 14px;
+      background: #fdfcfb;
+    }
+
+    .order-item {
+      gap: 8px;
+      padding: 6px 8px;
+      border: 1px solid #f0ebe7;
+      border-radius: 9px;
+      background: #fff;
+      line-height: 1.3;
+    }
+
+    .order-item-quantity {
+      min-width: 28px;
+      font-size: 12px;
+    }
+
+    .order-item-name,
+    .order-item-price {
+      font-size: 12.5px;
+    }
+
+    .order-item-addons,
+    .order-item-note {
+      color: var(--cinza-600);
+      font-size: 11px;
+    }
+
+    .order-observation {
+      margin: 0 14px 8px;
+      padding: 8px 10px;
+      border: 1px solid #f4dfb4;
+      border-left: 3px solid #eeb647;
+      border-radius: 9px;
+      background: #fffaf0;
+      font-size: 11.5px;
+      line-height: 1.35;
+    }
+
+    .order-footer {
+      display: grid;
+      grid-template-columns: minmax(165px, auto) minmax(0, 1fr);
+      align-items: center;
+      gap: 10px;
+      margin: 0;
+      padding: 9px 14px 10px;
+      border-top: 1px solid #e9e1dc;
+      background: #faf8f6;
+    }
+
+    .order-total {
+      min-width: 165px;
+      padding: 7px 10px;
+      border: 1px solid #cfe8da;
+      border-radius: 11px;
+      background: #f2fbf6;
+    }
+
+    .order-total span {
+      font-size: 10.5px;
+    }
+
+    .order-total strong {
+      margin-top: 1px;
+      font-size: 19px;
+      line-height: 1.15;
+    }
+
+    .order-total-breakdown {
+      gap: 2px;
+      margin-bottom: 5px;
+    }
+
+    .order-total-breakdown span {
+      font-size: 10px;
+    }
+
+    .order-actions {
+      justify-content: flex-end;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .order-status-form {
+      align-items: center;
+      gap: 6px;
+    }
+
+    .order-status-form select {
+      min-width: 120px;
+    }
+
+    .order-actions .mini-button,
+    .order-status-form .mini-button,
+    .order-payment-method-form .mini-button,
+    .whatsapp-order-button,
+    .delete-order-button,
+    .print-order-button {
+      min-height: 36px;
+      padding: 7px 10px;
+      border-radius: 9px;
+      font-size: 11.5px;
+      line-height: 1.1;
+    }
+
+    @media (max-width: 1100px) {
+      .order-client-data {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 860px) {
+      .order-card {
+        border-left-width: 4px;
+      }
+
+      .order-client-data {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .order-footer {
+        grid-template-columns: 1fr;
+      }
+
+      .order-total {
+        width: 100%;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
+        gap: 8px 14px;
+      }
+
+      .order-total-breakdown {
+        grid-column: 1 / -1;
+      }
+
+      .order-total strong {
+        text-align: right;
+      }
+
+      .order-actions {
+        justify-content: flex-start;
+      }
+    }
+
+    @media (max-width: 700px) {
+      .order-card {
+        border-radius: 14px;
+      }
+
+      .order-card-header {
+        flex-direction: row;
+        align-items: flex-start;
+        padding: 10px 11px;
+      }
+
+      .order-card-header > div:last-child {
+        max-width: 46%;
+      }
+
+      .order-client-data {
+        grid-template-columns: 1fr 1fr;
+        gap: 6px 10px;
+        padding: 9px 11px;
+      }
+
+      .order-payment-method-form {
+        grid-template-columns: 1fr;
+      }
+
+      .order-payment-method-form label {
+        white-space: normal;
+      }
+
+      .order-items {
+        padding: 7px 11px;
+      }
+
+      .order-observation {
+        margin-right: 11px;
+        margin-left: 11px;
+      }
+
+      .order-footer {
+        padding: 9px 11px 11px;
+      }
+
+      .order-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        width: 100%;
+      }
+
+      .order-actions > form,
+      .order-actions > a,
+      .order-actions > button {
+        width: 100%;
+        margin: 0;
+      }
+
+      .order-status-form {
+        grid-column: 1 / -1;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        width: 100%;
+      }
+
+      .order-actions .mini-button,
+      .order-status-form .mini-button,
+      .whatsapp-order-button,
+      .delete-order-button,
+      .print-order-button {
+        width: 100%;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .order-card-header {
+        gap: 8px;
+      }
+
+      .order-icon {
+        width: 38px;
+        height: 38px;
+        flex-basis: 38px;
+        font-size: 17px;
+      }
+
+      .order-number h3 {
+        font-size: 14px;
+      }
+
+      .order-card-header > div:last-child {
+        max-width: 48%;
+        gap: 4px;
+      }
+
+      .order-card .status {
+        padding: 4px 6px;
+        font-size: 9.5px;
+      }
+
+      .order-client-data {
+        grid-template-columns: 1fr;
+      }
+
+      .order-actions {
+        grid-template-columns: 1fr;
+      }
+
+      .order-status-form {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
  <link rel="icon" href="/assets/imgs/comanda.png" type="image/x-png">
@@ -3814,6 +4312,40 @@
       ? cidadesEntrega
       : [];
 
+  const whatsappConfigPainel =
+    typeof whatsappConfiguracao !== 'undefined' && whatsappConfiguracao
+      ? whatsappConfiguracao
+      : {
+          ativo: false,
+          phoneNumberIdSuffix: '',
+          menuAtivo: true,
+          mensagemBoasVindas: 'Olá! 👋 Bem-vindo ao nosso atendimento pelo WhatsApp.',
+          mensagemMenu: 'Como podemos ajudar?',
+          mensagemFallback: 'Não consegui identificar essa opção. Escolha uma opção do menu.',
+          mensagemPedidoNaoEncontrado: 'Não encontrei um pedido recente para este WhatsApp.',
+          textoBotaoMenu: 'Ver opções',
+          menuOpcoes: [
+            { id: 'status', titulo: 'Status do pedido', acao: 'status_pedido', resposta: '', ativo: true },
+            { id: 'cardapio', titulo: 'Ver cardápio', acao: 'abrir_cardapio', resposta: '', ativo: true },
+            { id: 'atendente', titulo: 'Falar atendente', acao: 'falar_atendente', resposta: 'Certo! Um atendente continuará a conversa por aqui. 👤', ativo: true }
+          ]
+        };
+
+  const whatsappConversasPainel =
+    typeof whatsappConversas !== 'undefined' && Array.isArray(whatsappConversas)
+      ? whatsappConversas
+      : [];
+
+  const formatarWaId = value => {
+    const digits = String(value || '').replace(/\D/g, '');
+    if (!digits) return '-';
+    if (digits.startsWith('55') && digits.length >= 12) {
+      const local = digits.slice(2);
+      return `+55 (${local.slice(0,2)}) ${local.slice(2,-4)}-${local.slice(-4)}`;
+    }
+    return `+${digits}`;
+  };
+
   const painelDashboard =
     typeof dashboard !== 'undefined' && dashboard
       ? dashboard
@@ -3843,8 +4375,7 @@
             valores: [],
             maiorValor: 0
           },
-          maisVendidos: [],
-          menosVendidos: [],
+          categoriasProdutosVendidos: [],
           historico: []
         };
   const fusoEstabelecimento = timezoneEstabelecimento;
@@ -4143,6 +4674,19 @@
             </svg>
 
             <span>Funcionários</span>
+          </a>
+        <% } %>
+
+        <% if (pode('configuracoes')) { %>
+          <a
+            href="#whatsapp"
+            class="menu-link"
+            data-page="whatsapp"
+          >
+            <svg viewBox="0 0 24 24">
+              <path d="M20.5 3.5A11.8 11.8 0 0 0 12.1 0C5.5 0 .2 5.2.2 11.7c0 2.1.6 4.1 1.6 5.9L0 24l6.6-1.7a12 12 0 0 0 5.5 1.4h.1c6.5 0 11.8-5.2 11.8-11.7 0-3.1-1.2-6.1-3.5-8.5ZM12.1 21.7c-1.7 0-3.4-.5-4.9-1.3l-.4-.2-3.9 1 1-3.8-.2-.4a9.7 9.7 0 0 1-1.5-5.2C2.2 6.4 6.6 2 12.1 2c2.6 0 5.1 1 7 2.9a9.7 9.7 0 0 1 2.9 6.9c0 5.5-4.4 9.9-9.9 9.9Zm5.4-7.4c-.3-.1-1.7-.8-2-.9-.3-.1-.5-.1-.7.2l-.9 1.1c-.2.2-.4.2-.7.1-1.8-.9-3-1.6-4.2-3.6-.3-.5.3-.5.9-1.6.1-.2.1-.4 0-.6l-.9-2.1c-.2-.5-.5-.4-.7-.4h-.6c-.2 0-.6.1-.9.4-.3.3-1.2 1.2-1.2 2.9 0 1.7 1.2 3.3 1.4 3.5.2.2 2.4 3.7 5.9 5.1 2.2.9 3.1 1 4.2.8.7-.1 1.7-.7 1.9-1.4.2-.7.2-1.3.2-1.4-.1-.1-.3-.2-.6-.3Z"/>
+            </svg>
+            <span>WhatsApp API</span>
           </a>
         <% } %>
 
@@ -4465,7 +5009,11 @@
                         : (nomesPagamentoDashboard[pedido.formaPagamento] || pedido.formaPagamento || 'Não informado');
                     %>
                     <td data-label="Pagamento">
-                      <span class="status <%= pedido.pagamentoStatus || 'pendente' %>"><%= String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ') %></span>
+                      <span class="status <%= pedido.pagamentoStatus || 'pendente' %>"><%= pedido.pagamentoStatus === 'expirado'
+                ? 'Pagamento expirado'
+                : pedido.pagamentoStatus === 'expiracao_pendente'
+                  ? 'Expiração pendente'
+                  : String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ') %></span>
                       <small class="payment-method-detail"><%= pagamentoDashboardTexto %></small>
                     </td>
                     <td data-label="Data"><%= formatarDataHoraEstabelecimento(pedido.createdAt) %></td>
@@ -4907,9 +5455,11 @@
               </span>
 
               <span class="status <%= pedido.pagamentoStatus || 'pendente' %>" data-payment-status-badge>
-                <%= String(
-                  pedido.pagamentoStatus || 'pendente'
-                ).replaceAll('_', ' ') %>
+                <%= pedido.pagamentoStatus === 'expirado'
+                  ? 'Pagamento expirado'
+                  : pedido.pagamentoStatus === 'expiracao_pendente'
+                    ? 'Expiração pendente'
+                    : String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ') %>
               </span>
             </div>
           </div>
@@ -5335,7 +5885,7 @@
                         <% if (pedido.pagamentoInconsistente) { %>
                           <strong title="<%= pedido.pagamentoInconsistencia || 'Revisão financeira necessária.' %>">⚠ Conciliação necessária</strong>
                         <% } else { %>
-                          <%= pedido.pagamentoStatus || '-' %>
+                          <%= pedido.pagamentoStatus === 'expirado' ? 'Pagamento expirado' : (pedido.pagamentoStatus === 'expiracao_pendente' ? 'Expiração pendente' : (pedido.pagamentoStatus || '-')) %>
                         <% } %>
                       </td>
                       <td><%= pedido.motivoExclusao || '-' %></td>
@@ -5566,73 +6116,46 @@
     </div>
   </section>
 
-  <div class="ranking-grid">
-    <section class="panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <h2>Pedidos mais vendidos</h2>
-          <p>Produtos que mais saem no período.</p>
-        </div>
+  <section class="panel category-sales-panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        <h2>Vendas por categoria e produto</h2>
+        <p>Quantidade vendida de cada produto no período e canal selecionados.</p>
       </div>
+    </div>
 
-      <div class="ranking-list">
-        <% if (!relatorios.maisVendidos.length) { %>
-          <div class="empty">
-            Nenhum produto vendido neste período.
-          </div>
-        <% } %>
+    <% const categoriasProdutosVendidos = Array.isArray(relatorios.categoriasProdutosVendidos)
+      ? relatorios.categoriasProdutosVendidos
+      : []; %>
 
-        <% relatorios.maisVendidos.forEach(produto => { %>
-          <div class="ranking-item">
-            <div>
-              <strong><%= produto.nome %></strong>
-              <span>
-                Total vendido:
-                <%= formatarMoeda(produto.total) %>
-              </span>
+    <% if (!categoriasProdutosVendidos.length) { %>
+      <div class="empty">
+        Nenhuma categoria de catálogo cadastrada.
+      </div>
+    <% } else { %>
+      <div class="category-sales-scroll" aria-label="Vendas por categoria e produto">
+        <div class="category-sales-head" aria-hidden="true">
+          <div>Categoria</div>
+          <div>Produto</div>
+          <div style="text-align:right;">Qtd. vendida</div>
+        </div>
+
+        <% categoriasProdutosVendidos.forEach(item => { %>
+          <div class="category-sales-row">
+            <div class="category-sales-category">
+              <span title="<%= item.categoriaNome %>"><%= item.categoriaNome %></span>
             </div>
-
-            <div class="ranking-badge top">
-              <%= produto.quantidade %>x
+            <div class="category-sales-product <%= item.semProduto ? 'muted' : '' %>">
+              <%= item.produtoNome %>
+            </div>
+            <div class="category-sales-qty <%= Number(item.quantidade || 0) === 0 ? 'zero' : '' %>">
+              <%= Number(item.quantidade || 0) %>x
             </div>
           </div>
         <% }) %>
       </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <h2>Pedidos que menos saem</h2>
-          <p>Produtos com menor saída no período.</p>
-        </div>
-      </div>
-
-      <div class="ranking-list">
-        <% if (!relatorios.menosVendidos.length) { %>
-          <div class="empty">
-            Nenhum produto vendido neste período.
-          </div>
-        <% } %>
-
-        <% relatorios.menosVendidos.forEach(produto => { %>
-          <div class="ranking-item">
-            <div>
-              <strong><%= produto.nome %></strong>
-              <span>
-                Total vendido:
-                <%= formatarMoeda(produto.total) %>
-              </span>
-            </div>
-
-            <div class="ranking-badge low">
-              <%= produto.quantidade %>x
-            </div>
-          </div>
-        <% }) %>
-      </div>
-    </section>
-  </div>
+    <% } %>
+  </section>
 
   <section class="panel" style="margin-top: 20px;">
     <div class="panel-header">
@@ -5646,7 +6169,7 @@
       <table>
         <thead>
           <tr>
-            <th>Data</th>
+            <th>Data do pagamento</th>
             <th>Cliente</th>
             <th>Canal</th>
             <th>Total</th>
@@ -5667,8 +6190,8 @@
 
           <% relatorios.historico.forEach(pedido => { %>
             <tr>
-              <td data-label="Data">
-                <%= formatarDataHoraEstabelecimento(pedido.createdAt) %>
+              <td data-label="Data do pagamento">
+                <%= formatarDataHoraEstabelecimento(pedido.pagoEm) %>
               </td>
 
               <td data-label="Cliente">
@@ -6960,6 +7483,244 @@
 </section>
       <% } %>
 
+      <% if (pode('configuracoes')) { %>
+      <!-- WHATSAPP API -->
+      <section class="page" id="page-whatsapp">
+        <style nonce="<%= cspNonce %>">
+          .wa-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(320px,.75fr);gap:18px;align-items:start}
+          .wa-status-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+          .wa-status{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;font-size:13px;font-weight:800;background:#f2f2f2;color:#5c5c5c}
+          .wa-status.on{background:#eaf8ef;color:#16723d}.wa-status.off{background:#fff0ec;color:#a63c20}
+          .wa-status-dot{width:9px;height:9px;border-radius:50%;background:currentColor;display:inline-block}
+          .wa-help{margin:8px 0 0;color:#6d655f;font-size:13px;line-height:1.5}
+          .wa-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+          .wa-form-grid .full{grid-column:1/-1}
+          .wa-switch{display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px solid #e7ded9;border-radius:14px;background:#fff}
+          .wa-switch input{width:20px;height:20px;accent-color:#25d366}
+          .wa-options{display:grid;gap:12px;margin-top:10px}
+          .wa-option{border:1px solid #e7ded9;border-radius:16px;padding:14px;background:#fffaf7}
+          .wa-option-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+          .wa-option-title{font-weight:900;color:#3b2b25}
+          .wa-remove-option{border:0;background:#ffe7df;color:#9b321d;border-radius:10px;padding:8px 10px;cursor:pointer;font-weight:800}
+          .wa-option-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+          .wa-option-grid .full{grid-column:1/-1}
+          .wa-add-option{margin-top:12px;border:1px dashed #25a85a;background:#f2fff7;color:#13743b;border-radius:12px;padding:11px 14px;font-weight:900;cursor:pointer}
+          .wa-conversations{display:grid;gap:12px}
+          .wa-conversation{border:1px solid #e5ddd8;border-radius:16px;padding:14px;background:#fff}
+          .wa-conversation-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+          .wa-conversation-name{font-weight:900}.wa-conversation-phone{font-size:12px;color:#776b65;margin-top:3px}
+          .wa-mode{font-size:11px;font-weight:900;padding:6px 9px;border-radius:999px;background:#eef6ff;color:#245b94;white-space:nowrap}
+          .wa-mode.human{background:#fff0d9;color:#8a5700}.wa-preview{margin:12px 0;padding:11px;border-radius:12px;background:#f8f5f3;color:#514943;line-height:1.45;word-break:break-word}
+          .wa-reply-form{display:grid;gap:8px}.wa-reply-form textarea{min-height:78px;resize:vertical}
+          .wa-actions-inline{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.wa-actions-inline form{margin:0}
+          .wa-empty{padding:22px;text-align:center;border:1px dashed #d8ccc5;border-radius:16px;color:#776b65;background:#fffaf7}
+          @media(max-width:980px){.wa-grid{grid-template-columns:1fr}.wa-form-grid,.wa-option-grid{grid-template-columns:1fr}.wa-form-grid .full,.wa-option-grid .full{grid-column:auto}}
+        </style>
+
+        <div class="wa-grid">
+          <div>
+            <section class="panel">
+              <div class="panel-header">
+                <div class="panel-title">
+                  <h2>Atendimento automático</h2>
+                  <p>Personalize a primeira resposta e o menu que o cliente recebe ao falar com a loja.</p>
+                </div>
+              </div>
+
+              <div class="wa-status-row" style="margin-bottom:18px">
+                <span class="wa-status <%= whatsappConfigPainel.ativo ? 'on' : 'off' %>">
+                  <span class="wa-status-dot" aria-hidden="true"></span>
+                  <%= whatsappConfigPainel.ativo ? 'WhatsApp API ativo' : 'WhatsApp API desativado' %>
+                </span>
+                <% if (whatsappConfigPainel.phoneNumberIdSuffix) { %>
+                  <span class="link-box">Phone Number ID ••••<%= whatsappConfigPainel.phoneNumberIdSuffix.slice(-4) %></span>
+                <% } else { %>
+                  <span class="link-box">O número será vinculado ao ativar</span>
+                <% } %>
+              </div>
+
+              <form action="/admin/configuracoes" method="POST" id="whatsappAutomationForm">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <input type="hidden" name="_whatsappAction" value="configuracao">
+                <div class="wa-form-grid">
+                  <label class="wa-switch full">
+                    <input type="checkbox" name="ativo" <%= whatsappConfigPainel.ativo ? 'checked' : '' %>>
+                    <span><strong>Ativar atendimento automático</strong><br><small>Quando desligado, o webhook continua seguro, mas o robô não responde clientes.</small></span>
+                  </label>
+
+                  <div class="field full">
+                    <label for="waMensagemBoasVindas">Mensagem de boas-vindas</label>
+                    <textarea id="waMensagemBoasVindas" name="mensagemBoasVindas" maxlength="1000" required><%= whatsappConfigPainel.mensagemBoasVindas || '' %></textarea>
+                    <p class="wa-help">Exemplo: “Olá! 👋 Bem-vindo à nossa loja.”</p>
+                  </div>
+
+                  <div class="field full">
+                    <label for="waMensagemMenu">Texto antes das opções</label>
+                    <textarea id="waMensagemMenu" name="mensagemMenu" maxlength="1000"><%= whatsappConfigPainel.mensagemMenu || '' %></textarea>
+                  </div>
+
+                  <label class="wa-switch full">
+                    <input type="checkbox" name="menuAtivo" <%= whatsappConfigPainel.menuAtivo !== false ? 'checked' : '' %>>
+                    <span><strong>Mostrar menu interativo</strong><br><small>Até 3 opções aparecem como botões; com mais opções o WhatsApp envia uma lista.</small></span>
+                  </label>
+
+                  <div class="field">
+                    <label for="waTextoBotaoMenu">Texto do botão da lista</label>
+                    <input id="waTextoBotaoMenu" name="textoBotaoMenu" maxlength="20" value="<%= whatsappConfigPainel.textoBotaoMenu || 'Ver opções' %>">
+                  </div>
+
+                  <div class="field">
+                    <label for="waPedidoNaoEncontrado">Quando não achar pedido</label>
+                    <input id="waPedidoNaoEncontrado" name="mensagemPedidoNaoEncontrado" maxlength="1000" value="<%= whatsappConfigPainel.mensagemPedidoNaoEncontrado || '' %>">
+                  </div>
+
+                  <div class="field full">
+                    <label for="waFallback">Resposta de apoio</label>
+                    <textarea id="waFallback" name="mensagemFallback" maxlength="1000"><%= whatsappConfigPainel.mensagemFallback || '' %></textarea>
+                  </div>
+
+                  <div class="field full">
+                    <label>Opções do menu</label>
+                    <p class="wa-help">Você escolhe o texto que o cliente vê e a ação do ComandaFacil. O limite desta primeira versão é 10 opções.</p>
+                    <div class="wa-options" id="whatsappMenuOptions">
+                      <% (whatsappConfigPainel.menuOpcoes || []).filter(op => op.ativo !== false).slice(0,10).forEach((opcao, indice) => { %>
+                        <article class="wa-option" data-wa-option>
+                          <div class="wa-option-head">
+                            <span class="wa-option-title">Opção <%= indice + 1 %></span>
+                            <button type="button" class="wa-remove-option" data-wa-remove>Remover</button>
+                          </div>
+                          <input type="hidden" name="menuOpcaoId" value="<%= opcao.id || '' %>">
+                          <div class="wa-option-grid">
+                            <div class="field">
+                              <label>Texto da opção</label>
+                              <input name="menuOpcaoTitulo" maxlength="20" value="<%= opcao.titulo || '' %>" required>
+                            </div>
+                            <div class="field">
+                              <label>Ação</label>
+                              <select name="menuOpcaoAcao">
+                                <option value="status_pedido" <%= opcao.acao === 'status_pedido' ? 'selected' : '' %>>Ver status do pedido</option>
+                                <option value="abrir_cardapio" <%= opcao.acao === 'abrir_cardapio' ? 'selected' : '' %>>Abrir cardápio</option>
+                                <option value="falar_atendente" <%= opcao.acao === 'falar_atendente' ? 'selected' : '' %>>Falar com atendente</option>
+                                <option value="resposta_personalizada" <%= opcao.acao === 'resposta_personalizada' ? 'selected' : '' %>>Resposta personalizada</option>
+                              </select>
+                            </div>
+                            <div class="field full">
+                              <label>Resposta personalizada / complemento</label>
+                              <textarea name="menuOpcaoResposta" maxlength="1200" placeholder="Opcional para status e cardápio; usado diretamente nas respostas personalizadas e no atendimento humano."><%= opcao.resposta || '' %></textarea>
+                            </div>
+                          </div>
+                        </article>
+                      <% }) %>
+                    </div>
+                    <button type="button" class="wa-add-option" id="whatsappAddMenuOption">+ Adicionar opção</button>
+                  </div>
+
+                  <div class="field full">
+                    <button type="submit" class="button">Salvar WhatsApp API</button>
+                  </div>
+                </div>
+              </form>
+            </section>
+          </div>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div class="panel-title">
+                <h2>Atendimentos</h2>
+                <p>Quando o cliente escolher “Falar com atendente”, o robô pausa para aquela conversa.</p>
+              </div>
+            </div>
+
+            <div class="wa-conversations">
+              <% if (!whatsappConversasPainel.length) { %>
+                <div class="wa-empty">Nenhuma conversa recebida ainda. Depois de ativar, envie um “Oi” para o número da loja para testar.</div>
+              <% } %>
+              <% whatsappConversasPainel.forEach(conversa => { %>
+                <article class="wa-conversation">
+                  <div class="wa-conversation-head">
+                    <div>
+                      <div class="wa-conversation-name"><%= conversa.clienteNome || 'Cliente WhatsApp' %></div>
+                      <div class="wa-conversation-phone"><%= formatarWaId(conversa.clienteWaId) %></div>
+                    </div>
+                    <span class="wa-mode <%= conversa.modo === 'atendente' ? 'human' : '' %>">
+                      <%= conversa.modo === 'atendente' ? '👤 Atendente' : '🤖 Robô' %>
+                    </span>
+                  </div>
+                  <div class="wa-preview"><%= conversa.ultimaMensagemPreview || 'Sem prévia da mensagem.' %></div>
+                  <% if (Number(conversa.naoLidas || 0) > 0) { %>
+                    <p class="wa-help"><strong><%= conversa.naoLidas %></strong> mensagem(ns) aguardando leitura.</p>
+                  <% } %>
+
+                  <% if (conversa.modo === 'atendente') { %>
+                    <form class="wa-reply-form" action="/admin/configuracoes" method="POST">
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <input type="hidden" name="_whatsappAction" value="responder_conversa">
+                      <input type="hidden" name="whatsappConversaId" value="<%= conversa._id %>">
+                      <textarea name="mensagem" maxlength="4096" placeholder="Digite a resposta do atendente..." required></textarea>
+                      <button type="submit" class="button">Enviar pelo WhatsApp</button>
+                    </form>
+                    <div class="wa-actions-inline">
+                      <form action="/admin/configuracoes" method="POST">
+                        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                        <input type="hidden" name="_whatsappAction" value="reativar_bot">
+                        <input type="hidden" name="whatsappConversaId" value="<%= conversa._id %>">
+                        <button type="submit" class="button secondary">Encerrar atendimento e reativar robô</button>
+                      </form>
+                    </div>
+                  <% } %>
+                </article>
+              <% }) %>
+            </div>
+          </section>
+        </div>
+
+        <template id="whatsappMenuOptionTemplate">
+          <article class="wa-option" data-wa-option>
+            <div class="wa-option-head">
+              <span class="wa-option-title">Nova opção</span>
+              <button type="button" class="wa-remove-option" data-wa-remove>Remover</button>
+            </div>
+            <input type="hidden" name="menuOpcaoId" value="">
+            <div class="wa-option-grid">
+              <div class="field"><label>Texto da opção</label><input name="menuOpcaoTitulo" maxlength="20" required></div>
+              <div class="field"><label>Ação</label><select name="menuOpcaoAcao"><option value="status_pedido">Ver status do pedido</option><option value="abrir_cardapio">Abrir cardápio</option><option value="falar_atendente">Falar com atendente</option><option value="resposta_personalizada" selected>Resposta personalizada</option></select></div>
+              <div class="field full"><label>Resposta personalizada / complemento</label><textarea name="menuOpcaoResposta" maxlength="1200"></textarea></div>
+            </div>
+          </article>
+        </template>
+        <script nonce="<%= cspNonce %>">
+          (() => {
+            const list = document.getElementById('whatsappMenuOptions');
+            const add = document.getElementById('whatsappAddMenuOption');
+            const template = document.getElementById('whatsappMenuOptionTemplate');
+            if (!list || !add || !template) return;
+            const renumber = () => {
+              list.querySelectorAll('[data-wa-option]').forEach((card, index) => {
+                const title = card.querySelector('.wa-option-title');
+                if (title) title.textContent = `Opção ${index + 1}`;
+              });
+              add.disabled = list.querySelectorAll('[data-wa-option]').length >= 10;
+            };
+            add.addEventListener('click', () => {
+              if (list.querySelectorAll('[data-wa-option]').length >= 10) return;
+              const fragment = template.content.cloneNode(true);
+              const hiddenId = fragment.querySelector('input[name="menuOpcaoId"]');
+              if (hiddenId) hiddenId.value = `op_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
+              list.appendChild(fragment);
+              renumber();
+            });
+            list.addEventListener('click', event => {
+              const button = event.target.closest('[data-wa-remove]');
+              if (!button) return;
+              button.closest('[data-wa-option]')?.remove();
+              renumber();
+            });
+            renumber();
+          })();
+        </script>
+      </section>
+      <% } %>
+
       <% if (pode('configuracoes') || pode('configurar_impressoras')) { %>
       <!-- CONFIGURAÇÕES -->
       <section class="page" id="page-configuracoes">
@@ -7455,7 +8216,7 @@
                 </span>
 
                 <a
-                  href="https://github.com/robson0033/ComandaFacil/releases/latest/download/agente.zip"
+                  href="https://github.com/robson0033/ComandaFacil/releases/latest/download/agente.7z"
                   class="download-agent-button"
                   data-staged-agent-version="1.2.0"
                 >
@@ -9349,6 +10110,11 @@
         'Cadastre a equipe e defina permissões.'
       ],
 
+      whatsapp: [
+        'WhatsApp API',
+        'Automatize respostas, menus, status de pedidos e atendimento humano.'
+      ],
+
       configuracoes: [
         'Configurações',
         'Perfil, catálogo e impressora do estabelecimento.'
@@ -10692,7 +11458,7 @@ function criarCardPedido(
           )}"
         >
           ${escaparHtml(
-            pedido.pagamentoStatus
+            pedido.pagamentoStatus === 'expirado' ? 'Pagamento expirado' : (pedido.pagamentoStatus === 'expiracao_pendente' ? 'Expiração pendente' : pedido.pagamentoStatus)
           ).replaceAll('_', ' ')}
         </span>
       </div>
@@ -10708,7 +11474,7 @@ function criarCardPedido(
 
     <div style="margin-top:7px;" data-payment-status-text>
       <strong>Status do pagamento:</strong>
-      ${escaparHtml(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ')}
+      ${escaparHtml(pedido.pagamentoStatus === 'expirado' ? 'Pagamento expirado' : (pedido.pagamentoStatus === 'expiracao_pendente' ? 'Expiração pendente' : (pedido.pagamentoStatus || 'pendente'))).replaceAll('_', ' ')}
     </div>
 
 
@@ -11859,10 +12625,14 @@ async function verificarNovosPedidos() {
           const badge = existing.querySelector('[data-payment-status-badge]');
           if (badge) {
             badge.className = `status ${pedido.pagamentoStatus || 'pendente'}`;
-            badge.textContent = String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ');
+            badge.textContent = pedido.pagamentoStatus === 'expirado'
+              ? 'Pagamento expirado'
+              : pedido.pagamentoStatus === 'expiracao_pendente'
+                ? 'Expiração pendente'
+                : String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ');
           }
           const statusText = existing.querySelector('[data-payment-status-text]');
-          if (statusText) statusText.innerHTML = `<strong>Status do pagamento:</strong> ${escaparHtml(String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' '))}`;
+          if (statusText) statusText.innerHTML = `<strong>Status do pagamento:</strong> ${escaparHtml(pedido.pagamentoStatus === 'expirado' ? 'Pagamento expirado' : (pedido.pagamentoStatus === 'expiracao_pendente' ? 'Expiração pendente' : String(pedido.pagamentoStatus || 'pendente').replaceAll('_', ' ')))}`;
           const methodText = existing.querySelector('[data-payment-method-text]');
           if (methodText) methodText.innerHTML = `<strong>Forma de pagamento:</strong> ${escaparHtml(textoFormaPagamentoPedido(pedido))}`;
           const dateText = existing.querySelector('[data-payment-date-text]');

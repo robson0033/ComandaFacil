@@ -1058,7 +1058,7 @@ const Pedido = mongoose.model(
 
       pagamentoStatus: {
         type: String,
-        enum: ["pendente", "pago", "cancelado"],
+        enum: ["pendente", "pago", "cancelado", "expiracao_pendente", "expirado"],
         default: "pendente",
       },
 
@@ -1153,6 +1153,10 @@ const Pedido = mongoose.model(
       pixCopiaCola: { type: String, default: "" },
       pixQrCodeBase64: { type: String, default: "" },
       pixExpiraEm: { type: Date, default: null },
+      pixExpiradoEm: { type: Date, default: null },
+      pixExpiracaoStatusRemoto: { type: String, default: "" },
+      pixExpiracaoUltimaTentativaEm: { type: Date, default: null },
+      pixExpiracaoErro: { type: String, default: "", maxlength: 500 },
       platformFeePercent: { type: Number, default: null },
       platformFeeCents: { type: Number, default: 0, min: 0 },
       platformFeeStatus: {
@@ -1748,6 +1752,179 @@ const PlatformFeeTermsAcceptance = mongoose.model(
   platformFeeTermsAcceptanceSchema,
 );
 
+
+const whatsappMenuOpcaoSchema = new mongoose.Schema({
+  id: { type: String, required: true, trim: true, maxlength: 80 },
+  titulo: { type: String, required: true, trim: true, maxlength: 20 },
+  acao: {
+    type: String,
+    enum: ["status_pedido", "falar_atendente", "abrir_cardapio", "resposta_personalizada"],
+    default: "resposta_personalizada",
+  },
+  resposta: { type: String, default: "", trim: true, maxlength: 1200 },
+  ativo: { type: Boolean, default: true },
+  ordem: { type: Number, default: 0, min: 0, max: 99 },
+}, { _id: false });
+
+const whatsappConfiguracaoSchema = new mongoose.Schema({
+  estabelecimentoId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Registro",
+    required: true,
+    index: true,
+  },
+  ativo: { type: Boolean, default: false },
+  phoneNumberIdHash: { type: String, default: "", trim: true, maxlength: 64, index: true },
+  phoneNumberIdSuffix: { type: String, default: "", trim: true, maxlength: 12 },
+  conectadoEm: { type: Date, default: null },
+  menuAtivo: { type: Boolean, default: true },
+  mensagemBoasVindas: {
+    type: String,
+    default: "Olá! 👋 Bem-vindo ao nosso atendimento pelo WhatsApp.",
+    trim: true,
+    maxlength: 1000,
+  },
+  mensagemMenu: {
+    type: String,
+    default: "Como podemos ajudar?",
+    trim: true,
+    maxlength: 1000,
+  },
+  mensagemFallback: {
+    type: String,
+    default: "Não consegui identificar essa opção. Escolha uma opção do menu.",
+    trim: true,
+    maxlength: 1000,
+  },
+  mensagemPedidoNaoEncontrado: {
+    type: String,
+    default: "Não encontrei um pedido recente para este WhatsApp.",
+    trim: true,
+    maxlength: 1000,
+  },
+  textoBotaoMenu: { type: String, default: "Ver opções", trim: true, maxlength: 20 },
+  menuOpcoes: { type: [whatsappMenuOpcaoSchema], default: [] },
+}, opts);
+whatsappConfiguracaoSchema.index(
+  { estabelecimentoId: 1 },
+  { unique: true, name: "whatsapp_config_tenant_unique" },
+);
+whatsappConfiguracaoSchema.index(
+  { phoneNumberIdHash: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { phoneNumberIdHash: { $type: "string", $gt: "" } },
+    name: "whatsapp_phone_number_id_hash_unique",
+  },
+);
+const WhatsAppConfiguracao = mongoose.model("WhatsAppConfiguracao", whatsappConfiguracaoSchema);
+
+const whatsappConversaSchema = new mongoose.Schema({
+  estabelecimentoId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Registro",
+    required: true,
+    index: true,
+  },
+  clienteWaId: { type: String, required: true, trim: true, maxlength: 30 },
+  clienteNome: { type: String, default: "", trim: true, maxlength: 120 },
+  modo: { type: String, enum: ["bot", "atendente"], default: "bot" },
+  atendenteSolicitadoEm: { type: Date, default: null },
+  ultimaEntradaEm: { type: Date, default: null },
+  ultimaSaidaEm: { type: Date, default: null },
+  ultimaMensagemPreview: { type: String, default: "", trim: true, maxlength: 250 },
+  naoLidas: { type: Number, default: 0, min: 0, max: 100000 },
+  expiresAt: {
+    type: Date,
+    default: () => new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+  },
+}, opts);
+whatsappConversaSchema.index(
+  { estabelecimentoId: 1, clienteWaId: 1 },
+  { unique: true, name: "whatsapp_conversa_tenant_cliente_unique" },
+);
+whatsappConversaSchema.index(
+  { estabelecimentoId: 1, modo: 1, updatedAt: -1 },
+  { name: "whatsapp_conversa_tenant_modo_data" },
+);
+whatsappConversaSchema.index(
+  { expiresAt: 1 },
+  { expireAfterSeconds: 0, name: "whatsapp_conversa_retention_ttl" },
+);
+const WhatsAppConversa = mongoose.model("WhatsAppConversa", whatsappConversaSchema);
+
+const whatsappMensagemSchema = new mongoose.Schema({
+  estabelecimentoId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Registro",
+    required: true,
+    index: true,
+  },
+  conversaId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "WhatsAppConversa",
+    required: true,
+    index: true,
+  },
+  direcao: { type: String, enum: ["entrada", "saida"], required: true },
+  tipo: { type: String, default: "text", trim: true, maxlength: 40 },
+  texto: { type: String, default: "", maxlength: 4096 },
+  metaMessageIdHash: { type: String, default: "", trim: true, maxlength: 64 },
+  status: { type: String, default: "", trim: true, maxlength: 40 },
+  expiresAt: { type: Date, required: true },
+}, opts);
+whatsappMensagemSchema.index(
+  { metaMessageIdHash: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { metaMessageIdHash: { $type: "string", $gt: "" } },
+    name: "whatsapp_message_meta_id_unique",
+  },
+);
+whatsappMensagemSchema.index(
+  { conversaId: 1, createdAt: -1 },
+  { name: "whatsapp_message_conversation_data" },
+);
+whatsappMensagemSchema.index(
+  { expiresAt: 1 },
+  { expireAfterSeconds: 0, name: "whatsapp_message_retention_ttl" },
+);
+const WhatsAppMensagem = mongoose.model("WhatsAppMensagem", whatsappMensagemSchema);
+
+const whatsappWebhookEventSchema = new mongoose.Schema({
+  eventKey: { type: String, required: true, trim: true, maxlength: 64 },
+  payload: { type: mongoose.Schema.Types.Mixed, default: null },
+  correlationId: { type: String, default: "", trim: true, maxlength: 100 },
+  status: {
+    type: String,
+    enum: ["pending", "processing", "processed", "failed"],
+    default: "pending",
+    index: true,
+  },
+  attempts: { type: Number, default: 0, min: 0, max: 100 },
+  lockedAt: { type: Date, default: null },
+  processedAt: { type: Date, default: null },
+  lastError: { type: String, default: "", maxlength: 300 },
+  nextRetryAt: { type: Date, default: Date.now, index: true },
+  expiresAt: {
+    type: Date,
+    default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  },
+}, opts);
+whatsappWebhookEventSchema.index(
+  { eventKey: 1 },
+  { unique: true, name: "whatsapp_webhook_event_key_unique" },
+);
+whatsappWebhookEventSchema.index(
+  { status: 1, nextRetryAt: 1, createdAt: 1 },
+  { name: "whatsapp_webhook_event_queue" },
+);
+whatsappWebhookEventSchema.index(
+  { expiresAt: 1 },
+  { expireAfterSeconds: 0, name: "whatsapp_webhook_event_retention_ttl" },
+);
+const WhatsAppWebhookEvent = mongoose.model("WhatsAppWebhookEvent", whatsappWebhookEventSchema);
+
 const orderLookupVerificationSchema = new mongoose.Schema({
   estabelecimentoId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
   identifierHash: { type: String, required: true, index: true },
@@ -1835,4 +2012,8 @@ module.exports = {
   OrderLookupVerification,
   OrderPaymentAttempt,
   PlatformFeeTermsAcceptance,
+  WhatsAppConfiguracao,
+  WhatsAppConversa,
+  WhatsAppMensagem,
+  WhatsAppWebhookEvent,
 };

@@ -406,6 +406,38 @@ test("Pix pendente bloqueia arquivamento mesmo antes de mercadoPagoPaymentId che
   assert.equal(estado.auditorias.size, 1);
 });
 
+test("Pix expirado sem aprovação pode ser arquivado", async t => {
+  const estado = instalarAmbiente(t, {
+    inicial: pedido({
+      pagamentoStatus: "expirado",
+      mercadoPagoPaymentId: "mp-expirado",
+      mercadoPagoStatus: "expired",
+      pixExpiradoEm: new Date(),
+      historicoFinanceiro: [{
+        operationKey: "pix_expirado:mp-expirado",
+        status: "expired",
+        tipo: "pix_online_expirado",
+      }],
+    }),
+    tentativasPix: [{
+      _id: "attempt-expired",
+      estabelecimentoId: LOJA,
+      pedidoId: PEDIDO,
+      paymentMethod: "pix",
+      status: "expired",
+      reconciliationStatus: "processed",
+      paymentId: "mp-expirado",
+    }],
+  });
+
+  const result = await arquivarPedido(args({
+    usuario: { id: USUARIO, tipo: "funcionario" },
+  }));
+
+  assert.equal(result.status, "arquivado");
+  assert.equal(estado.pedido.excluido, true);
+});
+
 test("Pix aprovado pendente de conciliação bloqueia arquivamento", async t => {
   const estado = instalarAmbiente(t, {
     tentativasPix: [{

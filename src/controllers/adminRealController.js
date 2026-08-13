@@ -22,6 +22,9 @@ const {
   PrintAgent,
   PrintJob,
   OrderLookupVerification,
+  WhatsAppConfiguracao,
+  WhatsAppConversa,
+  WhatsAppMensagem,
 } = require("../models/painelModels");
 const {
   enviarCodigoConsultaPedidos,
@@ -121,6 +124,10 @@ const {
   normalizarIdsSabores,
   resolverTamanhoEPrecoPizza,
 } = require("../services/pizzaMeioAMeioService");
+const {
+  phoneNumberIdHash,
+} = require("../services/whatsappAutomationService");
+const whatsappCloudApi = require("../services/whatsappCloudApiService");
 
 function exigirMovimentacaoEstoqueConcluida(resultado) {
   if (resultado?.success
@@ -1927,6 +1934,84 @@ function etapasAgregacaoFormasPagamento({
   ];
 }
 
+function montarVendasPorCategoriaProduto({
+  categorias = [],
+  produtos = [],
+  vendas = [],
+} = {}) {
+  const vendasPorProduto = new Map();
+
+  for (const venda of Array.isArray(vendas) ? vendas : []) {
+    const produtoId = String(venda?._id || "").trim();
+    if (!produtoId) continue;
+
+    vendasPorProduto.set(produtoId, {
+      quantidade: Math.max(0, Number(venda?.quantidade || 0)),
+      total: Math.max(0, Number(venda?.total || 0)),
+    });
+  }
+
+  const produtosPorCategoria = new Map();
+  for (const produto of Array.isArray(produtos) ? produtos : []) {
+    const categoriaId = String(produto?.categoriaId || "").trim();
+    if (!categoriaId) continue;
+
+    const produtoId = String(produto?._id || "").trim();
+    const venda = vendasPorProduto.get(produtoId) || { quantidade: 0, total: 0 };
+    const item = {
+      categoriaId,
+      produtoId,
+      produtoNome: String(produto?.nome || "Produto").trim() || "Produto",
+      quantidade: venda.quantidade,
+      total: venda.total,
+    };
+
+    if (!produtosPorCategoria.has(categoriaId)) {
+      produtosPorCategoria.set(categoriaId, []);
+    }
+    produtosPorCategoria.get(categoriaId).push(item);
+  }
+
+  const linhas = [];
+  const categoriasOrdenadas = [...(Array.isArray(categorias) ? categorias : [])]
+    .sort((a, b) =>
+      String(a?.nome || "").localeCompare(String(b?.nome || ""), "pt-BR", { sensitivity: "base" }),
+    );
+
+  for (const categoria of categoriasOrdenadas) {
+    const categoriaId = String(categoria?._id || "").trim();
+    const categoriaNome = String(categoria?.nome || "Categoria").trim() || "Categoria";
+    const produtosCategoria = [...(produtosPorCategoria.get(categoriaId) || [])]
+      .sort((a, b) =>
+        b.quantidade - a.quantidade
+        || a.produtoNome.localeCompare(b.produtoNome, "pt-BR", { sensitivity: "base" }),
+      );
+
+    if (!produtosCategoria.length) {
+      linhas.push({
+        categoriaId,
+        categoriaNome,
+        produtoId: "",
+        produtoNome: "Nenhum produto cadastrado",
+        quantidade: 0,
+        total: 0,
+        semProduto: true,
+      });
+      continue;
+    }
+
+    for (const produto of produtosCategoria) {
+      linhas.push({
+        ...produto,
+        categoriaNome,
+        semProduto: false,
+      });
+    }
+  }
+
+  return linhas;
+}
+
 async function agregarRelatorios({
   idEstabelecimento,
   periodo,
@@ -1944,8 +2029,13 @@ async function agregarRelatorios({
       periodo.filtro,
       periodo,
     );
-  const [resultado = {}] =
-    await Pedido.aggregate([
+  const [
+    [resultado = {}],
+    categoriasCatalogo,
+    produtosCatalogo,
+    paidOrdersWithoutPaymentDate,
+  ] = await Promise.all([
+    Pedido.aggregate([
       {
         $match: base,
       },
@@ -2069,20 +2159,33 @@ async function agregarRelatorios({
               },
             },
           ],
-          semHorarioPagamento: [
-            {
-              $match: {
-                pagamentoStatus: "pago",
-                pagoEm: null,
-              },
-            },
-            { $count: "quantidade" },
-          ],
           formasPagamento:
             etapasAgregacaoFormasPagamento(),
         },
       },
-    ]);
+    ]),
+    Categoria.find({
+      estabelecimentoId: idEstabelecimento,
+      tipo: "catalogo",
+    })
+      .select("_id nome")
+      .lean(),
+    Produto.find({
+      estabelecimentoId: idEstabelecimento,
+    })
+      .select("_id nome categoriaId ativo")
+      .lean(),
+    Pedido.countDocuments({
+      ...filtroBaseRelatorio(
+        idEstabelecimento,
+        { inicio: null, fim: null },
+        canalAtual,
+        "pagoEm",
+      ),
+      pagamentoStatus: "pago",
+      pagoEm: null,
+    }),
+  ]);
 
   const financeiro =
     resultado.financeiro?.[0] ||
@@ -2105,7 +2208,7 @@ async function agregarRelatorios({
         ?.quantidade || 0,
     ),
     paidOrdersWithoutPaymentDate: Number(
-      resultado.semHorarioPagamento?.[0]?.quantidade || 0,
+      paidOrdersWithoutPaymentDate || 0,
     ),
     formasPagamento:
       normalizarResumoFormasPagamento(
@@ -2117,20 +2220,12 @@ async function agregarRelatorios({
         periodo.filtro,
         timeZone,
       ),
-    maisVendidos: [...produtos]
-      .sort(
-        (a, b) =>
-          b.quantidade -
-          a.quantidade,
-      )
-      .slice(0, 5),
-    menosVendidos: [...produtos]
-      .sort(
-        (a, b) =>
-          a.quantidade -
-          b.quantidade,
-      )
-      .slice(0, 5),
+    categoriasProdutosVendidos:
+      montarVendasPorCategoriaProduto({
+        categorias: categoriasCatalogo,
+        produtos: produtosCatalogo,
+        vendas: produtos,
+      }),
   };
 }
 
@@ -2821,73 +2916,68 @@ exports.admin = async (req, res) => {
         ? req.query.canal
         : "todos";
 
-    const pedidosFiltrados =
-      pedidos.filter((pedido) => {
-        if (
-          pedido.status ===
-          "cancelado"
-        ) {
-          return false;
-        }
+    const baseRelatorioPago = {
+      ...filtroBaseRelatorio(
+        idEstabelecimento,
+        periodo,
+        canalAtual,
+        "pagoEm",
+      ),
+      pagamentoStatus: "pago",
+    };
 
-        const canalPedido =
-          pedido.canal === "balcao"
-            ? "retirada"
-            : pedido.canal;
+    const relatorioVazio = {
+      faturamento: 0,
+      custo: 0,
+      quantidadePaga: 0,
+      totalFinalizados: 0,
+      grafico: {
+        labels: ["Sem dados"],
+        valores: [0],
+        maiorValor: 1,
+      },
+      categoriasProdutosVendidos: [],
+      formasPagamento: criarResumoFormasPagamentoVazio(),
+      paidOrdersWithoutPaymentDate: 0,
+    };
 
-        if (
-          canalAtual !== "todos" &&
-          canalPedido !== canalAtual
-        ) {
-          return false;
-        }
-
-        if (
-          !periodo.inicio ||
-          !periodo.fim
-        ) {
-          return true;
-        }
-
-        if (!pedido.createdAt) {
-          return false;
-        }
-
-        const data = new Date(
-          pedido.createdAt,
-        );
-
-        return (
-          data >= periodo.inicio &&
-          data <= periodo.fim
-        );
-      });
-
-    const agregadoRelatorios =
-      podeRelatorios
-        ? await agregarRelatorios({
+    const [
+      agregadoRelatorios,
+      pedidosFiltrados,
+      pagamentosPixComTaxa,
+    ] = podeRelatorios
+      ? await Promise.all([
+          agregarRelatorios({
             idEstabelecimento,
             periodo,
             canalAtual,
             timeZone: timezoneEstabelecimento,
+          }),
+          Pedido.find(baseRelatorioPago)
+            .sort({ pagoEm: -1, createdAt: -1 })
+            .limit(100)
+            .lean(),
+          Pedido.find({
+            ...baseRelatorioPago,
+            $or: [
+              { formaPagamento: "pix_online" },
+              {
+                pagamentos: {
+                  $elemMatch: {
+                    formaPagamento: "pix_online",
+                    valorCentavos: { $gt: 0 },
+                  },
+                },
+              },
+            ],
           })
-        : {
-            faturamento: 0,
-            custo: 0,
-            quantidadePaga: 0,
-            totalFinalizados: 0,
-            grafico: {
-              labels: [
-                "Sem dados",
-              ],
-              valores: [0],
-              maiorValor: 1,
-            },
-            maisVendidos: [],
-            menosVendidos: [],
-            formasPagamento:
-              criarResumoFormasPagamentoVazio(),
-          };
+            .select(
+              "grossAmountCents platformFeeCents platformFeeReversedCents "
+              + "platformFeeNetCents merchantAmountBeforeMpFeesCents platformFeeStatus",
+            )
+            .lean(),
+        ])
+      : [relatorioVazio, [], []];
 
     const faturamento =
       agregadoRelatorios
@@ -2896,20 +2986,6 @@ exports.admin = async (req, res) => {
     const custo =
       agregadoRelatorios.custo;
 
-    const pagamentosPixComTaxa = podeRelatorios
-      ? pedidos.filter(pedido => {
-          if (pedido.pagamentoStatus !== "pago" || pedido.status === "cancelado") return false;
-          const possuiPixOnline = String(pedido.formaPagamento || "") === "pix_online"
-            || (Array.isArray(pedido.pagamentos) && pedido.pagamentos.some(item =>
-              String(item?.formaPagamento || "") === "pix_online"
-              && Number(item?.valorCentavos || 0) > 0));
-          if (!possuiPixOnline) return false;
-          if (!pedido.pagoEm) return false;
-          const pagoEm = new Date(pedido.pagoEm);
-          return (!periodo.inicio || pagoEm >= periodo.inicio)
-            && (!periodo.fim || pagoEm <= periodo.fim);
-        })
-      : [];
     const taxasPix = pagamentosPixComTaxa.reduce((acc, pedido) => {
       acc.valorBrutoCents += Number(pedido.grossAmountCents || 0);
       acc.taxaCents += Number(pedido.platformFeeCents || 0);
@@ -2940,12 +3016,9 @@ exports.admin = async (req, res) => {
           .totalFinalizados,
       grafico:
         agregadoRelatorios.grafico,
-      maisVendidos:
+      categoriasProdutosVendidos:
         agregadoRelatorios
-          .maisVendidos,
-      menosVendidos:
-        agregadoRelatorios
-          .menosVendidos,
+          .categoriasProdutosVendidos,
       paidOrdersWithoutPaymentDate:
         agregadoRelatorios.paidOrdersWithoutPaymentDate || 0,
       formasPagamento:
@@ -3025,6 +3098,21 @@ exports.admin = async (req, res) => {
             .lean()
         : null;
 
+    const whatsappConfiguracao = podeConfiguracoes
+      ? await WhatsAppConfiguracao.findOne({
+          estabelecimentoId: idEstabelecimento,
+        }).lean()
+      : null;
+
+    const whatsappConversas = podeConfiguracoes
+      ? await WhatsAppConversa.find({
+          estabelecimentoId: idEstabelecimento,
+        })
+          .sort({ updatedAt: -1 })
+          .limit(40)
+          .lean()
+      : [];
+
     const dashboardSeguro =
       podeDashboard
         ? dashboard
@@ -3060,8 +3148,7 @@ exports.admin = async (req, res) => {
               valores: [],
               maiorValor: 1,
             },
-            maisVendidos: [],
-            menosVendidos: [],
+            categoriasProdutosVendidos: [],
             historico: [],
             formasPagamento:
               criarResumoFormasPagamentoVazio(),
@@ -3114,6 +3201,15 @@ exports.admin = async (req, res) => {
         cidadesEntrega:
           podeConfiguracoes
             ? cidadesEntrega
+            : [],
+
+        whatsappConfiguracao:
+          podeConfiguracoes
+            ? whatsappConfiguracao
+            : null,
+        whatsappConversas:
+          podeConfiguracoes
+            ? whatsappConversas
             : [],
 
         pedidos:
@@ -5579,6 +5675,282 @@ exports.alterarStatusCidadeEntrega = async (req, res) => {
   }
 };
 
+
+/*
+|--------------------------------------------------------------------------
+| WHATSAPP API / AUTOMAÇÕES
+|--------------------------------------------------------------------------
+*/
+
+function listaCampoFormulario(value) {
+  if (value === undefined || value === null) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function normalizarWhatsAppMenuOpcoes(body = {}) {
+  const ids = listaCampoFormulario(body.menuOpcaoId);
+  const titulos = listaCampoFormulario(body.menuOpcaoTitulo);
+  const acoes = listaCampoFormulario(body.menuOpcaoAcao);
+  const respostas = listaCampoFormulario(body.menuOpcaoResposta);
+  const permitidas = new Set([
+    "status_pedido",
+    "falar_atendente",
+    "abrir_cardapio",
+    "resposta_personalizada",
+  ]);
+
+  return titulos.slice(0, 10).map((titulo, index) => {
+    const tituloLimpo = String(titulo || "").trim().slice(0, 20);
+    const idRecebido = String(ids[index] || "")
+      .replace(/[^a-zA-Z0-9_-]/g, "")
+      .slice(0, 80);
+    const acaoRecebida = String(acoes[index] || "resposta_personalizada").trim();
+    return {
+      id: idRecebido || `op_${crypto.randomBytes(6).toString("hex")}`,
+      titulo: tituloLimpo,
+      acao: permitidas.has(acaoRecebida) ? acaoRecebida : "resposta_personalizada",
+      resposta: String(respostas[index] || "").trim().slice(0, 1200),
+      ativo: Boolean(tituloLimpo),
+      ordem: index,
+    };
+  }).filter(item => item.titulo);
+}
+
+exports.salvarWhatsAppConfiguracao = async (req, res) => {
+  try {
+    const idEstabelecimento = estabelecimentoId(req);
+    const ativo = req.body.ativo === "on";
+    const menuAtivo = req.body.menuAtivo === "on";
+    const phoneNumberId = whatsappCloudApi.somenteDigitos(
+      process.env.WHATSAPP_PHONE_NUMBER_ID || "",
+    );
+    const menuOpcoes = normalizarWhatsAppMenuOpcoes(req.body);
+
+    if (ativo && !phoneNumberId) {
+      return erroERedirecionar(
+        req,
+        res,
+        "whatsapp",
+        "O WHATSAPP_PHONE_NUMBER_ID ainda não está configurado no servidor.",
+      );
+    }
+    if (ativo && !String(process.env.WHATSAPP_ACCESS_TOKEN || "").trim()) {
+      return erroERedirecionar(
+        req,
+        res,
+        "whatsapp",
+        "O WHATSAPP_ACCESS_TOKEN ainda não está configurado no servidor.",
+      );
+    }
+    if (menuAtivo && menuOpcoes.length === 0) {
+      return erroERedirecionar(
+        req,
+        res,
+        "whatsapp",
+        "Adicione pelo menos uma opção ao menu automático.",
+      );
+    }
+
+    const idHash = phoneNumberId ? phoneNumberIdHash(phoneNumberId) : "";
+    if (ativo && idHash) {
+      const conflito = await WhatsAppConfiguracao.findOne({
+        phoneNumberIdHash: idHash,
+        estabelecimentoId: { $ne: idEstabelecimento },
+      }).select("_id estabelecimentoId").lean();
+      if (conflito) {
+        return erroERedirecionar(
+          req,
+          res,
+          "whatsapp",
+          "Este número do WhatsApp já está vinculado a outro estabelecimento.",
+        );
+      }
+    }
+
+    await WhatsAppConfiguracao.findOneAndUpdate(
+      { estabelecimentoId: idEstabelecimento },
+      {
+        $set: {
+          ativo,
+          phoneNumberIdHash: ativo ? idHash : "",
+          phoneNumberIdSuffix: ativo ? phoneNumberId.slice(-8) : "",
+          conectadoEm: ativo ? new Date() : null,
+          menuAtivo,
+          mensagemBoasVindas: String(req.body.mensagemBoasVindas || "")
+            .trim().slice(0, 1000),
+          mensagemMenu: String(req.body.mensagemMenu || "")
+            .trim().slice(0, 1000),
+          mensagemFallback: String(req.body.mensagemFallback || "")
+            .trim().slice(0, 1000),
+          mensagemPedidoNaoEncontrado: String(req.body.mensagemPedidoNaoEncontrado || "")
+            .trim().slice(0, 1000),
+          textoBotaoMenu: String(req.body.textoBotaoMenu || "Ver opções")
+            .trim().slice(0, 20) || "Ver opções",
+          menuOpcoes,
+        },
+      },
+      {
+        upsert: true,
+        returnDocument: "after",
+        setDefaultsOnInsert: true,
+        runValidators: true,
+      },
+    );
+
+    appLogger.info("whatsapp_automation_config_saved", {
+      correlationId: req.correlationId,
+      estabelecimentoIdSuffix: String(idEstabelecimento).slice(-8),
+      ativo,
+      menuAtivo,
+      menuOptions: menuOpcoes.length,
+      phoneNumberIdSuffix: ativo ? phoneNumberId.slice(-8) : null,
+    });
+    return salvarERedirecionar(
+      req,
+      res,
+      "whatsapp",
+      ativo
+        ? "WhatsApp API ativado. O atendimento automático já pode responder mensagens."
+        : "Configuração do WhatsApp salva com o atendimento automático desativado.",
+    );
+  } catch (error) {
+    appLogger.error("whatsapp_automation_config_save_failed", {
+      correlationId: req.correlationId,
+      code: error?.code || "WHATSAPP_CONFIG_SAVE_FAILED",
+    });
+    return erroERedirecionar(
+      req,
+      res,
+      "whatsapp",
+      "Não foi possível salvar a configuração do WhatsApp.",
+    );
+  }
+};
+
+exports.responderWhatsAppConversa = async (req, res) => {
+  try {
+    const idEstabelecimento = estabelecimentoId(req);
+    const conversaId = String(req.params?.id || req.body?.whatsappConversaId || "").trim();
+    const texto = String(req.body.mensagem || "").trim().slice(0, 4096);
+    if (!texto) {
+      return erroERedirecionar(req, res, "whatsapp", "Digite uma mensagem para o cliente.");
+    }
+    const [conversa, config] = await Promise.all([
+      WhatsAppConversa.findOne({
+        _id: conversaId,
+        estabelecimentoId: idEstabelecimento,
+      }),
+      WhatsAppConfiguracao.findOne({
+        estabelecimentoId: idEstabelecimento,
+        ativo: true,
+      }).lean(),
+    ]);
+    if (!conversa || !config) {
+      return erroERedirecionar(
+        req,
+        res,
+        "whatsapp",
+        "Conversa não encontrada ou WhatsApp API desativado.",
+      );
+    }
+    const ultimaEntradaMs = conversa.ultimaEntradaEm
+      ? new Date(conversa.ultimaEntradaEm).getTime()
+      : 0;
+    if (!ultimaEntradaMs || Date.now() - ultimaEntradaMs > 24 * 60 * 60 * 1000) {
+      return erroERedirecionar(
+        req,
+        res,
+        "whatsapp",
+        "A janela de atendimento de 24 horas terminou. Aguarde o cliente enviar uma nova mensagem ou use um template aprovado pela Meta.",
+      );
+    }
+
+    const phoneNumberId = whatsappCloudApi.somenteDigitos(process.env.WHATSAPP_PHONE_NUMBER_ID || "");
+    if (!phoneNumberId || phoneNumberIdHash(phoneNumberId) !== config.phoneNumberIdHash) {
+      return erroERedirecionar(
+        req,
+        res,
+        "whatsapp",
+        "A credencial do número conectado não corresponde a esta loja.",
+      );
+    }
+
+    const envio = await whatsappCloudApi.enviarTexto({
+      phoneNumberId,
+      to: conversa.clienteWaId,
+      text: texto,
+      correlationId: req.correlationId,
+    });
+    await WhatsAppMensagem.create({
+      estabelecimentoId: idEstabelecimento,
+      conversaId: conversa._id,
+      direcao: "saida",
+      tipo: "text",
+      texto,
+      metaMessageIdHash: envio.messageId
+        ? crypto.createHash("sha256").update(`message-id:${String(process.env.WHATSAPP_APP_SECRET || process.env.SESSION_SECRET || "comanda-facil")}:${envio.messageId}`).digest("hex")
+        : "",
+      status: "sent",
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    });
+    conversa.modo = "atendente";
+    conversa.ultimaSaidaEm = new Date();
+    conversa.naoLidas = 0;
+    conversa.expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+    await conversa.save();
+
+    return salvarERedirecionar(req, res, "whatsapp", "Mensagem enviada pelo WhatsApp.");
+  } catch (error) {
+    appLogger.error("whatsapp_human_reply_failed", {
+      correlationId: req.correlationId,
+      code: error?.code || "WHATSAPP_HUMAN_REPLY_FAILED",
+      providerCode: error?.providerCode || null,
+    });
+    return erroERedirecionar(
+      req,
+      res,
+      "whatsapp",
+      "Não foi possível enviar a mensagem pelo WhatsApp.",
+    );
+  }
+};
+
+exports.reativarWhatsAppBot = async (req, res) => {
+  try {
+    const idEstabelecimento = estabelecimentoId(req);
+    const conversaId = String(req.params?.id || req.body?.whatsappConversaId || "").trim();
+    const conversa = await WhatsAppConversa.findOneAndUpdate(
+      {
+        _id: conversaId,
+        estabelecimentoId: idEstabelecimento,
+      },
+      {
+        $set: {
+          modo: "bot",
+          atendenteSolicitadoEm: null,
+          naoLidas: 0,
+        },
+      },
+      { returnDocument: "after" },
+    );
+    if (!conversa) {
+      return erroERedirecionar(req, res, "whatsapp", "Conversa não encontrada.");
+    }
+    return salvarERedirecionar(
+      req,
+      res,
+      "whatsapp",
+      "Atendimento automático reativado para este cliente.",
+    );
+  } catch (error) {
+    appLogger.error("whatsapp_bot_reactivate_failed", {
+      correlationId: req.correlationId,
+      code: error?.code || "WHATSAPP_BOT_REACTIVATE_FAILED",
+    });
+    return erroERedirecionar(req, res, "whatsapp", "Não foi possível reativar o robô.");
+  }
+};
+
 /*
 |--------------------------------------------------------------------------
 | CONFIGURAÇÕES
@@ -5589,6 +5961,20 @@ exports.salvarConfiguracao = async (
   req,
   res
 ) => {
+  // Compatibilidade: as ações da aba WhatsApp usam a rota administrativa
+  // consolidada /admin/configuracoes. Isso evita depender de novas rotas
+  // durante deploys parciais e preserva o mesmo CSRF/permissão da seção.
+  const whatsappAction = String(req.body?._whatsappAction || "").trim();
+  if (whatsappAction === "configuracao") {
+    return exports.salvarWhatsAppConfiguracao(req, res);
+  }
+  if (whatsappAction === "responder_conversa") {
+    return exports.responderWhatsAppConversa(req, res);
+  }
+  if (whatsappAction === "reativar_bot") {
+    return exports.reativarWhatsAppBot(req, res);
+  }
+
   let novaImagem = null;
   let imagemAntiga = null;
   let idEstabelecimento = null;
@@ -9805,6 +10191,7 @@ exports._testing = {
   exigirMovimentacaoEstoqueConcluida,
   montarFichaTecnicaProduto,
   montarGraficoAgregado,
+  montarVendasPorCategoriaProduto,
   normalizarAdicionais,
   normalizarImpressoras,
   reservarCodigoAgente,
