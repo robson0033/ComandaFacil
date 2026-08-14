@@ -2012,6 +2012,41 @@ function montarVendasPorCategoriaProduto({
   return linhas;
 }
 
+function montarResumoVendasPorCategoria(linhas = []) {
+  const resumo = new Map();
+
+  for (const linha of Array.isArray(linhas) ? linhas : []) {
+    const categoriaId = String(linha?.categoriaId || "").trim();
+    const categoriaNome = String(linha?.categoriaNome || "Categoria").trim() || "Categoria";
+    const chave = categoriaId || `nome:${categoriaNome.toLocaleLowerCase("pt-BR")}`;
+    const atual = resumo.get(chave) || {
+      categoriaId,
+      categoriaNome,
+      quantidade: 0,
+      total: 0,
+    };
+
+    if (!linha?.semProduto) {
+      atual.quantidade += Math.max(0, Number(linha?.quantidade || 0));
+      atual.total += Math.max(0, Number(linha?.total || 0));
+    }
+
+    resumo.set(chave, atual);
+  }
+
+  return [...resumo.values()]
+    .map(item => ({
+      ...item,
+      quantidade: Math.max(0, Number(item.quantidade || 0)),
+      total: Math.round(Math.max(0, Number(item.total || 0)) * 100) / 100,
+    }))
+    .sort((a, b) =>
+      b.quantidade - a.quantidade
+      || b.total - a.total
+      || a.categoriaNome.localeCompare(b.categoriaNome, "pt-BR", { sensitivity: "base" }),
+    );
+}
+
 async function agregarRelatorios({
   idEstabelecimento,
   periodo,
@@ -2152,7 +2187,12 @@ async function agregarRelatorios({
                   $sum: {
                     $ifNull: [
                       "$itens.subtotal",
-                      0,
+                      {
+                        $multiply: [
+                          { $ifNull: ["$itens.preco", 0] },
+                          { $ifNull: ["$itens.quantidade", 0] },
+                        ],
+                      },
                     ],
                   },
                 },
@@ -2192,6 +2232,16 @@ async function agregarRelatorios({
     {};
   const produtos =
     resultado.produtos || [];
+  const categoriasProdutosVendidos =
+    montarVendasPorCategoriaProduto({
+      categorias: categoriasCatalogo,
+      produtos: produtosCatalogo,
+      vendas: produtos,
+    });
+  const resumoCategoriasVendidas =
+    montarResumoVendasPorCategoria(
+      categoriasProdutosVendidos,
+    );
 
   return {
     faturamento: Number(
@@ -2220,12 +2270,8 @@ async function agregarRelatorios({
         periodo.filtro,
         timeZone,
       ),
-    categoriasProdutosVendidos:
-      montarVendasPorCategoriaProduto({
-        categorias: categoriasCatalogo,
-        produtos: produtosCatalogo,
-        vendas: produtos,
-      }),
+    categoriasProdutosVendidos,
+    resumoCategoriasVendidas,
   };
 }
 
@@ -2937,6 +2983,7 @@ exports.admin = async (req, res) => {
         maiorValor: 1,
       },
       categoriasProdutosVendidos: [],
+      resumoCategoriasVendidas: [],
       formasPagamento: criarResumoFormasPagamentoVazio(),
       paidOrdersWithoutPaymentDate: 0,
     };
@@ -3019,6 +3066,9 @@ exports.admin = async (req, res) => {
       categoriasProdutosVendidos:
         agregadoRelatorios
           .categoriasProdutosVendidos,
+      resumoCategoriasVendidas:
+        agregadoRelatorios
+          .resumoCategoriasVendidas || [],
       paidOrdersWithoutPaymentDate:
         agregadoRelatorios.paidOrdersWithoutPaymentDate || 0,
       formasPagamento:
@@ -3149,6 +3199,7 @@ exports.admin = async (req, res) => {
               maiorValor: 1,
             },
             categoriasProdutosVendidos: [],
+            resumoCategoriasVendidas: [],
             historico: [],
             formasPagamento:
               criarResumoFormasPagamentoVazio(),
@@ -10192,6 +10243,7 @@ exports._testing = {
   montarFichaTecnicaProduto,
   montarGraficoAgregado,
   montarVendasPorCategoriaProduto,
+  montarResumoVendasPorCategoria,
   normalizarAdicionais,
   normalizarImpressoras,
   reservarCodigoAgente,

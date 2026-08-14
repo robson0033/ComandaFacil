@@ -1274,6 +1274,118 @@
   color: var(--cinza-500);
 }
 
+/* Resumo consolidado por categoria: usa os mesmos dados filtrados da lista de produtos. */
+.category-summary-panel {
+  margin-top: 16px;
+}
+
+.category-summary-scroll {
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--cinza-200);
+  border-radius: 14px;
+  background: #fff;
+}
+
+.category-summary-head,
+.category-summary-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.5fr) minmax(110px, .65fr) minmax(130px, .8fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.category-summary-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--cinza-200);
+  background: #fffaf7;
+  color: var(--cinza-700);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.category-summary-row {
+  min-height: 50px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--cinza-100);
+}
+
+.category-summary-row:last-child {
+  border-bottom: 0;
+}
+
+.category-summary-row:hover {
+  background: #fffaf7;
+}
+
+.category-summary-name {
+  min-width: 0;
+  color: var(--cinza-900);
+  font-size: 13px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.category-summary-qty {
+  justify-self: end;
+  min-width: 64px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: #dcf6e8;
+  color: #177544;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.category-summary-qty.zero {
+  background: #f2f3f5;
+  color: var(--cinza-500);
+}
+
+.category-summary-value {
+  justify-self: end;
+  color: var(--cinza-900);
+  font-size: 13px;
+  font-weight: 950;
+  text-align: right;
+}
+
+.category-summary-value.zero {
+  color: var(--cinza-500);
+}
+
+.category-summary-total {
+  display: flex;
+  justify-content: flex-end;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid #ffe0cf;
+  border-radius: 12px;
+  background: #fff8f3;
+}
+
+.category-summary-total span {
+  color: var(--cinza-600);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.category-summary-total strong {
+  margin-left: 6px;
+  color: var(--cinza-950);
+  font-size: 14px;
+}
+
 @media (max-width: 900px) {
   .chart-wrapper {
     grid-template-columns: 1fr;
@@ -1306,6 +1418,36 @@
   .category-sales-product,
   .category-sales-qty {
     font-size: 11px;
+  }
+
+  .category-summary-scroll {
+    max-height: 230px;
+  }
+
+  .category-summary-head,
+  .category-summary-row {
+    grid-template-columns: minmax(100px, 1fr) 70px minmax(92px, .8fr);
+    gap: 8px;
+  }
+
+  .category-summary-head {
+    padding: 9px 10px;
+    font-size: 9px;
+  }
+
+  .category-summary-row {
+    padding: 8px 10px;
+  }
+
+  .category-summary-name,
+  .category-summary-qty,
+  .category-summary-value {
+    font-size: 11px;
+  }
+
+  .category-summary-total {
+    justify-content: space-between;
+    gap: 8px 12px;
   }
 }
 
@@ -4376,6 +4518,7 @@
             maiorValor: 0
           },
           categoriasProdutosVendidos: [],
+          resumoCategoriasVendidas: [],
           historico: []
         };
   const fusoEstabelecimento = timezoneEstabelecimento;
@@ -6153,6 +6296,52 @@
             </div>
           </div>
         <% }) %>
+      </div>
+    <% } %>
+  </section>
+
+  <section class="panel category-summary-panel">
+    <div class="panel-header">
+      <div class="panel-title">
+        <h2>Resumo total por categoria</h2>
+        <p>Quantidade e valor dos produtos vendidos no período e canal selecionados. Taxa de entrega não entra neste valor.</p>
+      </div>
+    </div>
+
+    <% const resumoCategoriasVendidas = Array.isArray(relatorios.resumoCategoriasVendidas)
+      ? relatorios.resumoCategoriasVendidas
+      : []; %>
+    <% const totalItensCategorias = resumoCategoriasVendidas.reduce((total, item) => total + Number(item.quantidade || 0), 0); %>
+    <% const totalValorCategorias = resumoCategoriasVendidas.reduce((total, item) => total + Number(item.total || 0), 0); %>
+
+    <% if (!resumoCategoriasVendidas.length) { %>
+      <div class="empty">
+        Nenhuma categoria de catálogo cadastrada.
+      </div>
+    <% } else { %>
+      <div class="category-summary-scroll" aria-label="Resumo total de vendas por categoria">
+        <div class="category-summary-head" aria-hidden="true">
+          <div>Categoria</div>
+          <div style="text-align:right;">Qtd. vendida</div>
+          <div style="text-align:right;">Valor vendido</div>
+        </div>
+
+        <% resumoCategoriasVendidas.forEach(item => { %>
+          <div class="category-summary-row">
+            <div class="category-summary-name"><%= item.categoriaNome %></div>
+            <div class="category-summary-qty <%= Number(item.quantidade || 0) === 0 ? 'zero' : '' %>">
+              <%= Number(item.quantidade || 0) %>x
+            </div>
+            <div class="category-summary-value <%= Number(item.total || 0) === 0 ? 'zero' : '' %>">
+              <%= formatarMoeda(Number(item.total || 0)) %>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+
+      <div class="category-summary-total" aria-label="Total geral das categorias">
+        <span>Itens vendidos:<strong><%= totalItensCategorias %>x</strong></span>
+        <span>Valor dos produtos:<strong><%= formatarMoeda(totalValorCategorias) %></strong></span>
       </div>
     <% } %>
   </section>
