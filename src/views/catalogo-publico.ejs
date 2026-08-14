@@ -1568,13 +1568,11 @@
         </div>
 
         <div class="hero-food">
-          <% if (configuracao.fotoPerfil) { %>
+          <% if (heroProduto?.imagem) { %>
             <img
-              src="<%= safePublicUrl(configuracao.fotoPerfil, { allowDataImage: true }) %>"
-              alt="<%= configuracao.nomeEstabelecimento %>"
+              src="<%= safePublicUrl(heroProduto.imagem, { allowDataImage: true }) %>"
+              alt="<%= heroProduto.nome %>"
             >
-          <% } else if (heroProduto?.imagem) { %>
-            <img src="<%= safePublicUrl(heroProduto.imagem, { allowDataImage: true }) %>" alt="<%= heroProduto.nome %>">
           <% } else { %>
             <div class="hero-food-placeholder">🍔</div>
           <% } %>
