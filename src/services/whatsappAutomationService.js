@@ -1,5 +1,7 @@
 "use strict";
 
+const { formatarNumeroPedido } = require("./pedidoNumeroService");
+
 const crypto = require("crypto");
 const {
   Configuracao,
@@ -136,16 +138,20 @@ function pagamentoTexto(status) {
 
 function montarStatusPedido(pedido) {
   if (!pedido) return "Não encontrei um pedido recente para este WhatsApp.";
-  const codigo = String(pedido.codigoPublicoFinal || pedido.codigoPublico || pedido._id || "")
+  const numero = formatarNumeroPedido(pedido.numeroPedido);
+  const codigo = String(pedido.codigoPublico || pedido.codigoPublicoFinal || pedido._id || "")
     .trim()
     .slice(-12);
   const canal = ({ delivery: "Delivery", retirada: "Retirada", balcao: "Retirada", mesa: "Mesa" })[pedido.canal] || "Pedido";
   const linhas = [
-    `🍽️ Pedido${codigo ? ` #${codigo}` : ""}`,
+    `🍽️ Pedido${numero || codigo ? ` #${numero || codigo}` : ""}`,
+  ];
+  if (numero && codigo) linhas.push(`Código: ${codigo}`);
+  linhas.push(
     `Status: ${statusPedidoTexto(pedido.status)}`,
     `Pagamento: ${pagamentoTexto(pedido.pagamentoStatus)}`,
     `Tipo: ${canal}`,
-  ];
+  );
   if (Number.isFinite(Number(pedido.total))) {
     linhas.push(`Total: ${Number(pedido.total || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`);
   }
@@ -161,7 +167,7 @@ async function buscarPedidoRecente(estabelecimentoId, waId) {
     excluido: { $ne: true },
   })
     .sort({ createdAt: -1 })
-    .select("_id codigoPublico codigoPublicoFinal status pagamentoStatus canal total createdAt")
+    .select("_id numeroPedido codigoPublico codigoPublicoFinal status pagamentoStatus canal total createdAt")
     .lean();
 }
 

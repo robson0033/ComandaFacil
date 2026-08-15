@@ -57,6 +57,15 @@ const Categoria = mongoose.model(
           ],
           default: "maior_sabor_escolhido",
         },
+        categoriasMeioAMeio: {
+          type: [
+            {
+              type: mongoose.Schema.Types.ObjectId,
+              ref: "Categoria",
+            },
+          ],
+          default: [],
+        },
         tamanhos: {
           type: [
             {
@@ -771,6 +780,17 @@ const pagamentoPedidoSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const pedidoSequenciaSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true },
+    ...base,
+    dataLocal: { type: String, required: true, trim: true, maxlength: 10 },
+    ultimoNumero: { type: Number, required: true, min: 0, default: 0 },
+  },
+  opts,
+);
+const PedidoSequencia = mongoose.model("PedidoSequencia", pedidoSequenciaSchema);
+
 const Pedido = mongoose.model(
   "Pedido",
   new mongoose.Schema(
@@ -794,6 +814,16 @@ const Pedido = mongoose.model(
       telefoneNormalizado: { type: String, default: "", trim: true, index: true },
       codigoPublico: { type: String, trim: true, uppercase: true },
       codigoPublicoFinal: { type: String, trim: true, uppercase: true },
+      numeroPedido: { type: Number, default: null, min: 1 },
+      numeroPedidoData: { type: String, default: "", trim: true, maxlength: 10 },
+      // Ledger independente da fila: registra que o evento automático deste pedido
+      // já foi tratado. Assim, apagar PrintJob não faz o reconciliador reimprimir.
+      impressaoAutomaticaProcessadaEm: { type: Date, default: null },
+      impressaoAutomaticaMotivo: {
+        type: String,
+        enum: ["", "order_created", "payment_approved"],
+        default: "",
+      },
       emailCliente: {
         type: String,
         default: "",
@@ -1947,6 +1977,7 @@ for (const model of [
   Configuracao,
   CidadeEntrega,
   Pedido,
+  PedidoSequencia,
   Assinatura,
   AssinaturaTentativa,
   OAuthState,
@@ -2001,6 +2032,7 @@ module.exports = {
   Configuracao,
   CidadeEntrega,
   Pedido,
+  PedidoSequencia,
   Avaliacao,
   Assinatura,
   AssinaturaTentativa,

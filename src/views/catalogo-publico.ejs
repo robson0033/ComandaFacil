@@ -1702,6 +1702,11 @@
                 data-category-type="<%= produto.categoriaId?.tipoProduto || 'normal' %>"
                 data-pizza-half-enabled="<%= produto.categoriaId?.tipoProduto === 'pizza' && produto.categoriaId?.configuracaoPizza?.permiteMeioAMeio === true ? 'true' : 'false' %>"
                 data-pizza-price-rule="<%= produto.categoriaId?.configuracaoPizza?.regraPrecoMeioAMeio || 'maior_sabor_escolhido' %>"
+                data-pizza-compatible-categories='<%= safeJsonForHtml(
+                  (produto.categoriaId?.configuracaoPizza?.categoriasMeioAMeio || [])
+                    .map(categoriaId => String(categoriaId?._id || categoriaId || ''))
+                    .filter(Boolean)
+                ) %>'
                 data-pizza-sizes='<%= safeJsonForHtml(
                   (produto.categoriaId?.configuracaoPizza?.tamanhos || [])
                     .filter(tamanho => tamanho.ativo !== false)
@@ -2603,6 +2608,9 @@
           regraPrecoMeioAMeio: String(
             card.dataset.pizzaPriceRule || "maior_sabor_escolhido",
           ),
+          categoriasMeioAMeio: lerJsonArrayDataset(card, "pizzaCompatibleCategories")
+            .map(item => String(item?.id || item?._id || item || ""))
+            .filter(Boolean),
           tamanhos: lerJsonArrayDataset(card, "pizzaSizes").map(item => ({
             id: String(item.id || item._id || ""),
             nome: String(item.nome || ""),
@@ -2629,16 +2637,61 @@
         .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
     }
 
+    function idsCategoriasPizzaPermitidas(categoria = {}) {
+      return new Set([
+        String(categoria?.id || ""),
+        ...(categoria?.categoriasMeioAMeio || []).map(id => String(id || "")),
+      ].filter(Boolean));
+    }
+
+    function categoriasPizzaCompativeis(categoriaBase = {}, categoriaOutra = {}) {
+      const baseId = String(categoriaBase?.id || "");
+      const outraId = String(categoriaOutra?.id || "");
+      if (!baseId || !outraId) return false;
+      return baseId === outraId
+        || idsCategoriasPizzaPermitidas(categoriaBase).has(outraId);
+    }
+
+    function produtosCategoriasPizzaPermitidas(categoria = {}) {
+      const idsPermitidos = idsCategoriasPizzaPermitidas(categoria);
+      return [...produtosCatalogoMap.values()]
+        .filter(produto =>
+          produto.categoria?.tipoProduto === "pizza"
+          && idsPermitidos.has(String(produto.categoria?.id || "")),
+        )
+        .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+    }
+
+    function normalizarNomeTamanhoPizza(value) {
+      return String(value || "")
+        .trim()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase("pt-BR");
+    }
+
     function modoPizzaSelecionado() {
       return document.querySelector('input[name="pizzaModo"]:checked')?.value
         || "inteira";
     }
 
-    function precoProdutoNoTamanho(produto, tamanhoId = "") {
+    function precoProdutoNoTamanho(produto, tamanhoId = "", tamanhoNome = "") {
       const tamanhos = produto?.categoria?.tamanhos || [];
-      if (!tamanhos.length) return Number(produto?.price || 0);
+      if (!tamanhos.length) {
+        return tamanhoId || tamanhoNome ? Number.NaN : Number(produto?.price || 0);
+      }
+      let tamanhoProduto = tamanhos.find(tamanho =>
+        String(tamanho.id || "") === String(tamanhoId || ""),
+      );
+      if (!tamanhoProduto && tamanhoNome) {
+        const nomeNormalizado = normalizarNomeTamanhoPizza(tamanhoNome);
+        tamanhoProduto = tamanhos.find(tamanho =>
+          normalizarNomeTamanhoPizza(tamanho.nome) === nomeNormalizado,
+        );
+      }
+      if (!tamanhoProduto) return Number.NaN;
       const item = (produto?.precosPizza || []).find(preco =>
-        String(preco.tamanhoId || "") === String(tamanhoId || ""),
+        String(preco.tamanhoId || "") === String(tamanhoProduto.id || ""),
       );
       return item ? Number(item.preco) : Number.NaN;
     }
@@ -2647,7 +2700,7 @@
       const tamanhosCategoria = produto?.categoria?.tamanhos || [];
       if (!tamanhosCategoria.length) return [];
       return tamanhosCategoria.filter(tamanho =>
-        Number.isFinite(precoProdutoNoTamanho(produto, tamanho.id)),
+        Number.isFinite(precoProdutoNoTamanho(produto, tamanho.id, tamanho.nome)),
       );
     }
 
@@ -2657,16 +2710,22 @@
         || null;
     }
 
-    function calcularPrecoPizzaCliente({ sabor1, sabor2, regra, meioAMeio, tamanhoId = "" }) {
-      const preco1 = precoProdutoNoTamanho(sabor1, tamanhoId);
+    function calcularPrecoPizzaCliente({
+      sabor1,
+      sabor2,
+      regra,
+      meioAMeio,
+      tamanhoId = "",
+      tamanhoNome = "",
+    }) {
+      const preco1 = precoProdutoNoTamanho(sabor1, tamanhoId, tamanhoNome);
       if (!Number.isFinite(preco1)) return Number.NaN;
       if (!meioAMeio) return preco1;
-      const preco2 = precoProdutoNoTamanho(sabor2, tamanhoId);
+      const preco2 = precoProdutoNoTamanho(sabor2, tamanhoId, tamanhoNome);
       if (!Number.isFinite(preco2)) return Number.NaN;
       if (regra === "maior_preco_categoria") {
-        const produtosCategoria = produtosDaCategoria(sabor1?.categoria?.id);
-        const precos = produtosCategoria
-          .map(produto => precoProdutoNoTamanho(produto, tamanhoId))
+        const precos = produtosCategoriasPizzaPermitidas(sabor1?.categoria)
+          .map(produto => precoProdutoNoTamanho(produto, tamanhoId, tamanhoNome))
           .filter(Number.isFinite);
         return precos.length ? Math.max(...precos) : Number.NaN;
       }
@@ -2687,11 +2746,11 @@
       });
     }
 
-    function preencherSelectSabores(select, produtos, selectedId = "", tamanhoId = "") {
+    function preencherSelectSabores(select, produtos, selectedId = "", tamanhoId = "", tamanhoNome = "") {
       select.replaceChildren();
       produtos.forEach(produto => {
         const option = document.createElement("option");
-        const preco = precoProdutoNoTamanho(produto, tamanhoId);
+        const preco = precoProdutoNoTamanho(produto, tamanhoId, tamanhoNome);
         option.value = produto.id;
         option.disabled = !Number.isFinite(preco);
         option.textContent = Number.isFinite(preco)
@@ -2718,12 +2777,15 @@
 
       const tamanho = tamanhoPizzaSelecionado();
       const tamanhoId = tamanho?.id || "";
+      const tamanhoNome = tamanho?.nome || "";
       if (atualizarSabores) {
+        const categoriaBase = produtosCatalogoMap.get(pendingPizza.produtoInicialId)?.categoria || {};
         const produtosCategoria = produtosDaCategoria(pendingPizza.categoriaId);
+        const produtosCompativeis = produtosCategoriasPizzaPermitidas(categoriaBase);
         const sabor1Atual = String(pizzaSabor1.value || pendingPizza.produtoInicialId || "");
         const sabor2Atual = String(pizzaSabor2.value || "");
-        preencherSelectSabores(pizzaSabor1, produtosCategoria, sabor1Atual, tamanhoId);
-        preencherSelectSabores(pizzaSabor2, produtosCategoria, sabor2Atual, tamanhoId);
+        preencherSelectSabores(pizzaSabor1, produtosCategoria, sabor1Atual, tamanhoId, tamanhoNome);
+        preencherSelectSabores(pizzaSabor2, produtosCompativeis, sabor2Atual, tamanhoId, tamanhoNome);
       }
 
       const sabor1 = produtosCatalogoMap.get(String(pizzaSabor1.value || ""));
@@ -2735,6 +2797,7 @@
         regra: pendingPizza.regra,
         meioAMeio,
         tamanhoId,
+        tamanhoNome,
       });
       const tamanhoObrigatorioPendente = pendingPizza.tamanhos.length > 0 && !tamanho;
       const precoInvalido = !Number.isFinite(preco);
@@ -2755,7 +2818,7 @@
         pizzaRuleNote.textContent = `O sabor inteiro usa o preço cadastrado${tamanhoTexto}.`;
       } else if (pendingPizza.regra === "maior_preco_categoria") {
         pizzaRuleNote.textContent =
-          `Regra da loja: será cobrado o maior preço das pizzas desta categoria${tamanhoTexto}.`;
+          `Regra da loja: será cobrado o maior preço das pizzas das categorias permitidas${tamanhoTexto}.`;
       } else {
         pizzaRuleNote.textContent =
           `Regra da loja: será cobrado o maior preço entre os dois sabores escolhidos${tamanhoTexto}.`;
@@ -2770,6 +2833,7 @@
 
     function abrirModalPizza(produto) {
       const produtosCategoria = produtosDaCategoria(produto.categoria.id);
+      const produtosCompativeis = produtosCategoriasPizzaPermitidas(produto.categoria);
       pendingPizza = {
         categoriaId: produto.categoria.id,
         produtoInicialId: produto.id,
@@ -2784,10 +2848,11 @@
       preencherSelectTamanhos(produto);
       const tamanhoId = pendingPizza.tamanhos[0]?.id || "";
       if (tamanhoId) pizzaTamanho.value = tamanhoId;
-      preencherSelectSabores(pizzaSabor1, produtosCategoria, produto.id, tamanhoId);
-      const segundoPadrao = produtosCategoria.find(item => item.id !== produto.id)?.id
+      const tamanhoNome = pendingPizza.tamanhos[0]?.nome || "";
+      preencherSelectSabores(pizzaSabor1, produtosCategoria, produto.id, tamanhoId, tamanhoNome);
+      const segundoPadrao = produtosCompativeis.find(item => item.id !== produto.id)?.id
         || produto.id;
-      preencherSelectSabores(pizzaSabor2, produtosCategoria, segundoPadrao, tamanhoId);
+      preencherSelectSabores(pizzaSabor2, produtosCompativeis, segundoPadrao, tamanhoId, tamanhoNome);
       atualizarModalPizza();
       pizzaModal.classList.add("open");
       document.body.classList.add("modal-open");
@@ -3408,6 +3473,9 @@
               regraPrecoMeioAMeio: String(
                 produto.categoria.regraPrecoMeioAMeio || "maior_sabor_escolhido",
               ),
+              categoriasMeioAMeio: (produto.categoria.categoriasMeioAMeio || [])
+                .map(id => String(id || ""))
+                .filter(Boolean),
               tamanhos: (produto.categoria.tamanhos || []).map(tamanho => ({
                 id: String(tamanho.id || tamanho._id || ""),
                 nome: String(tamanho.nome || ""),
@@ -3418,7 +3486,7 @@
                 nome: String(opcao.nome || ""),
               })),
             }
-          : { id: "", tipoProduto: "normal", permiteMeioAMeio: false, tamanhos: [], variacoesHabilitadas: false, variacoes: [] },
+          : { id: "", tipoProduto: "normal", permiteMeioAMeio: false, categoriasMeioAMeio: [], tamanhos: [], variacoesHabilitadas: false, variacoes: [] },
       }));
       const mapaProdutos = new Map(
         produtosNormalizados.map(produto => [produto.id, produto]),
@@ -3446,7 +3514,7 @@
           const pizzaValida = idsSabores.length === 2
             && idsSabores[0] !== idsSabores[1]
             && sabores.every(Boolean)
-            && sabores.every(sabor => sabor.categoria?.id === categoriaId)
+            && categoriasPizzaCompativeis(sabores[0]?.categoria, sabores[1]?.categoria)
             && sabores[0].categoria?.tipoProduto === "pizza"
             && sabores[0].categoria?.permiteMeioAMeio === true
             && (!tamanhos.length || Boolean(tamanho));
@@ -3464,6 +3532,7 @@
             regra,
             meioAMeio: true,
             tamanhoId: tamanho?.id || "",
+            tamanhoNome: tamanho?.nome || "",
           });
           if (!Number.isFinite(novoPreco)) {
             idsRemovidos.push(String(item.cartId || item.id || "pizza"));
@@ -3485,7 +3554,7 @@
             saboresPizza: sabores.map(sabor => ({
               produtoId: sabor.id,
               nome: sabor.name,
-              preco: precoProdutoNoTamanho(sabor, tamanho?.id || ""),
+              preco: precoProdutoNoTamanho(sabor, tamanho?.id || "", tamanho?.nome || ""),
               fracao: 0.5,
             })),
           };
@@ -3829,6 +3898,7 @@
       const sabor2 = produtosCatalogoMap.get(String(pizzaSabor2.value || ""));
       const tamanho = tamanhoPizzaSelecionado();
       const tamanhoId = tamanho?.id || "";
+      const tamanhoNome = tamanho?.nome || "";
       if (!sabor1) return;
       if (pendingPizza.tamanhos.length && !tamanho) {
         pizzaTamanho.setCustomValidity("Escolha o tamanho da pizza.");
@@ -3844,6 +3914,7 @@
           regra: pendingPizza.regra,
           meioAMeio: false,
           tamanhoId,
+          tamanhoNome,
         });
         if (!Number.isFinite(preco)) return;
         const pizzaInteira = {
@@ -3868,6 +3939,7 @@
         regra: pendingPizza.regra,
         meioAMeio: true,
         tamanhoId,
+        tamanhoNome,
       });
       if (!Number.isFinite(preco)) return;
       const pizza = {
@@ -3882,13 +3954,13 @@
           {
             produtoId: sabor1.id,
             nome: sabor1.name,
-            preco: precoProdutoNoTamanho(sabor1, tamanhoId),
+            preco: precoProdutoNoTamanho(sabor1, tamanhoId, tamanhoNome),
             fracao: 0.5,
           },
           {
             produtoId: sabor2.id,
             nome: sabor2.name,
-            preco: precoProdutoNoTamanho(sabor2, tamanhoId),
+            preco: precoProdutoNoTamanho(sabor2, tamanhoId, tamanhoNome),
             fracao: 0.5,
           },
         ],
@@ -5302,10 +5374,13 @@
       card.className = 'customer-order-card';
       card.dataset.publicOrderCode = String(order.codigoPublico || '');
       card.innerHTML = '<div class="customer-order-head"><div><div class="customer-order-number"></div><div class="customer-order-date"></div></div><div class="customer-order-badges"><span class="customer-order-badge order-status"></span><span class="customer-order-badge payment-status"></span></div></div><div class="customer-order-delivery"><strong>Entrega: </strong><span></span></div><div class="customer-order-message"></div><div class="customer-order-items"></div><div class="customer-order-footer"><div class="customer-order-total"></div></div>';
+      const numeroExibicao = String(order.numeroPedido || order.codigoPublico || '');
       card.querySelector('.customer-order-number').textContent =
-        `Pedido #${String(order.codigoPublico || '')}`;
+        `Pedido #${numeroExibicao}`;
       card.querySelector('.customer-order-date').textContent =
-        formatOrderDate(order.data);
+        order.numeroPedido && order.codigoPublico
+          ? `Código: ${String(order.codigoPublico)} · ${formatOrderDate(order.data)}`
+          : formatOrderDate(order.data);
       card.querySelector('.order-status').textContent =
         statusText(order.status);
       const payment = card.querySelector('.payment-status');

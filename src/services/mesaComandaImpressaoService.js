@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("crypto");
+const { formatarNumeroPedido } = require("./pedidoNumeroService");
 
 function idString(value) {
   if (!value) return "";
@@ -9,6 +10,8 @@ function idString(value) {
 }
 
 function numeroPedido(pedido = {}) {
+  const sequencial = formatarNumeroPedido(pedido.numeroPedido);
+  if (sequencial) return sequencial;
   const codigo = String(pedido.codigoPublico || "").trim();
   if (codigo) return codigo.toUpperCase();
   const id = idString(pedido._id);
@@ -104,6 +107,8 @@ function montarPedidoComandaMesaParaImpressao({
       setor: mesaSetor,
     },
     codigoPublico: "COMANDA",
+    numeroPedido: null,
+    numeroPedidoData: "",
     cliente: `Mesa ${mesaNumero || "?"} - ${ordenados.length} pedido(s)`,
     telefoneCliente: "",
     enderecoEntrega: "",

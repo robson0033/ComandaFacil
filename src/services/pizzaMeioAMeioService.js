@@ -39,6 +39,28 @@ function categoriaPermitePizzaMeioAMeio(categoria = {}) {
     && categoria.configuracaoPizza?.permiteMeioAMeio === true;
 }
 
+function idsCategoriasMeioAMeio(categoria = {}) {
+  return [
+    ...new Set(
+      (Array.isArray(categoria.configuracaoPizza?.categoriasMeioAMeio)
+        ? categoria.configuracaoPizza.categoriasMeioAMeio
+        : [])
+        .map(item => String(item?._id || item || "").trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function categoriasCompativeisMeioAMeio(categoriaBase = {}, categoriaOutra = {}) {
+  const categoriaBaseId = String(categoriaBase?._id || "");
+  const categoriaOutraId = String(categoriaOutra?._id || "");
+  if (!categoriaBaseId || !categoriaOutraId) return false;
+  if (categoriaBaseId === categoriaOutraId) return true;
+  if (String(categoriaOutra.tipo || "") !== "catalogo") return false;
+  if (String(categoriaOutra.tipoProduto || "normal") !== "pizza") return false;
+  return idsCategoriasMeioAMeio(categoriaBase).includes(categoriaOutraId);
+}
+
 function regraPrecoCategoria(categoria = {}) {
   const regra = String(
     categoria.configuracaoPizza?.regraPrecoMeioAMeio
@@ -58,6 +80,14 @@ function tamanhosPizzaCategoria(categoria = {}) {
     : [])
     .filter(tamanho => tamanho?.ativo !== false && tamanho?._id && String(tamanho.nome || "").trim())
     .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0));
+}
+
+function normalizarNomeTamanhoPizza(value) {
+  return String(value || "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("pt-BR");
 }
 
 function resolverTamanhoPizza(categoria = {}, itemRecebido = {}) {
@@ -80,6 +110,35 @@ function resolverTamanhoPizza(categoria = {}, itemRecebido = {}) {
     );
   }
   return tamanho;
+}
+
+function resolverTamanhoEquivalentePizza(categoria = {}, tamanhoReferencia = null) {
+  const tamanhos = tamanhosPizzaCategoria(categoria);
+  if (!tamanhoReferencia) {
+    if (tamanhos.length) {
+      throw criarErroPizza(
+        "As categorias combinadas precisam usar tamanhos compatíveis.",
+        "PIZZA_TAMANHO_INCOMPATIVEL",
+      );
+    }
+    return null;
+  }
+  const tamanhoId = String(tamanhoReferencia?._id || tamanhoReferencia?.id || "");
+  const direto = tamanhos.find(item => String(item._id) === tamanhoId);
+  if (direto) return direto;
+
+  const nomeReferencia = normalizarNomeTamanhoPizza(tamanhoReferencia?.nome);
+  const equivalente = nomeReferencia
+    ? tamanhos.find(item => normalizarNomeTamanhoPizza(item.nome) === nomeReferencia)
+    : null;
+
+  if (!equivalente) {
+    throw criarErroPizza(
+      `O tamanho ${String(tamanhoReferencia?.nome || "selecionado")} não existe em uma das categorias combinadas.`,
+      "PIZZA_TAMANHO_INCOMPATIVEL",
+    );
+  }
+  return equivalente;
 }
 
 function precoProdutoPizzaCentavos(produto = {}, tamanho = null) {
@@ -163,8 +222,6 @@ function calcularMaiorPrecoCategoriaCentavos(produtosCategoria = [], tamanho = n
     try {
       return [precoProdutoPizzaCentavos(produto, tamanho)];
     } catch (error) {
-      // Um sabor pode não ser vendido em determinado tamanho.
-      // Nesse caso ele não participa do cálculo do maior preço daquele tamanho.
       if (error?.code === "PIZZA_TAMANHO_SEM_PRECO") return [];
       throw error;
     }
@@ -172,6 +229,48 @@ function calcularMaiorPrecoCategoriaCentavos(produtosCategoria = [], tamanho = n
   if (!precos.length) {
     throw criarErroPizza(
       "Não foi possível calcular o maior preço da categoria de pizzas.",
+      "PIZZA_CATEGORIA_SEM_PRECO",
+    );
+  }
+  return Math.max(...precos);
+}
+
+function calcularMaiorPrecoCategoriasMeioAMeioCentavos({
+  categoriaBase,
+  categoriasMap,
+  produtosPorCategoria,
+  tamanhoBase,
+}) {
+  const categoriaBaseId = String(categoriaBase?._id || "");
+  const idsCategorias = [categoriaBaseId, ...idsCategoriasMeioAMeio(categoriaBase)]
+    .filter(Boolean);
+  const precos = [];
+
+  for (const categoriaId of idsCategorias) {
+    const categoria = categoriasMap.get(categoriaId);
+    if (!categoria) continue;
+
+    let tamanhoCategoria = null;
+    try {
+      tamanhoCategoria = resolverTamanhoEquivalentePizza(categoria, tamanhoBase);
+    } catch (error) {
+      if (error?.code === "PIZZA_TAMANHO_INCOMPATIVEL") continue;
+      throw error;
+    }
+
+    for (const produto of produtosPorCategoria.get(categoriaId) || []) {
+      try {
+        precos.push(precoProdutoPizzaCentavos(produto, tamanhoCategoria));
+      } catch (error) {
+        if (error?.code === "PIZZA_TAMANHO_SEM_PRECO") continue;
+        throw error;
+      }
+    }
+  }
+
+  if (!precos.length) {
+    throw criarErroPizza(
+      "Não foi possível calcular o maior preço das categorias de pizzas combinadas.",
       "PIZZA_CATEGORIA_SEM_PRECO",
     );
   }
@@ -197,32 +296,42 @@ function montarPizzaMeioAMeio({
     );
   }
 
-  const categoriaId = String(sabores[0].categoriaId?._id || sabores[0].categoriaId || "");
-  const mesmaCategoria = sabores.every(produto =>
-    String(produto.categoriaId?._id || produto.categoriaId || "") === categoriaId,
+  const categoriasSabores = sabores.map(produto =>
+    categoriasMap.get(String(produto.categoriaId?._id || produto.categoriaId || "")),
   );
-  if (!categoriaId || !mesmaCategoria) {
-    throw criarErroPizza("Os dois sabores devem pertencer à mesma categoria de pizzas.");
+  const categoria = categoriasSabores[0];
+  const categoriaSegundoSabor = categoriasSabores[1];
+  if (!categoria || !categoriaSegundoSabor) {
+    throw criarErroPizza("A categoria de um dos sabores não está mais disponível.");
   }
-
-  const categoria = categoriasMap.get(categoriaId);
   if (!categoriaPermitePizzaMeioAMeio(categoria)) {
     throw criarErroPizza(
       "A categoria escolhida não permite pizza meio a meio.",
       "PIZZA_MEIO_A_MEIO_NAO_PERMITIDA",
     );
   }
+  if (!categoriasCompativeisMeioAMeio(categoria, categoriaSegundoSabor)) {
+    throw criarErroPizza(
+      "As categorias dos sabores escolhidos não estão configuradas para combinar entre si.",
+      "PIZZA_CATEGORIAS_INCOMPATIVEIS",
+    );
+  }
 
   const regraPrecoPizza = regraPrecoCategoria(categoria);
   const tamanho = resolverTamanhoPizza(categoria, itemRecebido);
-  const precosSaboresCentavos = sabores.map(produto =>
-    precoProdutoPizzaCentavos(produto, tamanho),
+  const tamanhosSabores = categoriasSabores.map(categoriaSabor =>
+    resolverTamanhoEquivalentePizza(categoriaSabor, tamanho),
+  );
+  const precosSaboresCentavos = sabores.map((produto, index) =>
+    precoProdutoPizzaCentavos(produto, tamanhosSabores[index]),
   );
   const precoBaseCentavos = regraPrecoPizza === REGRAS_PRECO_PIZZA.MAIOR_PRECO_CATEGORIA
-    ? calcularMaiorPrecoCategoriaCentavos(
-        produtosPorCategoria.get(categoriaId) || [],
-        tamanho,
-      )
+    ? calcularMaiorPrecoCategoriasMeioAMeioCentavos({
+        categoriaBase: categoria,
+        categoriasMap,
+        produtosPorCategoria,
+        tamanhoBase: tamanho,
+      })
     : Math.max(...precosSaboresCentavos);
 
   const custoUnitarioSnapshot = sabores.reduce(
@@ -260,14 +369,18 @@ function montarPizzaMeioAMeio({
 module.exports = {
   REGRAS_PRECO_PIZZA,
   categoriaPermitePizzaMeioAMeio,
+  categoriasCompativeisMeioAMeio,
   centavosParaDinheiro,
   criarErroPizza,
   dinheiroParaCentavos,
+  idsCategoriasMeioAMeio,
   montarPizzaMeioAMeio,
   normalizarIdsSabores,
+  normalizarNomeTamanhoPizza,
   precoProdutoPizzaCentavos,
   regraPrecoCategoria,
   resolverTamanhoEPrecoPizza,
+  resolverTamanhoEquivalentePizza,
   resolverTamanhoPizza,
   tamanhosPizzaCategoria,
 };

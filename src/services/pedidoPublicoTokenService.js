@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("crypto");
+const { formatarNumeroPedido } = require("./pedidoNumeroService");
 const VALIDADE_TOKEN_MS = 90 * 24 * 60 * 60 * 1000;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
@@ -77,7 +78,7 @@ async function buscarPedidoPorToken({
   return lean
     ? query
       .select(
-        "_id createdAt status pagamentoStatus canal itens.produtoId itens.nome "
+        "_id numeroPedido codigoPublico createdAt status pagamentoStatus canal itens.produtoId itens.nome "
         + "itens.quantidade total previsaoEntrega",
       )
       .lean()
@@ -110,6 +111,7 @@ function mensagemPublica(status) {
 
 function serializarPedidoPublico(pedido) {
   return {
+    numeroPedido: formatarNumeroPedido(pedido?.numeroPedido),
     codigoPublico: codigoPublico(pedido),
     data: pedido.createdAt,
     status: pedido.status,

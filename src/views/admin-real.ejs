@@ -4532,6 +4532,21 @@
     }).format(data);
   };
 
+  const temNumeroSequencialPedido = pedido =>
+    Number.isSafeInteger(Number(pedido?.numeroPedido)) && Number(pedido.numeroPedido) > 0;
+
+  const numeroPedidoPainel = pedido => {
+    if (temNumeroSequencialPedido(pedido)) {
+      return String(Number(pedido.numeroPedido)).padStart(4, '0');
+    }
+    return String(pedido?.codigoPublico || pedido?._id || '')
+      .slice(pedido?.codigoPublico ? 0 : -6)
+      .toUpperCase();
+  };
+
+  const codigoPublicoPedido = pedido =>
+    String(pedido?.codigoPublico || '').trim().toUpperCase();
+
   const listaEstoque =
     typeof estoque !== 'undefined' && Array.isArray(estoque)
       ? estoque
@@ -5289,7 +5304,8 @@
             `mesa ${comanda.mesaNumero || ''}`,
             comanda.mesaSetor,
             ...pedidosComanda.flatMap(pedido => [
-              String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase(),
+              numeroPedidoPainel(pedido),
+              codigoPublicoPedido(pedido),
               pedido.cliente,
               pedido.telefoneCliente,
               ...(pedido.itens || []).map(item => item.nome)
@@ -5340,7 +5356,10 @@
               >
                 <div class="table-tab-order-header">
                   <div class="table-tab-order-title">
-                    <strong>Pedido #<%= String(subpedido.codigoPublico || subpedido._id).slice(subpedido.codigoPublico ? 0 : -6).toUpperCase() %></strong>
+                    <strong>Pedido #<%= numeroPedidoPainel(subpedido) %></strong>
+                    <% if (temNumeroSequencialPedido(subpedido) && codigoPublicoPedido(subpedido)) { %>
+                      <small>Código: <%= codigoPublicoPedido(subpedido) %></small>
+                    <% } %>
                     <small><%= formatarDataHoraEstabelecimento(subpedido.createdAt) %></small>
                     <small>Cliente: <%= subpedido.cliente || `Mesa ${comanda.mesaNumero}` %></small>
                     <span class="status <%= subpedido.status || 'novo' %>"><%= String(subpedido.status || 'novo').replaceAll('_', ' ') %></span>
@@ -5354,7 +5373,7 @@
                       <% if (subpedido.pagamentoStatus !== 'pago') { %>data-confirm-finalize-pending<% } %>
                     >
                       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-                      <select name="status" aria-label="Status do pedido <%= String(subpedido.codigoPublico || subpedido._id).slice(-6) %>">
+                      <select name="status" aria-label="Status do pedido <%= numeroPedidoPainel(subpedido) %>">
                         <option value="novo" <%= subpedido.status === 'novo' ? 'selected' : '' %>>Novo</option>
                         <option value="preparo" <%= subpedido.status === 'preparo' ? 'selected' : '' %>>Em preparo</option>
                         <option value="pronto" <%= subpedido.status === 'pronto' ? 'selected' : '' %>>Pronto</option>
@@ -5518,7 +5537,7 @@
             ? `55${telefoneWhatsapp}`
             : telefoneWhatsapp;
           const mensagemWhatsapp = encodeURIComponent(
-            `Olá, ${pedido.cliente || 'cliente'}! Estou entrando em contato sobre o pedido #${String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase()} feito no ${(configuracao && configuracao.nomeEstabelecimento) || 'estabelecimento'}.`
+            `Olá, ${pedido.cliente || 'cliente'}! Estou entrando em contato sobre o pedido #${numeroPedidoPainel(pedido)}${codigoPublicoPedido(pedido) ? ` (código ${codigoPublicoPedido(pedido)})` : ''} feito no ${(configuracao && configuracao.nomeEstabelecimento) || 'estabelecimento'}.`
           );
           const nomesPagamento = {
             pix: 'Pix',
@@ -5556,7 +5575,8 @@
           %>"
           data-order-status="<%= pedido.status || 'novo' %>"
           data-order-search="<%= [
-            String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase(),
+            numeroPedidoPainel(pedido),
+            codigoPublicoPedido(pedido),
             pedido.cliente,
             pedido.telefoneCliente,
             pedido.ruaEntrega,
@@ -5576,10 +5596,13 @@
 
               <div>
                 <h3>
-                  Pedido #<%= String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase() %>
+                  Pedido #<%= numeroPedidoPainel(pedido) %>
                 </h3>
 
                 <p>
+                  <% if (temNumeroSequencialPedido(pedido) && codigoPublicoPedido(pedido)) { %>
+                    Código: <%= codigoPublicoPedido(pedido) %> ·
+                  <% } %>
                   <%= formatarDataHoraEstabelecimento(pedido.createdAt) %>
                 </p>
 
@@ -6021,7 +6044,7 @@
                 <tbody>
                   <% pedidosArquivados.forEach(pedido => { %>
                     <tr>
-                      <td>#<%= String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase() %></td>
+                      <td>#<%= numeroPedidoPainel(pedido) %><% if (temNumeroSequencialPedido(pedido) && codigoPublicoPedido(pedido)) { %><br><small>Código: <%= codigoPublicoPedido(pedido) %></small><% } %></td>
                       <td><%= formatarDataPlano(pedido.createdAt) %></td>
                       <td><%= pedido.status || '-' %></td>
                       <td>
@@ -6746,6 +6769,30 @@
               </label>
 
               <div class="field">
+                <label>Categorias que podem combinar no meio a meio</label>
+                <small style="display:block;color:var(--cinza-500);margin:4px 0 8px;">
+                  Marque outras categorias de pizza cujos sabores poderão ser usados como a segunda metade.
+                </small>
+                <% const categoriasPizzaParaCriacao = listaCategoriasCatalogo.filter(item => item.tipoProduto === 'pizza'); %>
+                <% if (categoriasPizzaParaCriacao.length) { %>
+                  <div style="display:grid;gap:7px;">
+                    <% categoriasPizzaParaCriacao.forEach(categoriaCompativel => { %>
+                      <label class="category-compact-checkbox">
+                        <input
+                          type="checkbox"
+                          name="categoriasMeioAMeio"
+                          value="<%= categoriaCompativel._id %>"
+                        >
+                        <%= categoriaCompativel.nome %>
+                      </label>
+                    <% }) %>
+                  </div>
+                <% } else { %>
+                  <small style="color:var(--cinza-500);">Cadastre outra categoria de pizza para poder combiná-la.</small>
+                <% } %>
+              </div>
+
+              <div class="field">
                 <label for="categoriaCatalogoRegraPizza">
                   Regra de cobrança
                 </label>
@@ -6757,7 +6804,7 @@
                     Maior preço entre os sabores escolhidos
                   </option>
                   <option value="maior_preco_categoria">
-                    Maior preço das pizzas desta categoria
+                    Maior preço das pizzas das categorias permitidas
                   </option>
                 </select>
               </div>
@@ -6793,8 +6840,12 @@
                 || 'maior_sabor_escolhido';
               const regraPizzaTexto =
                 regraPizza === 'maior_preco_categoria'
-                  ? 'Maior preço da categoria'
+                  ? 'Maior preço das categorias permitidas'
                   : 'Maior preço entre os sabores';
+              const categoriasMeioAMeioIds = new Set(
+                (categoria.configuracaoPizza?.categoriasMeioAMeio || [])
+                  .map(item => String(item?._id || item || ''))
+              );
             %>
               <details class="category-config-item">
                 <summary>
@@ -6954,6 +7005,33 @@
                         </label>
 
                         <div class="field">
+                          <label>Categorias que podem combinar no meio a meio</label>
+                          <small style="display:block;color:var(--cinza-500);margin:4px 0 8px;">
+                            O primeiro sabor continua nesta categoria; o segundo poderá vir das categorias marcadas abaixo.
+                          </small>
+                          <% const outrasCategoriasPizza = listaCategoriasCatalogo.filter(item =>
+                            item.tipoProduto === 'pizza' && String(item._id) !== String(categoria._id)
+                          ); %>
+                          <% if (outrasCategoriasPizza.length) { %>
+                            <div style="display:grid;gap:7px;">
+                              <% outrasCategoriasPizza.forEach(categoriaCompativel => { %>
+                                <label class="category-compact-checkbox">
+                                  <input
+                                    type="checkbox"
+                                    name="categoriasMeioAMeio"
+                                    value="<%= categoriaCompativel._id %>"
+                                    <%= categoriasMeioAMeioIds.has(String(categoriaCompativel._id)) ? 'checked' : '' %>
+                                  >
+                                  <%= categoriaCompativel.nome %>
+                                </label>
+                              <% }) %>
+                            </div>
+                          <% } else { %>
+                            <small style="color:var(--cinza-500);">Não há outra categoria de pizza cadastrada.</small>
+                          <% } %>
+                        </div>
+
+                        <div class="field">
                           <label for="categoriaRegra-<%= categoria._id %>">
                             Regra de cobrança
                           </label>
@@ -6977,7 +7055,7 @@
                                 : ''
                               %>
                             >
-                              Maior preço das pizzas desta categoria
+                              Maior preço das pizzas das categorias permitidas
                             </option>
                           </select>
                         </div>
@@ -11608,7 +11686,7 @@ function criarCardPedido(
           </h3>
 
           <p>
-            ${formatarDataPedido(
+            ${pedido.codigoPublico ? `Código: ${escaparHtml(pedido.codigoPublico)} · ` : ''}${formatarDataPedido(
               pedido.createdAt
             )}
           </p>
@@ -11870,7 +11948,7 @@ function criarCardPedido(
 
         ${pedido.telefone ? `
           <a
-            href="https://wa.me/${String(pedido.telefone).replace(/\D/g, '').startsWith('55') ? String(pedido.telefone).replace(/\D/g, '') : `55${String(pedido.telefone).replace(/\D/g, '')}`}?text=${encodeURIComponent(`Olá, ${pedido.cliente || 'cliente'}! Estou entrando em contato sobre o pedido #${pedido.numero}.`)}"
+            href="https://wa.me/${String(pedido.telefone).replace(/\D/g, '').startsWith('55') ? String(pedido.telefone).replace(/\D/g, '') : `55${String(pedido.telefone).replace(/\D/g, '')}`}?text=${encodeURIComponent(`Olá, ${pedido.cliente || 'cliente'}! Estou entrando em contato sobre o pedido #${pedido.numero}${pedido.codigoPublico ? ` (código ${pedido.codigoPublico})` : ''}.`)}"
             target="_blank"
             rel="noopener noreferrer"
             class="whatsapp-order-button"

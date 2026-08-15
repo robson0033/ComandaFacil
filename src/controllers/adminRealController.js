@@ -52,6 +52,7 @@ const {
   MINIMUM_AGENT_VERSION,
   PROTOCOL_VERSION,
 } = require("../services/printAgentProtocol");
+const { formatarNumeroPedido } = require("../services/pedidoNumeroService");
 const {
   consultarAcessoVenda,
   respostaLojaIndisponivel,
@@ -66,6 +67,13 @@ const {
   codigoPublicoValido,
   normalizarCodigoPublico,
 } = require("../services/pedidoPublicCodeService");
+
+function numeroPedidoExibicao(pedido = {}) {
+  return formatarNumeroPedido(pedido.numeroPedido)
+    || String(pedido.codigoPublico || pedido._id || "")
+      .slice(pedido.codigoPublico ? 0 : -6)
+      .toUpperCase();
+}
 const {
   carregarIdentidadeAtual,
   encerrarSessao,
@@ -2574,7 +2582,7 @@ exports.admin = async (req, res) => {
             excluido: true,
           })
             .select(
-              "_id createdAt status pagamentoStatus motivoExclusao "
+              "_id numeroPedido numeroPedidoData codigoPublico createdAt status pagamentoStatus motivoExclusao "
               + "excluidoEm excluidoPor excluidoPorTipo "
               + "mercadoPagoStatus mercadoPagoPaymentId pagamentoInconsistente pagamentoInconsistencia",
             )
@@ -3313,6 +3321,49 @@ function listaFormulario(value) {
   return Array.isArray(value) ? value : [value];
 }
 
+function normalizarIdsCategoriasMeioAMeio(body = {}, categoriaAtual = null) {
+  const categoriaAtualId = String(categoriaAtual?._id || "");
+  const ids = [
+    ...new Set(
+      listaFormulario(body.categoriasMeioAMeio)
+        .map(value => String(value || "").trim())
+        .filter(Boolean),
+    ),
+  ].filter(id => id !== categoriaAtualId);
+
+  if (ids.length > 20) {
+    throw erroValidacao("Selecione no máximo 20 categorias para combinar no meio a meio.");
+  }
+  if (ids.some(id => !mongoose.isValidObjectId(id))) {
+    throw erroValidacao("Uma das categorias selecionadas para o meio a meio é inválida.");
+  }
+  return ids;
+}
+
+async function validarCategoriasMeioAMeio({
+  ids = [],
+  estabelecimentoId,
+  categoriaAtualId = "",
+} = {}) {
+  const idsUnicos = [...new Set(ids.map(id => String(id || "")).filter(Boolean))]
+    .filter(id => id !== String(categoriaAtualId || ""));
+  if (!idsUnicos.length) return [];
+
+  const categorias = await Categoria.find({
+    _id: { $in: idsUnicos },
+    estabelecimentoId,
+    tipo: "catalogo",
+    tipoProduto: "pizza",
+  }).select("_id").lean();
+
+  if (categorias.length !== idsUnicos.length) {
+    throw erroValidacao(
+      "Selecione apenas categorias de pizza desta loja para combinar no meio a meio.",
+    );
+  }
+  return categorias.map(categoria => categoria._id);
+}
+
 function normalizarTamanhosCategoriaPizza(body = {}, tamanhosAnteriores = []) {
   const nomes = listaFormulario(body.categoriaPizzaTamanhoNome);
   const ids = listaFormulario(body.categoriaPizzaTamanhoId);
@@ -3569,6 +3620,9 @@ function dadosCategoriaCatalogo(body = {}, categoriaAtual = null) {
         categoriaAtual?.configuracaoPizza?.tamanhos || [],
       )
     : [];
+  const categoriasMeioAMeio = tipoProduto === "pizza"
+    ? normalizarIdsCategoriasMeioAMeio(body, categoriaAtual)
+    : [];
   const variacoesHabilitadas = tipoProduto !== "pizza"
     && valorBooleanoFormulario(body.variacoesHabilitadas);
   const opcoesVariacoes = variacoesHabilitadas
@@ -3587,6 +3641,7 @@ function dadosCategoriaCatalogo(body = {}, categoriaAtual = null) {
       permiteMeioAMeio: tipoProduto === "pizza"
         && valorBooleanoFormulario(body.permiteMeioAMeio),
       regraPrecoMeioAMeio,
+      categoriasMeioAMeio,
       tamanhos,
     },
     configuracaoVariacoes: {
@@ -3639,6 +3694,14 @@ exports.criarCategoria = async (
       categoria.nome = nome;
       if (categoria.tipo === "catalogo") {
         const dadosCatalogo = dadosCategoriaCatalogo(req.body, categoria);
+        dadosCatalogo.configuracaoPizza.categoriasMeioAMeio =
+          dadosCatalogo.tipoProduto === "pizza"
+            ? await validarCategoriasMeioAMeio({
+                ids: dadosCatalogo.configuracaoPizza.categoriasMeioAMeio,
+                estabelecimentoId: idEstabelecimento,
+                categoriaAtualId: categoria._id,
+              })
+            : [];
         categoria.tipoProduto = dadosCatalogo.tipoProduto;
         categoria.configuracaoPizza = dadosCatalogo.configuracaoPizza;
         categoria.configuracaoVariacoes = dadosCatalogo.configuracaoVariacoes;
@@ -3647,6 +3710,7 @@ exports.criarCategoria = async (
         categoria.configuracaoPizza = {
           permiteMeioAMeio: false,
           regraPrecoMeioAMeio: "maior_sabor_escolhido",
+          categoriasMeioAMeio: [],
           tamanhos: [],
         };
         categoria.configuracaoVariacoes = {
@@ -3674,6 +3738,7 @@ exports.criarCategoria = async (
           configuracaoPizza: {
             permiteMeioAMeio: false,
             regraPrecoMeioAMeio: "maior_sabor_escolhido",
+            categoriasMeioAMeio: [],
             tamanhos: [],
           },
           configuracaoVariacoes: {
@@ -3681,6 +3746,14 @@ exports.criarCategoria = async (
             opcoes: [],
           },
         };
+
+    if (tipo === "catalogo" && dadosCatalogo.tipoProduto === "pizza") {
+      dadosCatalogo.configuracaoPizza.categoriasMeioAMeio =
+        await validarCategoriasMeioAMeio({
+          ids: dadosCatalogo.configuracaoPizza.categoriasMeioAMeio,
+          estabelecimentoId: idEstabelecimento,
+        });
+    }
 
     await Categoria.create({
       estabelecimentoId: idEstabelecimento,
@@ -6368,10 +6441,8 @@ exports.obterPedidoParaImpressao = async (
           : [],
       pedido: {
         id: String(pedido._id),
-        numero:
-          String(pedido.codigoPublico || pedido._id)
-            .slice(pedido.codigoPublico ? 0 : -6)
-            .toUpperCase(),
+        numero: numeroPedidoExibicao(pedido),
+        codigoPublico: String(pedido.codigoPublico || "").toUpperCase(),
         origem,
         canal:
           pedido.canal || "retirada",
@@ -7041,10 +7112,8 @@ exports.arquivarPedido = async (req, res) => {
         return {
           id: String(pedido._id),
 
-          numero:
-            String(pedido.codigoPublico || pedido._id)
-              .slice(pedido.codigoPublico ? 0 : -6)
-              .toUpperCase(),
+          numero: numeroPedidoExibicao(pedido),
+          codigoPublico: String(pedido.codigoPublico || "").toUpperCase(),
 
           cliente:
             pedido.cliente ||
@@ -7341,6 +7410,9 @@ exports.statusProdutosCatalogo = async (req, res) => {
                 produto.categoriaId.configuracaoPizza?.regraPrecoMeioAMeio
                 || "maior_sabor_escolhido",
               ),
+              categoriasMeioAMeio: (
+                produto.categoriaId.configuracaoPizza?.categoriasMeioAMeio || []
+              ).map(categoriaId => String(categoriaId?._id || categoriaId || "")),
               tamanhos: (produto.categoriaId.configuracaoPizza?.tamanhos || [])
                 .filter(tamanho => tamanho?.ativo !== false)
                 .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0))
@@ -7632,28 +7704,35 @@ exports.criarPedidoMesa = async (
       ),
     ];
 
-    const [categoriasMesa, produtosAtivosCategorias] = await Promise.all([
-      idsCategoriasMesa.length
-        ? Categoria.find({
-            _id: { $in: idsCategoriasMesa },
-            estabelecimentoId: mesa.estabelecimentoId,
-            tipo: "catalogo",
-          }).lean()
-        : Promise.resolve([]),
-      idsCategoriasMesa.length
-        ? Produto.find({
-            estabelecimentoId: mesa.estabelecimentoId,
-            categoriaId: { $in: idsCategoriasMesa },
-            ativo: true,
-          })
-            .select("_id nome preco precosPizza precosVariacoes custo categoriaId fichaTecnica adicionais imagem")
-            .lean()
-        : Promise.resolve([]),
-    ]);
-
+    const categoriasMesa = idsCategoriasMesa.length
+      ? await Categoria.find({
+          estabelecimentoId: mesa.estabelecimentoId,
+          tipo: "catalogo",
+        }).lean()
+      : [];
     const categoriasMesaMap = new Map(
       categoriasMesa.map(categoria => [String(categoria._id), categoria]),
     );
+    const idsCategoriasPrecoMesa = [
+      ...new Set([
+        ...idsCategoriasMesa,
+        ...idsCategoriasMesa.flatMap(categoriaId => {
+          const categoria = categoriasMesaMap.get(categoriaId);
+          return (categoria?.configuracaoPizza?.categoriasMeioAMeio || [])
+            .map(id => String(id?._id || id || ""))
+            .filter(Boolean);
+        }),
+      ]),
+    ];
+    const produtosAtivosCategorias = idsCategoriasPrecoMesa.length
+      ? await Produto.find({
+          estabelecimentoId: mesa.estabelecimentoId,
+          categoriaId: { $in: idsCategoriasPrecoMesa },
+          ativo: true,
+        })
+          .select("_id nome preco precosPizza precosVariacoes custo categoriaId fichaTecnica adicionais imagem")
+          .lean()
+      : [];
 
     // Necessário para a regra "maior preço da categoria" da pizza meio a meio.
     const produtosPorCategoriaMesa = new Map();
@@ -7908,10 +7987,8 @@ exports.criarPedidoMesa = async (
           : "Pedido enviado com sucesso.",
       idempotentReplay: Boolean(pedido.idempotentReplay),
       pedidoId: pedido._id,
-      numeroPedido:
-        String(pedido.codigoPublico || pedido._id)
-          .slice(pedido.codigoPublico ? 0 : -6)
-          .toUpperCase(),
+      numeroPedido: numeroPedidoExibicao(pedido),
+      codigoPublico: String(pedido.codigoPublico || "").toUpperCase(),
       acompanhamentoToken:
         pedido.acompanhamentoToken,
       acompanhamentoTokenExpiraEm:
@@ -8577,27 +8654,35 @@ exports.criarPedidoCatalogo =
             .filter(Boolean),
         ),
       ];
-      const [categoriasProdutos, produtosAtivosCategorias] = await Promise.all([
-        idsCategoriasProdutos.length
-          ? Categoria.find({
-              _id: { $in: idsCategoriasProdutos },
-              estabelecimentoId: configuracao.estabelecimentoId,
-              tipo: "catalogo",
-            }).lean()
-          : Promise.resolve([]),
-        idsCategoriasProdutos.length
-          ? Produto.find({
-              estabelecimentoId: configuracao.estabelecimentoId,
-              categoriaId: { $in: idsCategoriasProdutos },
-              ativo: true,
-            })
-              .select("_id nome preco precosPizza precosVariacoes custo categoriaId fichaTecnica adicionais imagem")
-              .lean()
-          : Promise.resolve([]),
-      ]);
+      const categoriasProdutos = idsCategoriasProdutos.length
+        ? await Categoria.find({
+            estabelecimentoId: configuracao.estabelecimentoId,
+            tipo: "catalogo",
+          }).lean()
+        : [];
       const categoriasMap = new Map(
         categoriasProdutos.map(categoria => [String(categoria._id), categoria]),
       );
+      const idsCategoriasPreco = [
+        ...new Set([
+          ...idsCategoriasProdutos,
+          ...idsCategoriasProdutos.flatMap(categoriaId => {
+            const categoria = categoriasMap.get(categoriaId);
+            return (categoria?.configuracaoPizza?.categoriasMeioAMeio || [])
+              .map(id => String(id?._id || id || ""))
+              .filter(Boolean);
+          }),
+        ]),
+      ];
+      const produtosAtivosCategorias = idsCategoriasPreco.length
+        ? await Produto.find({
+            estabelecimentoId: configuracao.estabelecimentoId,
+            categoriaId: { $in: idsCategoriasPreco },
+            ativo: true,
+          })
+            .select("_id nome preco precosPizza precosVariacoes custo categoriaId fichaTecnica adicionais imagem")
+            .lean()
+        : [];
       const produtosPorCategoria = new Map();
       for (const produto of produtosAtivosCategorias) {
         const categoriaId = String(produto.categoriaId || "");
@@ -9121,7 +9206,7 @@ exports.criarPedidoCatalogo =
             : "Pedido enviado com sucesso.",
         idempotentReplay: Boolean(pedido.idempotentReplay),
 
-        numeroPedido: pedido.codigoPublico,
+        numeroPedido: numeroPedidoExibicao(pedido),
         codigoPublico: pedido.codigoPublico,
         emailAviso,
         acompanhamentoToken:
@@ -9204,6 +9289,7 @@ function serializarConsultaPublica(pedido, avaliados = new Set()) {
   const podeAvaliar = pedido.pagamentoStatus === "pago"
     && ["entregue", "finalizado"].includes(statusNormalizado);
   return {
+    numeroPedido: numeroPedidoExibicao(pedido),
     codigoPublico: String(pedido.codigoPublico || ""),
     podeAvaliar,
     data: pedido.createdAt,
@@ -9263,7 +9349,7 @@ exports.consultarPedidoPublico = async (req, res) => {
         : { codigoPublicoFinal: codigoRecebido }),
     };
     const pedidos = await Pedido.find(filtro)
-      .select("codigoPublico createdAt status pagamentoStatus canal itens.produtoId itens.nome itens.quantidade subtotalProdutos taxaEntregaCentavos total previsaoEntrega enderecoEntrega estabelecimentoId")
+      .select("numeroPedido codigoPublico createdAt status pagamentoStatus canal itens.produtoId itens.nome itens.quantidade subtotalProdutos taxaEntregaCentavos total previsaoEntrega enderecoEntrega estabelecimentoId")
       .sort({ createdAt: -1 }).limit(2).lean();
     if (!pedidos.length) return generic();
     if (!completo && pedidos.length > 1) {
@@ -9402,7 +9488,7 @@ exports.listarConsultaPedidos = async (req, res) => {
     ...match,
     excluido: { $ne: true },
     createdAt: { $gte: new Date(Date.now() - 90 * 86400000) },
-  }).select("_id createdAt status pagamentoStatus canal itens.produtoId itens.nome itens.quantidade subtotalProdutos taxaEntregaCentavos total previsaoEntrega formaPagamento pagoEm")
+  }).select("_id numeroPedido codigoPublico createdAt status pagamentoStatus canal itens.produtoId itens.nome itens.quantidade subtotalProdutos taxaEntregaCentavos total previsaoEntrega formaPagamento pagoEm")
     .sort({ createdAt: -1 }).limit(50).lean();
   return res.json({ ok: true, pedidos: orders.map(serializarPedidoPublico) });
 };

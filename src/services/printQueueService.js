@@ -34,11 +34,18 @@ const {
   createIdempotencyConflictError,
   hashPublicOrderPayload,
 } = require("../utils/publicOrderIdempotency");
+const {
+  formatarNumeroPedido,
+  reservarNumeroPedido,
+} = require("./pedidoNumeroService");
 
 const INSTANCE_ID = `${os.hostname()}:${process.pid}:${crypto.randomUUID()}`;
 const MAX_ATTEMPTS = 5;
 const LEASE_MS = 60_000;
 const RETRY_DELAYS = [0, 5_000, 30_000, 120_000, 600_000];
+// O reconciliador serve apenas para recuperar uma falha recente entre a criação
+// do pedido e a criação dos jobs. Ele não deve ressuscitar impressões históricas.
+const ORDER_PRINT_RECONCILIATION_WINDOW_MS = 15 * 60 * 1000;
 const activeStores = new Set();
 let transport = null;
 let shuttingDown = false;
@@ -99,6 +106,37 @@ function isOrderEligibleForAutomaticPrint(pedido = {}) {
       && pedido.mercadoPagoStatus === "approved";
   }
   return true;
+}
+
+function motivoImpressaoAutomatica(pedido = {}) {
+  return isPixOnlineOrder(pedido) ? "payment_approved" : "order_created";
+}
+
+async function marcarImpressaoAutomaticaProcessada(pedido, { session = null } = {}) {
+  if (!pedido?._id || !pedido?.estabelecimentoId) return;
+  const motivo = motivoImpressaoAutomatica(pedido);
+  const processadaEm = new Date();
+  const options = session ? { session } : undefined;
+
+  await Pedido.updateOne({
+    _id: pedido._id,
+    estabelecimentoId: pedido.estabelecimentoId,
+  }, {
+    $set: {
+      impressaoAutomaticaProcessadaEm: processadaEm,
+      impressaoAutomaticaMotivo: motivo,
+    },
+  }, options);
+
+  // Mantém o documento em memória coerente para chamadas subsequentes no mesmo fluxo.
+  pedido.impressaoAutomaticaProcessadaEm = processadaEm;
+  pedido.impressaoAutomaticaMotivo = motivo;
+}
+
+function impressaoAutomaticaJaProcessada(pedido = {}) {
+  if (!pedido.impressaoAutomaticaProcessadaEm) return false;
+  return String(pedido.impressaoAutomaticaMotivo || "")
+    === motivoImpressaoAutomatica(pedido);
 }
 
 function erroPedidoIndisponivel() {
@@ -302,6 +340,7 @@ async function finalizarJobsEsgotados({ now = new Date() } = {}) {
 // qualquer campo desconhecido. Eles permanecem persistidos no PrintJob, mas
 // nunca atravessam o protocolo v2 enviado ao computador da loja.
 const CAMPOS_PEDIDO_SOMENTE_SERVIDOR = new Set([
+  "codigoPublico",
   "documentoTipo",
   "comandaMesaId",
   "comandaChave",
@@ -358,7 +397,8 @@ async function montarSnapshotValidado({
     },
     pedido: {
       id: String(pedido._id),
-      numero: text(pedido.codigoPublico, 8),
+      numero: text(formatarNumeroPedido(pedido.numeroPedido) || pedido.codigoPublico, 12),
+      codigoPublico: text(pedido.codigoPublico, 8),
       documentoTipo: text(pedido.documentoTipo, 40),
       comandaMesaId: text(pedido.comandaMesaId, 80),
       comandaChave: text(pedido.comandaChave, 128),
@@ -468,7 +508,7 @@ async function criarJobsAutomaticos(pedido, options = {}) {
         estabelecimentoId: pedido.estabelecimentoId,
         pedidoId: pedido._id,
         tipo: "automatica",
-        motivo: isPixOnlineOrder(pedido) ? "payment_approved" : "order_created",
+        motivo: motivoImpressaoAutomatica(pedido),
         paymentIdSuffix: isPixOnlineOrder(pedido)
           ? String(pedido.mercadoPagoPaymentId || "").slice(-8)
           : "",
@@ -482,6 +522,10 @@ async function criarJobsAutomaticos(pedido, options = {}) {
       if (error?.code !== 11000) throw error;
     }
   }
+  // Marca no Pedido que este evento de impressão automática já foi tratado.
+  // Esse registro é independente de PrintJob: apagar um job não autoriza o
+  // reconciliador a imprimir novamente um pedido antigo.
+  await marcarImpressaoAutomaticaProcessada(pedido, { session: options.session || null });
   notifyStore(pedido.estabelecimentoId);
   return jobs;
 }
@@ -550,7 +594,11 @@ async function buscarPedidoIdempotente(dados, token, payloadHash) {
   return anexarResultadoPublico(pedido, token, { replay: true });
 }
 
-async function criarPedidoComJobsAutomaticos(dados, tentativaCodigo = 0) {
+async function criarPedidoComJobsAutomaticos(
+  dados,
+  tentativaCodigo = 0,
+  numeroReservado = null,
+) {
   assertAcceptingWork();
   const payloadHash = dados.idempotencyKey ? hashPublicOrderPayload(dados) : "";
   const tokenAcompanhamento = dados.idempotencyKey
@@ -564,9 +612,14 @@ async function criarPedidoComJobsAutomaticos(dados, tentativaCodigo = 0) {
   const existente = await buscarPedidoIdempotente(dados, tokenAcompanhamento.token, payloadHash);
   if (existente) return existente;
 
+  const sequencia = numeroReservado || await reservarNumeroPedido({
+    estabelecimentoId: dados.estabelecimentoId,
+  });
   const codigoPublico = gerarCodigoPublico();
   const dadosComToken = {
     ...dados,
+    numeroPedido: sequencia.numeroPedido,
+    numeroPedidoData: sequencia.numeroPedidoData,
     codigoPublico,
     codigoPublicoFinal: codigoFinal(codigoPublico),
     acompanhamentoTokenHash: tokenAcompanhamento.hash,
@@ -595,7 +648,7 @@ async function criarPedidoComJobsAutomaticos(dados, tentativaCodigo = 0) {
       && (error?.keyPattern?.codigoPublico
         || String(error?.message || "").includes("pedido_codigo_publico_tenant_unico"));
     if (colisaoCodigo && tentativaCodigo < 5) {
-      return criarPedidoComJobsAutomaticos(dados, tentativaCodigo + 1);
+      return criarPedidoComJobsAutomaticos(dados, tentativaCodigo + 1, sequencia);
     }
     const unsupported = /Transaction numbers|replica set|transactions are not supported/i
       .test(String(error?.message || ""));
@@ -616,7 +669,7 @@ async function criarPedidoComJobsAutomaticos(dados, tentativaCodigo = 0) {
         && (fallbackError?.keyPattern?.codigoPublico
           || String(fallbackError?.message || "").includes("pedido_codigo_publico_tenant_unico"));
       if (colisaoFallback && tentativaCodigo < 5) {
-        return criarPedidoComJobsAutomaticos(dados, tentativaCodigo + 1);
+        return criarPedidoComJobsAutomaticos(dados, tentativaCodigo + 1, sequencia);
       }
       throw fallbackError;
     }
@@ -634,6 +687,9 @@ async function reivindicarProximoJob(estabelecimentoId) {
   return PrintJob.findOneAndUpdate({
     estabelecimentoId,
     status: { $in: ["pendente", "aguardando_retry"] },
+    // Impressões manuais só podem ser reenviadas por uma ação explícita do usuário.
+    // Jobs manuais antigos que tenham ficado em aguardando_retry não voltam a sair sozinhos.
+    $nor: [{ tipo: "manual", status: "aguardando_retry" }],
     tentativas: { $lt: MAX_ATTEMPTS },
     $and: [
       {
@@ -683,6 +739,26 @@ async function programarRetry(job, error, { permanente = false } = {}) {
           $in: ["recebido", "processando", "resultado_desconhecido", "falhou"],
         },
       };
+
+  // Uma impressão solicitada manualmente nunca entra em retry automático.
+  // Isso evita vias duplicadas quando a impressora já recebeu o RAW, mas o
+  // Windows/agente reporta uma falha tardia. O usuário pode usar Reimprimir.
+  if (String(job.tipo || "") === "manual") {
+    return PrintJob.findOneAndUpdate(filter, {
+      $set: {
+        status: "falhou",
+        erro: text(
+          `Impressão manual não reenviada automaticamente. Use Reimprimir se necessário. ${error?.message || error || ""}`,
+          1000,
+        ),
+        nextAttemptAt: null,
+        lockedBy: "",
+        leaseToken: "",
+        leaseExpiresAt: null,
+      },
+    }, { returnDocument: "after" });
+  }
+
   if (permanente || attempts >= MAX_ATTEMPTS) {
     return PrintJob.findOneAndUpdate(filter, {
       $set: {
@@ -752,7 +828,18 @@ async function atualizarStatusDoAgente(estabelecimentoId, status = {}) {
     update.leaseToken = "";
     update.leaseExpiresAt = null;
   } else if (validated.status === "falhou_antes_envio") {
-    return programarRetry(job, validated.message || "Falha segura antes do envio.");
+    // O agente já recebeu o job e respondeu sobre ele. Depois desse ponto não
+    // existe retry automático: alguns drivers podem sinalizar erro após
+    // aceitarem os bytes, o que poderia gerar uma segunda via.
+    update.status = "falhou";
+    update.erro = text(
+      `Agente recebeu o job, mas informou falha antes do envio. Retry automático bloqueado para evitar duplicidade. ${validated.message || ""}`,
+      1000,
+    );
+    update.nextAttemptAt = null;
+    update.lockedBy = "";
+    update.leaseToken = "";
+    update.leaseExpiresAt = null;
   } else if (validated.status === "resultado_desconhecido") {
     update.status = "resultado_desconhecido";
     update.leaseExpiresAt = new Date(now.getTime() + LEASE_MS);
@@ -775,21 +862,24 @@ async function consultarResultadoDesconhecido(job, socket) {
     return job;
   }
   if (result?.status === "nao_encontrado") {
+    const manual = String(job.tipo || "") === "manual";
     const safeJob = await PrintJob.findOneAndUpdate({
       _id: job._id,
       status: "resultado_desconhecido",
       ultimoLeaseId: deliveryLeaseId,
     }, {
       $set: {
-        status: "aguardando_retry",
-        erro: "O agente confirmou que não recebeu o trabalho.",
-        nextAttemptAt: new Date(),
+        status: manual ? "falhou" : "aguardando_retry",
+        erro: manual
+          ? "O agente confirmou que não recebeu a impressão manual. Use Reimprimir se necessário."
+          : "O agente confirmou que não recebeu o trabalho.",
+        nextAttemptAt: manual ? null : new Date(),
         lockedBy: "",
         leaseToken: "",
         leaseExpiresAt: null,
       },
     }, { returnDocument: "after" });
-    if (safeJob) notifyStore(safeJob.estabelecimentoId);
+    if (safeJob && !manual) notifyStore(safeJob.estabelecimentoId);
     return safeJob || job;
   }
   try {
@@ -834,22 +924,24 @@ async function consultarResultadoDesconhecido(job, socket) {
     }, { returnDocument: "after" });
   }
   if (result?.status === "falhou_antes_envio") {
-    const retryable = await PrintJob.findOneAndUpdate({
+    const failed = await PrintJob.findOneAndUpdate({
       _id: job._id,
       status: { $nin: ["concluido", "cancelado"] },
       ultimoLeaseId: deliveryLeaseId,
     }, {
       $set: {
         status: "falhou",
-        erro: text(result.message || "Falha confirmada pelo agente.", 1000),
+        erro: text(
+          `Agente confirmou falha após receber o job. Retry automático bloqueado para evitar duplicidade. ${result.message || ""}`,
+          1000,
+        ),
+        nextAttemptAt: null,
         lockedBy: "",
         leaseToken: "",
         leaseExpiresAt: null,
       },
     }, { returnDocument: "after" });
-    return retryable
-      ? programarRetry(retryable, retryable.erro)
-      : job;
+    return failed || job;
   }
   // Ausência local, protocolo antigo ou resultado ambíguo nunca liberam retry.
   return PrintJob.findOneAndUpdate({
@@ -912,6 +1004,8 @@ async function reconciliarResumoDoAgente(estabelecimentoId, summary = {}) {
       local.status === "falhou_antes_envio"
       && String(job.leaseToken) === String(local.leaseId)
     ) {
+      // Se o job aparece no resumo local do agente, ele já foi recebido.
+      // Portanto, nunca liberamos uma nova impressão automaticamente.
       await PrintJob.findOneAndUpdate({
         _id: job._id,
         estabelecimentoId,
@@ -921,9 +1015,9 @@ async function reconciliarResumoDoAgente(estabelecimentoId, summary = {}) {
         },
       }, {
         $set: {
-          status: "aguardando_retry",
-          erro: "Falha antes do envio confirmada pelo agente.",
-          nextAttemptAt: new Date(),
+          status: "falhou",
+          erro: "O agente recebeu o job e informou falha. Retry automático bloqueado para evitar impressão duplicada. Use Reimprimir se necessário.",
+          nextAttemptAt: null,
           lockedBy: "",
           leaseToken: "",
           leaseExpiresAt: null,
@@ -932,7 +1026,7 @@ async function reconciliarResumoDoAgente(estabelecimentoId, summary = {}) {
       decisions.push({
         jobId: job.jobId,
         leaseId: String(local.leaseId),
-        action: "liberar_para_retry",
+        action: "aguardar",
       });
       continue;
     }
@@ -1054,6 +1148,46 @@ async function recuperarLeasesExpirados() {
   if (shuttingDown) return;
   const now = new Date();
   await finalizarJobsEsgotados({ now });
+
+  // Neutraliza retries manuais deixados por versões anteriores antes que o
+  // agente possa reivindicá-los novamente após um deploy/reinício.
+  await PrintJob.updateMany({
+    tipo: "manual",
+    status: "aguardando_retry",
+  }, {
+    $set: {
+      status: "falhou",
+      erro: "Retry automático de impressão manual desativado. Use Reimprimir se necessário.",
+      nextAttemptAt: null,
+      lockedBy: "",
+      leaseToken: "",
+      leaseExpiresAt: null,
+    },
+  });
+
+  // Neutraliza retries automáticos criados por versões anteriores quando já
+  // há evidência de que o agente recebeu/processou o job. Esses trabalhos não
+  // podem voltar para a impressora sozinhos após o deploy.
+  await PrintJob.updateMany({
+    tipo: "automatica",
+    status: "aguardando_retry",
+    $or: [
+      { recebidoEm: { $ne: null } },
+      { processandoEm: { $ne: null } },
+      { enviadoEm: { $ne: null } },
+      { erro: "Falha antes do envio confirmada pelo agente." },
+    ],
+  }, {
+    $set: {
+      status: "falhou",
+      erro: "Retry automático bloqueado: o agente já havia recebido ou processado este job. Use Reimprimir se necessário.",
+      nextAttemptAt: null,
+      lockedBy: "",
+      leaseToken: "",
+      leaseExpiresAt: null,
+    },
+  });
+
   await PrintJob.updateMany({
     status: {
       $in: ["entregando", "recebido", "processando", "enviado", "resultado_desconhecido"],
@@ -1068,13 +1202,32 @@ async function recuperarLeasesExpirados() {
   });
 }
 
-async function reconciliarPedidosSemJob({ since = new Date(Date.now() - 24 * 60 * 60 * 1000) } = {}) {
+async function reconciliarPedidosSemJob({
+  since = new Date(Date.now() - ORDER_PRINT_RECONCILIATION_WINDOW_MS),
+} = {}) {
   if (shuttingDown) return;
+
+  const limite = since instanceof Date && Number.isFinite(since.getTime())
+    ? since
+    : new Date(Date.now() - ORDER_PRINT_RECONCILIATION_WINDOW_MS);
+
+  // Recupera somente pedidos recentes cujo evento de impressão automática ainda
+  // não foi marcado como processado. Isso cobre uma queda entre salvar o pedido
+  // e criar o job, sem transformar o reconciliador em uma reimpressão histórica.
   const pedidos = await Pedido.find({
-    createdAt: { $gte: since },
+    createdAt: { $gte: limite },
     excluido: { $ne: true },
-  }).limit(500);
-  for (const pedido of pedidos) await criarJobsAutomaticos(pedido);
+    $or: [
+      { impressaoAutomaticaProcessadaEm: null },
+      { impressaoAutomaticaProcessadaEm: { $exists: false } },
+    ],
+  }).sort({ createdAt: 1 }).limit(500);
+
+  for (const pedido of pedidos) {
+    if (!isOrderEligibleForAutomaticPrint(pedido)) continue;
+    if (impressaoAutomaticaJaProcessada(pedido)) continue;
+    await criarJobsAutomaticos(pedido);
+  }
 }
 
 function notifyStore(estabelecimentoId) {
@@ -1129,8 +1282,10 @@ async function reconciliarJobManual(job, action) {
         leaseExpiresAt: null,
       }
     : {
-        status: "aguardando_retry",
-        erro: "Retry liberado por conciliação manual.",
+        // Esta é uma ação humana explícita, portanto pode voltar a pendente.
+        // O que fica proibido é o retry automático de jobs do tipo manual.
+        status: "pendente",
+        erro: "Reenvio liberado por conciliação manual.",
         nextAttemptAt: now,
         lockedBy: "",
         leaseToken: "",
