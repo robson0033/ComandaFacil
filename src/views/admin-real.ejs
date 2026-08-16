@@ -3844,7 +3844,12 @@
       gap: 8px;
     }
 
-    .pizza-size-row input:not([type="hidden"]) {
+    .pizza-size-row.pizza-size-row-flavors {
+      grid-template-columns: minmax(0, 1fr) minmax(150px, 190px) 42px;
+    }
+
+    .pizza-size-row input:not([type="hidden"]),
+    .pizza-size-row select {
       width: 100%;
       min-width: 0;
       height: 42px;
@@ -3900,6 +3905,20 @@
     }
 
     @media (max-width: 620px) {
+      .pizza-size-row.pizza-size-row-flavors {
+        grid-template-columns: minmax(0, 1fr) 42px;
+      }
+
+      .pizza-size-row.pizza-size-row-flavors select {
+        grid-column: 1 / -1;
+        grid-row: 2;
+      }
+
+      .pizza-size-row.pizza-size-row-flavors .pizza-size-remove {
+        grid-column: 2;
+        grid-row: 1;
+      }
+
       .category-editor {
         padding: 12px;
       }
@@ -5403,7 +5422,7 @@
                         <% if (item.pizzaMeioAMeio && Array.isArray(item.saboresPizza)) { %>
                           <div class="order-item-addons" style="margin-top:5px;display:grid;gap:3px;overflow-wrap:anywhere">
                             <% item.saboresPizza.forEach(sabor => { %>
-                              <span>🍕 <%= Number(sabor.fracao || 0.5) === 0.5 ? '1/2' : sabor.fracao %> <%= sabor.nome %></span>
+                              <span>🍕 <%= Math.abs(Number(sabor.fracao || 0.5) - (1 / 3)) < 0.01 ? '1/3' : (Math.abs(Number(sabor.fracao || 0.5) - 0.5) < 0.01 ? '1/2' : sabor.fracao) %> <%= sabor.nome %></span>
                             <% }) %>
                           </div>
                         <% } %>
@@ -5798,7 +5817,7 @@
                   <% if (item.pizzaMeioAMeio && Array.isArray(item.saboresPizza)) { %>
                     <div class="order-item-addons" style="margin-top:5px;display:grid;gap:3px;overflow-wrap:anywhere">
                       <% item.saboresPizza.forEach(sabor => { %>
-                        <span>🍕 <%= Number(sabor.fracao || 0.5) === 0.5 ? '1/2' : sabor.fracao %> <%= sabor.nome %></span>
+                        <span>🍕 <%= Math.abs(Number(sabor.fracao || 0.5) - (1 / 3)) < 0.01 ? '1/3' : (Math.abs(Number(sabor.fracao || 0.5) - 0.5) < 0.01 ? '1/2' : sabor.fracao) %> <%= sabor.nome %></span>
                       <% }) %>
                       <span>
                         Regra: <%= item.regraPrecoPizza === 'maior_preco_categoria'
@@ -6765,13 +6784,13 @@
             >
               <label class="category-compact-checkbox">
                 <input type="checkbox" name="permiteMeioAMeio" value="on">
-                Permitir pizza meio a meio
+                Permitir pizza com mais de um sabor
               </label>
 
               <div class="field">
-                <label>Categorias que podem combinar no meio a meio</label>
+                <label>Categorias que podem combinar nos sabores</label>
                 <small style="display:block;color:var(--cinza-500);margin:4px 0 8px;">
-                  Marque outras categorias de pizza cujos sabores poderão ser usados como a segunda metade.
+                  Marque outras categorias de pizza cujos sabores poderão ser combinados nesta pizza.
                 </small>
                 <% const categoriasPizzaParaCriacao = listaCategoriasCatalogo.filter(item => item.tipoProduto === 'pizza'); %>
                 <% if (categoriasPizzaParaCriacao.length) { %>
@@ -6812,7 +6831,7 @@
               <div class="pizza-size-manager">
                 <strong>Tamanhos de pizza</strong>
                 <small style="display:block;color:var(--cinza-500);margin-top:4px;">
-                  Cadastre os tamanhos usados nesta categoria, por exemplo: Pequena, Média, Grande e Família. Depois, informe o preço de cada tamanho ao cadastrar ou editar cada pizza.
+                  Cadastre os tamanhos e escolha quantos sabores cada um permite. Depois, informe o preço de cada tamanho ao cadastrar ou editar cada pizza.
                 </small>
                 <div class="pizza-size-list" data-pizza-size-list></div>
                 <button type="button" class="mini-button edit" data-add-pizza-size style="margin-top:9px;">
@@ -6858,7 +6877,7 @@
 
                     <% if (permiteMeioAMeio) { %>
                       <span class="category-badge enabled">
-                        Meio a meio
+                        Multi-sabor
                       </span>
                     <% } %>
 
@@ -7001,13 +7020,13 @@
                             value="on"
                             <%= permiteMeioAMeio ? 'checked' : '' %>
                           >
-                          Permitir meio a meio
+                          Permitir pizza com mais de um sabor
                         </label>
 
                         <div class="field">
-                          <label>Categorias que podem combinar no meio a meio</label>
+                          <label>Categorias que podem combinar nos sabores</label>
                           <small style="display:block;color:var(--cinza-500);margin:4px 0 8px;">
-                            O primeiro sabor continua nesta categoria; o segundo poderá vir das categorias marcadas abaixo.
+                            O primeiro sabor continua nesta categoria; os demais poderão vir das categorias marcadas abaixo.
                           </small>
                           <% const outrasCategoriasPizza = listaCategoriasCatalogo.filter(item =>
                             item.tipoProduto === 'pizza' && String(item._id) !== String(categoria._id)
@@ -7063,14 +7082,14 @@
                         <div class="pizza-size-manager">
                           <strong>Tamanhos de pizza</strong>
                           <small style="display:block;color:var(--cinza-500);margin-top:4px;">
-                            Os clientes escolherão um destes tamanhos ao comprar a pizza. Se você adicionar um tamanho novo, edite as pizzas desta categoria e informe o preço dele.
+                            Os clientes escolherão um destes tamanhos. Defina se cada tamanho aceita 1, 2 ou até 3 sabores. Se adicionar um tamanho novo, edite as pizzas desta categoria e informe o preço dele.
                           </small>
                           <div class="pizza-size-list" data-pizza-size-list>
                             <% (categoria.configuracaoPizza?.tamanhos || [])
                               .filter(tamanho => tamanho.ativo !== false)
                               .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0))
                               .forEach(tamanho => { %>
-                              <div class="pizza-size-row">
+                              <div class="pizza-size-row pizza-size-row-flavors">
                                 <input type="hidden" name="categoriaPizzaTamanhoId[]" value="<%= tamanho._id %>">
                                 <input
                                   name="categoriaPizzaTamanhoNome[]"
@@ -7079,6 +7098,12 @@
                                   placeholder="Ex.: Grande"
                                   required
                                 >
+                                <select name="categoriaPizzaTamanhoMaxSabores[]" aria-label="Máximo de sabores para <%= tamanho.nome %>">
+                                  <% const maxSaboresTamanho = Math.max(1, Math.min(3, Number(tamanho.maxSabores || 2))); %>
+                                  <option value="1" <%= maxSaboresTamanho === 1 ? 'selected' : '' %>>1 sabor</option>
+                                  <option value="2" <%= maxSaboresTamanho === 2 ? 'selected' : '' %>>Até 2 sabores</option>
+                                  <option value="3" <%= maxSaboresTamanho === 3 ? 'selected' : '' %>>Até 3 sabores</option>
+                                </select>
                                 <button type="button" class="pizza-size-remove" data-remove-pizza-size title="Remover tamanho">×</button>
                               </div>
                             <% }) %>
@@ -11601,7 +11626,7 @@ function criarHtmlItensPedido(
 
             ${item.pizzaMeioAMeio && Array.isArray(item.saboresPizza) ? `
               <div class="order-item-addons" style="margin-top:5px;display:grid;gap:3px;overflow-wrap:anywhere">
-                ${item.saboresPizza.map(sabor => `<span>🍕 ${Number(sabor.fracao || 0.5) === 0.5 ? '1/2' : escaparHtml(sabor.fracao)} ${escaparHtml(sabor.nome || 'Sabor')}</span>`).join('')}
+                ${item.saboresPizza.map(sabor => `<span>🍕 ${Math.abs(Number(sabor.fracao || 0.5) - (1 / 3)) < 0.01 ? '1/3' : (Math.abs(Number(sabor.fracao || 0.5) - 0.5) < 0.01 ? '1/2' : escaparHtml(sabor.fracao))} ${escaparHtml(sabor.nome || 'Sabor')}</span>`).join('')}
                 <span>Regra: ${item.regraPrecoPizza === 'maior_preco_categoria' ? 'maior preço da categoria' : 'maior preço entre os sabores escolhidos'}</span>
               </div>
             ` : ''}
@@ -13008,6 +13033,7 @@ if (podeReceberNotificacoes) {
         .map(tamanho => ({
           id: String(tamanho._id),
           nome: String(tamanho.nome || ''),
+          maxSabores: Math.max(1, Math.min(3, Number(tamanho.maxSabores || 2))),
         })),
       variacoesHabilitadas: categoria.configuracaoVariacoes?.habilitado === true,
       variacoes: (categoria.configuracaoVariacoes?.opcoes || [])
@@ -13507,12 +13533,18 @@ if (podeReceberNotificacoes) {
       }
     });
 
-    function criarLinhaTamanhoPizza({ id = '', nome = '' } = {}) {
+    function criarLinhaTamanhoPizza({ id = '', nome = '', maxSabores = 2 } = {}) {
       const row = document.createElement('div');
-      row.className = 'pizza-size-row';
+      row.className = 'pizza-size-row pizza-size-row-flavors';
+      const maximo = Math.max(1, Math.min(3, Number(maxSabores || 2)));
       row.innerHTML = `
         <input type="hidden" name="categoriaPizzaTamanhoId[]" value="${escaparHtml(id)}">
         <input name="categoriaPizzaTamanhoNome[]" maxlength="50" placeholder="Ex.: Grande" value="${escaparHtml(nome)}" required>
+        <select name="categoriaPizzaTamanhoMaxSabores[]" aria-label="Máximo de sabores">
+          <option value="1" ${maximo === 1 ? 'selected' : ''}>1 sabor</option>
+          <option value="2" ${maximo === 2 ? 'selected' : ''}>Até 2 sabores</option>
+          <option value="3" ${maximo === 3 ? 'selected' : ''}>Até 3 sabores</option>
+        </select>
         <button type="button" class="pizza-size-remove" data-remove-pizza-size title="Remover tamanho">×</button>
       `;
       return row;

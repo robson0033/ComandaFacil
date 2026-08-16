@@ -460,7 +460,7 @@ async function montarSnapshotValidado({
           : number(item.precoBasePizza),
         tamanhoPizzaId: text(item.tamanhoPizzaId, 80),
         tamanhoPizzaNome: text(item.tamanhoPizzaNome, 50),
-        saboresPizza: (item.saboresPizza || []).slice(0, 2).map(sabor => ({
+        saboresPizza: (item.saboresPizza || []).slice(0, 3).map(sabor => ({
           produtoId: text(sabor.produtoId, 80),
           nome: text(sabor.nome || "Sabor", 160),
           preco: number(sabor.preco),

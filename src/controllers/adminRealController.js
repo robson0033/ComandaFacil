@@ -3367,6 +3367,7 @@ async function validarCategoriasMeioAMeio({
 function normalizarTamanhosCategoriaPizza(body = {}, tamanhosAnteriores = []) {
   const nomes = listaFormulario(body.categoriaPizzaTamanhoNome);
   const ids = listaFormulario(body.categoriaPizzaTamanhoId);
+  const maximosSabores = listaFormulario(body.categoriaPizzaTamanhoMaxSabores);
   if (nomes.length > 12) {
     throw erroValidacao("Cadastre no máximo 12 tamanhos por categoria de pizza.");
   }
@@ -3395,13 +3396,23 @@ function normalizarTamanhosCategoriaPizza(body = {}, tamanhosAnteriores = []) {
     nomesVistos.add(chaveNome);
 
     let tamanhoId = null;
+    let tamanhoAnterior = null;
     if (idRecebido) {
       if (!mongoose.isValidObjectId(idRecebido) || !anteriores.has(idRecebido)) {
         throw erroValidacao("Um tamanho de pizza informado é inválido.");
       }
-      tamanhoId = anteriores.get(idRecebido)._id;
+      tamanhoAnterior = anteriores.get(idRecebido);
+      tamanhoId = tamanhoAnterior._id;
     } else {
       tamanhoId = new mongoose.Types.ObjectId();
+    }
+
+    const maxSaboresRecebido = maximosSabores[indice];
+    let maxSabores = maxSaboresRecebido === undefined || maxSaboresRecebido === null || maxSaboresRecebido === ""
+      ? Number(tamanhoAnterior?.maxSabores || 2)
+      : Number(maxSaboresRecebido);
+    if (!Number.isInteger(maxSabores) || maxSabores < 1 || maxSabores > 3) {
+      throw erroValidacao("Escolha entre 1 e 3 sabores para cada tamanho de pizza.");
     }
 
     tamanhos.push({
@@ -3409,6 +3420,7 @@ function normalizarTamanhosCategoriaPizza(body = {}, tamanhosAnteriores = []) {
       nome,
       ordem: tamanhos.length,
       ativo: true,
+      maxSabores,
     });
   }
 
@@ -7419,6 +7431,7 @@ exports.statusProdutosCatalogo = async (req, res) => {
                 .map(tamanho => ({
                   id: String(tamanho._id || ""),
                   nome: String(tamanho.nome || ""),
+                  maxSabores: Math.max(1, Math.min(3, Number(tamanho.maxSabores || 2))),
                 })),
               variacoesHabilitadas:
                 produto.categoriaId.configuracaoVariacoes?.habilitado === true,
@@ -7669,7 +7682,7 @@ exports.criarPedidoMesa = async (
       });
     }
 
-    // Inclui também os dois sabores quando o item é uma pizza meio a meio.
+    // Inclui também os sabores adicionais quando o item é uma pizza com múltiplos sabores.
     // O servidor nunca confia no preço enviado pelo navegador: os preços são
     // recalculados a partir dos produtos/categoria pertencentes à mesa.
     const idsProdutos = [
@@ -7734,7 +7747,7 @@ exports.criarPedidoMesa = async (
           .lean()
       : [];
 
-    // Necessário para a regra "maior preço da categoria" da pizza meio a meio.
+    // Necessário para a regra "maior preço da categoria" da pizza com múltiplos sabores.
     const produtosPorCategoriaMesa = new Map();
     for (const produtoCategoria of produtosAtivosCategorias) {
       const categoriaId = String(produtoCategoria.categoriaId || "");

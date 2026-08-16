@@ -106,14 +106,14 @@ function validateItemsShape(items) {
         : Array.isArray(item.sabores)
           ? item.sabores
           : [];
-      if (sabores.length !== 2) {
-        return { valid: false, message: "Escolha exatamente dois sabores para a pizza meio a meio." };
+      if (sabores.length < 2 || sabores.length > 3) {
+        return { valid: false, message: "Escolha dois ou três sabores para a pizza." };
       }
       const idsSabores = sabores.map(sabor =>
         publicIdentifier(sabor?.produtoId ?? sabor, PUBLIC_ORDER_LIMITS.maxProductIdLength),
       );
-      if (idsSabores.some(id => !id) || idsSabores[0] === idsSabores[1]) {
-        return { valid: false, message: "Escolha dois sabores diferentes e válidos." };
+      if (idsSabores.some(id => !id) || new Set(idsSabores).size !== idsSabores.length) {
+        return { valid: false, message: "Escolha sabores diferentes e válidos." };
       }
     }
 

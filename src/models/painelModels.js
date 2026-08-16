@@ -84,6 +84,16 @@ const Categoria = mongoose.model(
                 type: Boolean,
                 default: true,
               },
+              maxSabores: {
+                type: Number,
+                default: 2,
+                min: 1,
+                max: 3,
+                validate: {
+                  validator: Number.isInteger,
+                  message: "O máximo de sabores do tamanho deve ser inteiro.",
+                },
+              },
             },
           ],
           default: [],

@@ -82,6 +82,14 @@ function tamanhosPizzaCategoria(categoria = {}) {
     .sort((a, b) => Number(a.ordem || 0) - Number(b.ordem || 0));
 }
 
+function maxSaboresTamanhoPizza(categoria = {}, tamanho = null) {
+  if (!categoriaPermitePizzaMeioAMeio(categoria)) return 1;
+  if (!tamanho) return 2;
+  const value = Number(tamanho.maxSabores);
+  if (!Number.isInteger(value) || value < 1 || value > 3) return 2;
+  return value;
+}
+
 function normalizarNomeTamanhoPizza(value) {
   return String(value || "")
     .trim()
@@ -178,8 +186,15 @@ function normalizarIdsSabores(itemRecebido = {}) {
     .filter(Boolean);
 }
 
-function mesclarFichaTecnicaMetade(produtos = []) {
+function mesclarFichaTecnicaFracionada(produtos = [], fracao = 0.5) {
   const merged = new Map();
+  const fraction = Number(fracao);
+  if (!Number.isFinite(fraction) || fraction <= 0 || fraction > 1) {
+    throw criarErroPizza(
+      "A fração dos sabores da pizza é inválida.",
+      "PIZZA_FRACAO_INVALIDA",
+    );
+  }
 
   for (const produto of produtos) {
     for (const item of Array.isArray(produto?.fichaTecnica)
@@ -204,8 +219,8 @@ function mesclarFichaTecnicaMetade(produtos = []) {
         custoCalculado: 0,
       };
 
-      existing.quantidade += quantidade / 2;
-      existing.custoCalculado += Number(item.custoCalculado || 0) / 2;
+      existing.quantidade += quantidade * fraction;
+      existing.custoCalculado += Number(item.custoCalculado || 0) * fraction;
       merged.set(key, existing);
     }
   }
@@ -215,6 +230,10 @@ function mesclarFichaTecnicaMetade(produtos = []) {
     quantidade: Number(item.quantidade.toFixed(6)),
     custoCalculado: Number(item.custoCalculado.toFixed(4)),
   }));
+}
+
+function mesclarFichaTecnicaMetade(produtos = []) {
+  return mesclarFichaTecnicaFracionada(produtos, 0.5);
 }
 
 function calcularMaiorPrecoCategoriaCentavos(produtosCategoria = [], tamanho = null) {
@@ -284,8 +303,14 @@ function montarPizzaMeioAMeio({
   produtosPorCategoria,
 }) {
   const idsSabores = normalizarIdsSabores(itemRecebido);
-  if (idsSabores.length !== 2 || idsSabores[0] === idsSabores[1]) {
-    throw criarErroPizza("Escolha dois sabores diferentes para a pizza meio a meio.");
+  if (idsSabores.length < 2 || idsSabores.length > 3) {
+    throw criarErroPizza(
+      "Escolha dois ou três sabores para a pizza.",
+      "PIZZA_QUANTIDADE_SABORES_INVALIDA",
+    );
+  }
+  if (new Set(idsSabores).size !== idsSabores.length) {
+    throw criarErroPizza("Escolha sabores diferentes para a pizza.");
   }
 
   const sabores = idsSabores.map(id => produtosMap.get(id));
@@ -300,17 +325,17 @@ function montarPizzaMeioAMeio({
     categoriasMap.get(String(produto.categoriaId?._id || produto.categoriaId || "")),
   );
   const categoria = categoriasSabores[0];
-  const categoriaSegundoSabor = categoriasSabores[1];
-  if (!categoria || !categoriaSegundoSabor) {
+  if (!categoria || categoriasSabores.some(item => !item)) {
     throw criarErroPizza("A categoria de um dos sabores não está mais disponível.");
   }
   if (!categoriaPermitePizzaMeioAMeio(categoria)) {
     throw criarErroPizza(
-      "A categoria escolhida não permite pizza meio a meio.",
+      "A categoria escolhida não permite pizza com múltiplos sabores.",
       "PIZZA_MEIO_A_MEIO_NAO_PERMITIDA",
     );
   }
-  if (!categoriasCompativeisMeioAMeio(categoria, categoriaSegundoSabor)) {
+  if (categoriasSabores.slice(1).some(categoriaSabor =>
+    !categoriasCompativeisMeioAMeio(categoria, categoriaSabor))) {
     throw criarErroPizza(
       "As categorias dos sabores escolhidos não estão configuradas para combinar entre si.",
       "PIZZA_CATEGORIAS_INCOMPATIVEIS",
@@ -319,6 +344,16 @@ function montarPizzaMeioAMeio({
 
   const regraPrecoPizza = regraPrecoCategoria(categoria);
   const tamanho = resolverTamanhoPizza(categoria, itemRecebido);
+  const maxSabores = maxSaboresTamanhoPizza(categoria, tamanho);
+  if (idsSabores.length > maxSabores) {
+    throw criarErroPizza(
+      tamanho
+        ? `O tamanho ${String(tamanho.nome || "selecionado")} permite no máximo ${maxSabores} sabor${maxSabores === 1 ? "" : "es"}.`
+        : `Esta pizza permite no máximo ${maxSabores} sabores.`,
+      "PIZZA_MAX_SABORES_TAMANHO",
+    );
+  }
+
   const tamanhosSabores = categoriasSabores.map(categoriaSabor =>
     resolverTamanhoEquivalentePizza(categoriaSabor, tamanho),
   );
@@ -334,8 +369,9 @@ function montarPizzaMeioAMeio({
       })
     : Math.max(...precosSaboresCentavos);
 
+  const fracao = 1 / sabores.length;
   const custoUnitarioSnapshot = sabores.reduce(
-    (total, produto) => total + Number(produto.custo || 0) / 2,
+    (total, produto) => total + Number(produto.custo || 0) * fracao,
     0,
   );
 
@@ -343,18 +379,24 @@ function montarPizzaMeioAMeio({
     produtoId: produto._id,
     nome: String(produto.nome || "Sabor").slice(0, 160),
     preco: centavosParaDinheiro(precosSaboresCentavos[index]),
-    fracao: 0.5,
+    fracao,
   }));
+  const rotuloFracao = sabores.length === 3 ? "1/3" : "1/2";
+  const nomeSabores = saboresPizza
+    .map(sabor => `${rotuloFracao} ${sabor.nome}`)
+    .join(" + ");
 
   return {
     produtoPrincipal: sabores[0],
     categoria,
     sabores,
     saboresPizza,
+    quantidadeSabores: sabores.length,
+    maxSabores,
     regraPrecoPizza,
     precoBaseCentavos,
     precoBase: centavosParaDinheiro(precoBaseCentavos),
-    nome: `Pizza 1/2 ${saboresPizza[0].nome} + 1/2 ${saboresPizza[1].nome}${tamanho ? ` (${String(tamanho.nome || "")})` : ""}`.slice(0, 160),
+    nome: `Pizza ${nomeSabores}${tamanho ? ` (${String(tamanho.nome || "")})` : ""}`.slice(0, 160),
     tamanhoPizza: tamanho
       ? {
           tamanhoId: tamanho._id,
@@ -362,7 +404,7 @@ function montarPizzaMeioAMeio({
         }
       : null,
     custoUnitarioSnapshot: Number(custoUnitarioSnapshot.toFixed(4)),
-    fichaTecnicaSnapshot: mesclarFichaTecnicaMetade(sabores),
+    fichaTecnicaSnapshot: mesclarFichaTecnicaFracionada(sabores, fracao),
   };
 }
 
@@ -374,6 +416,9 @@ module.exports = {
   criarErroPizza,
   dinheiroParaCentavos,
   idsCategoriasMeioAMeio,
+  maxSaboresTamanhoPizza,
+  mesclarFichaTecnicaFracionada,
+  mesclarFichaTecnicaMetade,
   montarPizzaMeioAMeio,
   normalizarIdsSabores,
   normalizarNomeTamanhoPizza,
