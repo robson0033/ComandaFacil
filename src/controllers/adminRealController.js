@@ -7221,6 +7221,33 @@ exports.arquivarPedido = async (req, res) => {
                   observacao:
                     item.observacao ||
                     '',
+
+                  adicionais:
+                    Array.isArray(item.adicionais)
+                      ? item.adicionais
+                          .filter(adicional => adicional && adicional.nome)
+                          .map(adicional => ({
+                            nome: String(adicional.nome || 'Adicional'),
+                            preco: Number(adicional.preco || 0),
+                          }))
+                      : [],
+
+                  pizzaMeioAMeio:
+                    Boolean(item.pizzaMeioAMeio),
+
+                  saboresPizza:
+                    Array.isArray(item.saboresPizza)
+                      ? item.saboresPizza
+                          .filter(sabor => sabor && sabor.nome)
+                          .slice(0, 3)
+                          .map(sabor => ({
+                            nome: String(sabor.nome || 'Sabor'),
+                            fracao: Number(sabor.fracao || 0),
+                          }))
+                      : [],
+
+                  regraPrecoPizza:
+                    String(item.regraPrecoPizza || ''),
                 }))
               : [],
 
