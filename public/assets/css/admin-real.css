@@ -2973,3 +2973,27 @@ grid-template-columns: 1fr;
   }
 }
 
+
+/* Pedidos arquivados: mantém o histórico dentro de uma área rolável. */
+#page-pedidos-arquivados .table-wrapper {
+  width: 100%;
+  max-height: min(55vh, 520px);
+  overflow-y: auto;
+  overflow-x: auto;
+  border-radius: 12px;
+  scrollbar-gutter: stable;
+}
+
+/* Mantém os títulos das colunas visíveis durante a rolagem. */
+#page-pedidos-arquivados .table-wrapper thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fbf7f4;
+}
+
+@media (max-width: 760px) {
+  #page-pedidos-arquivados .table-wrapper {
+    max-height: 65vh;
+  }
+}
