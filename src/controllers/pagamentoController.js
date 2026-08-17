@@ -102,6 +102,64 @@ const mercadoPagoWebhookUrl = req => {
   url.searchParams.set("source_news", "webhooks");
   return url.toString();
 };
+
+function mercadoPagoWebhookSecretCandidates() {
+  const candidates = [
+    { source: "default", value: process.env.MERCADO_PAGO_WEBHOOK_SECRET },
+    { source: "subscription", value: process.env.MERCADO_PAGO_SUBSCRIPTION_WEBHOOK_SECRET },
+  ];
+  const unique = new Set();
+  return candidates
+    .map(candidate => ({
+      source: candidate.source,
+      value: String(candidate.value || "").trim(),
+    }))
+    .filter(candidate => {
+      if (!candidate.value || unique.has(candidate.value)) return false;
+      unique.add(candidate.value);
+      return true;
+    });
+}
+
+function validateMercadoPagoWebhookWithConfiguredSecrets({
+  signatureHeader,
+  requestId,
+  resourceId,
+}) {
+  const candidates = mercadoPagoWebhookSecretCandidates();
+  if (!candidates.length) {
+    return {
+      ...validateMercadoPagoWebhook({
+        signatureHeader,
+        requestId,
+        resourceId,
+        secret: "",
+      }),
+      secretSource: null,
+    };
+  }
+
+  let lastSignatureError = null;
+  for (const candidate of candidates) {
+    try {
+      return {
+        ...validateMercadoPagoWebhook({
+          signatureHeader,
+          requestId,
+          resourceId,
+          secret: candidate.value,
+        }),
+        secretSource: candidate.source,
+      };
+    } catch (error) {
+      if (!["WEBHOOK_SIGNATURE_INVALID"].includes(String(error?.code || ""))) {
+        throw error;
+      }
+      lastSignatureError = error;
+    }
+  }
+  throw lastSignatureError || new Error("Assinatura do webhook inválida.");
+}
 const getPixTechnicalPayerEmail = () => {
   const candidates = [
     process.env.MERCADO_PAGO_PIX_PAYER_EMAIL,
@@ -252,6 +310,7 @@ function safeMercadoPagoFailure(error) {
     "PLATFORM_MP_TIMEOUT",
     "SUBSCRIPTION_PIX_QR_MISSING",
     "SUBSCRIPTION_PIX_RESPONSE_INVALID",
+    "SUBSCRIPTION_PIX_TERMINAL_BEFORE_DISPLAY",
     "SUBSCRIPTION_CHECKOUT_URL_MISSING",
     "SUBSCRIPTION_CHECKOUT_URL_INVALID",
     "SUBSCRIPTION_PAYER_EMAIL_INVALID",
@@ -1319,6 +1378,76 @@ exports.gerarPix = async (req, res) => {
     assinatura.ultimoStatusMercadoPago = String(data.status || "pending");
     await assinatura.save();
 
+    // Nunca exibe um QR que o Mercado Pago já considera pago. Isso também
+    // protege contra respostas idempotentes de uma cobrança anterior: antes
+    // de entregar o QR ao navegador, confirma o estado atual pelo paymentId.
+    let paymentConfirmado = data;
+    try {
+      paymentConfirmado = await requestPlatform(
+        `/v1/payments/${encodeURIComponent(String(data.id))}`,
+        {
+          operation: "confirm_subscription_pix_before_display",
+          stage: "subscription_pix_post_create_status_lookup",
+        },
+      );
+    } catch (error) {
+      const statusCriacao = String(data.status || "").trim().toLowerCase();
+      // Se a própria criação já informou pagamento aprovado, falhar fechado é
+      // mais seguro do que mostrar um QR que não deve ser pago novamente.
+      if (statusCriacao === "approved") {
+        error.code ||= "SUBSCRIPTION_PIX_APPROVED_RECONCILIATION_FAILED";
+        throw error;
+      }
+      appLogger.warn("subscription_pix_post_create_status_lookup_failed", {
+        operation: "confirm_subscription_pix_before_display",
+        paymentIdSuffix: idSuffix(data.id),
+        httpStatus: Number(error?.httpStatus || error?.status || 0) || null,
+        providerCode: error?.providerResponse?.providerCode || error?.code || null,
+        errorName: String(error?.name || "Error"),
+      });
+    }
+
+    const statusConfirmado = String(paymentConfirmado?.status || data.status || "")
+      .trim()
+      .toLowerCase();
+    if (statusConfirmado === "approved") {
+      await processSubscriptionPayment({
+        eventKey: `subscription_pix_create_reconcile:${String(data.id)}:approved`,
+        requestId: `subscription_pix_create:${String(req.correlationId || "local")}`,
+      }, paymentConfirmado);
+      if (wantsJson(req)) {
+        return res.status(200).json({
+          ok: true,
+          code: "SUBSCRIPTION_ALREADY_PAID",
+          subscriptionActive: true,
+          redirectUrl: "/assinatura",
+        });
+      }
+      return saveSessionOrRun(req, () => res.redirect("/assinatura"));
+    }
+
+    if (SUBSCRIPTION_PIX_TERMINAL_UNPAID.has(statusConfirmado)) {
+      await AssinaturaTentativa.updateOne(
+        { _id: attempt._id },
+        {
+          $set: {
+            ativa: false,
+            status: ["cancelled", "canceled"].includes(statusConfirmado)
+              ? SUBSCRIPTION_ATTEMPT_STATUS.CANCELLED
+              : SUBSCRIPTION_ATTEMPT_STATUS.FAILED,
+            completedAt: new Date(),
+            erro: "",
+            lastRemoteStatus: statusConfirmado,
+            lastRemoteCheckedAt: new Date(),
+          },
+        },
+      );
+      const error = new Error("O Pix não ficou disponível para pagamento. Gere uma nova cobrança.");
+      error.code = "SUBSCRIPTION_PIX_TERMINAL_BEFORE_DISPLAY";
+      error.stage = "subscription_pix_post_create_status_lookup";
+      throw error;
+    }
+
     const pix = {
       qrCodeBase64: pixQrCodeBase64,
       copiaCola: pixCopiaCola,
@@ -1378,6 +1507,80 @@ exports.gerarPix = async (req, res) => {
       return res.status(String(error?.code || "").includes("MISSING") || error?.code === "APP_URL_INVALID" ? 503 : 502).json(payload);
     }
     return saveSessionOrRun(req, () => res.redirect("/assinatura"));
+  }
+};
+
+exports.statusPixAssinatura = async (req, res) => {
+  try {
+    assertMercadoPagoConfig("subscription");
+    await validarContaPrincipalMercadoPago();
+    const assinatura = await assinaturaDoUsuario(req);
+    let tentativa = await tentativaAtivaDoEstabelecimento(estabelecimentoId(req));
+
+    if (planoPagoVigente(assinatura)) {
+      return res.status(200).json({
+        ok: true,
+        approved: true,
+        terminal: true,
+        redirectUrl: "/assinatura",
+      });
+    }
+
+    if (!tentativa || tentativa.metodo !== "pix" || !tentativa.pixCopiaCola) {
+      return res.status(200).json({
+        ok: true,
+        approved: false,
+        terminal: true,
+        canGenerate: true,
+        status: "none",
+      });
+    }
+
+    const reconciliacao = await reconciliarTentativaPixAssinatura(tentativa, {
+      source: "subscription_pix_browser_poll",
+    });
+    if (reconciliacao.approved) {
+      return res.status(200).json({
+        ok: true,
+        approved: true,
+        terminal: true,
+        redirectUrl: "/assinatura",
+      });
+    }
+    if (reconciliacao.terminal) {
+      return res.status(200).json({
+        ok: true,
+        approved: false,
+        terminal: true,
+        canGenerate: true,
+        status: String(reconciliacao.remoteStatus || "terminal"),
+      });
+    }
+
+    tentativa = reconciliacao.attempt || tentativa;
+    return res.status(200).json({
+      ok: true,
+      approved: false,
+      terminal: false,
+      status: String(reconciliacao.remoteStatus || tentativa.status || "pending"),
+      expiresAt: tentativa.expiresAt?.toISOString?.() || String(tentativa.expiresAt || ""),
+    });
+  } catch (error) {
+    error.correlationId ||= String(req.correlationId || "");
+    appLogger.warn("subscription_pix_browser_poll_failed", {
+      correlationId: error.correlationId || null,
+      operation: "subscription_pix_browser_poll",
+      stage: String(error?.stage || "subscription_pix_status_lookup"),
+      httpStatus: Number(error?.httpStatus || error?.status || 0) || null,
+      providerCode: error?.providerResponse?.providerCode || error?.code || null,
+      errorName: String(error?.name || "Error"),
+    });
+    return res.status(503).json({
+      ok: false,
+      code: "SUBSCRIPTION_PIX_STATUS_UNAVAILABLE",
+      message: "Não foi possível confirmar o status do Pix agora.",
+      correlationId: error.correlationId,
+    });
   }
 };
 
@@ -2406,6 +2609,8 @@ function webhookDiagnostic(error, req, data = {}, context = {}) {
     eventType: String(data.eventType || data.resourceType || "").slice(0, 80) || null,
     eventAction: String(data.eventAction || data.action || "").slice(0, 120) || null,
     resourceIdSuffix: resourceId.slice(-8) || null,
+    applicationIdSuffix: String(req?.body?.application_id || "").slice(-8) || null,
+    notificationUserIdSuffix: String(req?.body?.user_id || "").slice(-8) || null,
     signaturePresent: Boolean(req?.get?.("x-signature")),
     requestIdPresent: Boolean(req?.get?.("x-request-id")),
     signatureValid: Boolean(context.signatureValid),
@@ -3528,11 +3733,10 @@ exports.webhook = async (req, res) => {
   let signatureValid = false;
   try {
     data = extractMercadoPagoWebhookEvent(req);
-    const authenticity = validateMercadoPagoWebhook({
+    const authenticity = validateMercadoPagoWebhookWithConfiguredSecrets({
       signatureHeader: req.get("x-signature"),
       requestId: req.get("x-request-id"),
       resourceId: data.signatureResourceId || data.resourceId,
-      secret: process.env.MERCADO_PAGO_WEBHOOK_SECRET,
     });
     signatureValid = true;
     const loaded = await loadWebhookResource(data);

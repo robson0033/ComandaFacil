@@ -171,6 +171,7 @@ function sanitizeMercadoPagoError(error) {
     for (const secret of [
       process.env.MERCADO_PAGO_ACCESS_TOKEN,
       process.env.MERCADO_PAGO_WEBHOOK_SECRET,
+      process.env.MERCADO_PAGO_SUBSCRIPTION_WEBHOOK_SECRET,
     ]) {
       if (secret) text = text.split(String(secret)).join("[REDACTED]");
     }

@@ -37,9 +37,55 @@
 <% if(pix){ %><section class="card pixbox" data-pix-expires-at="<%= pix.expiresAt %>"><h2 data-pix-title>Escaneie para pagar</h2><% if(pix.qrCodeBase64){ %><img data-pix-qr src="<%= safePublicUrl(`data:image/png;base64,${pix.qrCodeBase64}`, { allowDataImage: true }) %>" alt="QR Code Pix"><% } %><p class="pix-expiration" data-pix-expiration-label>Este Pix expira em:<span class="pix-countdown" data-pix-countdown>--:--</span></p><textarea class="copy" readonly id="pixCode"><%= pix.copiaCola %></textarea><button class="btn pix" id="copyPixCode" type="button">Copiar código Pix</button><div class="pix-expired" data-pix-expired hidden><strong>Pix expirado</strong><span>Este código não pode mais ser utilizado. Gere uma nova cobrança para continuar.</span><button class="btn pix" type="button" data-generate-new-pix>Gerar novo Pix</button></div></section><% } %>
 </main><%- include('includes/admin-loading') %><script src="/js/adminLoading.js" nonce="<%= cspNonce %>"></script><script nonce="<%= cspNonce %>">
 let pixExpirationTimer = null;
+let pixStatusTimer = null;
+let pixStatusInFlight = false;
 function clearPixExpirationTimer() {
   if (pixExpirationTimer !== null) clearInterval(pixExpirationTimer);
   pixExpirationTimer = null;
+}
+function clearPixStatusPolling() {
+  if (pixStatusTimer !== null) clearInterval(pixStatusTimer);
+  pixStatusTimer = null;
+  pixStatusInFlight = false;
+}
+async function pollSubscriptionPixStatus() {
+  const pixBox = document.querySelector('.pixbox');
+  if (!pixBox || pixBox.dataset.pixExpired === 'true' || pixStatusInFlight) return;
+  const csrfToken = String(document.querySelector('form[data-subscription-payment="pix"] input[name="_csrf"]')?.value || '').trim();
+  if (!csrfToken) return;
+  pixStatusInFlight = true;
+  try {
+    const response = await fetch('/assinatura/pix/status', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        Accept: 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRF-Token': csrfToken,
+      },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) return;
+    if (payload.approved === true) {
+      clearPixExpirationTimer();
+      clearPixStatusPolling();
+      window.location.assign(String(payload.redirectUrl || '/assinatura'));
+      return;
+    }
+    if (payload.terminal === true) {
+      expirePixBox(pixBox);
+    }
+  } catch {
+    // O webhook continua sendo a via principal; uma falha temporária no
+    // polling não deve interromper a tela nem apagar um QR ainda válido.
+  } finally {
+    pixStatusInFlight = false;
+  }
+}
+function startPixStatusPolling() {
+  clearPixStatusPolling();
+  pixStatusTimer = setInterval(pollSubscriptionPixStatus, 4000);
+  setTimeout(pollSubscriptionPixStatus, 1200);
 }
 function enableSubscriptionPaymentButtons() {
   if (document.querySelector('main.wrap')?.dataset.paymentConfigOk !== 'true') return;
@@ -54,6 +100,7 @@ function enableSubscriptionPaymentButtons() {
 }
 function expirePixBox(pixBox) {
   clearPixExpirationTimer();
+  clearPixStatusPolling();
   pixBox.dataset.pixExpired = 'true';
   const countdown = pixBox.querySelector('[data-pix-countdown]');
   if (countdown) countdown.textContent = '00:00';
@@ -113,6 +160,7 @@ function renderSubscriptionPix(payload) {
   expired.append(expiredTitle, expiredText, newButton);
   pixBox.append(title, image, expirationLabel, code, copyButton, expired);
   startPixExpiration(pixBox, payload.expiresAt);
+  startPixStatusPolling();
 }
 document.addEventListener('click', async event => {
   const copyButton = event.target.closest('#copyPixCode');
@@ -131,8 +179,14 @@ document.addEventListener('click', async event => {
   }
 });
 const initialPixBox = document.querySelector('.pixbox');
-if (initialPixBox) startPixExpiration(initialPixBox, initialPixBox.dataset.pixExpiresAt);
-window.addEventListener('pagehide', clearPixExpirationTimer, { once: true });
+if (initialPixBox) {
+  startPixExpiration(initialPixBox, initialPixBox.dataset.pixExpiresAt);
+  startPixStatusPolling();
+}
+window.addEventListener('pagehide', () => {
+  clearPixExpirationTimer();
+  clearPixStatusPolling();
+}, { once: true });
 let cancelInFlight = false;
 document.querySelector('[data-cancel-attempt]')?.addEventListener('click', async event => {
   const button = event.currentTarget;

@@ -290,6 +290,14 @@ route.post(
 );
 
 route.post(
+  '/assinatura/pix/status',
+  loginRequired,
+  somenteProprietario,
+  carregarAssinatura,
+  pagamento.statusPixAssinatura
+);
+
+route.post(
   '/assinatura/tentativa-ativa/cancelar',
   loginRequired,
   somenteProprietario,
