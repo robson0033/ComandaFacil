@@ -2748,9 +2748,37 @@ async function processSubscriptionPayment(event, payment) {
   });
   if (!assinatura) throw new Error("Assinatura não encontrada.");
 
-  const isCurrentPix = attempt
+  let isCurrentPix = attempt
     ? String(attempt.mercadoPagoPaymentId) === String(payment.id)
     : String(assinatura.mercadoPagoPaymentId) === String(payment.id);
+
+  if (attempt
+    && attempt.metodo === "pix"
+    && !String(attempt.mercadoPagoPaymentId || "").trim()
+    && payment?.id) {
+    validatePaymentIdentity(payment, {
+      paymentId: payment.id,
+      amount: Number(attempt.valorCentavos || 0) / 100,
+      externalReference: attemptReference(attempt),
+      collectorId: platformCollectorId(),
+    });
+    attempt.mercadoPagoPaymentId = String(payment.id);
+    attempt.lastRemoteStatus = String(payment.status || "");
+    attempt.lastRemoteCheckedAt = new Date();
+    await attempt.save();
+    if (!String(assinatura.mercadoPagoPaymentId || "").trim()) {
+      assinatura.mercadoPagoPaymentId = String(payment.id);
+      assinatura.mercadoPagoPaymentCriadoEm = assinatura.mercadoPagoPaymentCriadoEm || new Date();
+    }
+    isCurrentPix = true;
+    appLogger.info("mercado_pago_subscription_webhook_race_recovered", {
+      estabelecimentoIdSuffix: idSuffix(assinatura.estabelecimentoId),
+      paymentIdSuffix: idSuffix(payment.id),
+      attemptIdSuffix: idSuffix(attempt.attemptId),
+      paymentStatus: String(payment.status || "").slice(0, 40) || null,
+    });
+  }
+
   const paymentPreapprovalId = String(
     payment.preapproval_id || payment.metadata?.preapproval_id || "",
   );
@@ -2762,7 +2790,7 @@ async function processSubscriptionPayment(event, payment) {
   }
   validatePaymentIdentity(payment, {
     paymentId: payment.id,
-    amount: valorPlano(),
+    amount: attempt ? Number(attempt.valorCentavos || 0) / 100 : valorPlano(),
     externalReference: attempt ? attemptReference(attempt) : subscriptionReference(assinatura),
     collectorId: platformCollectorId(),
     preapprovalId: isCurrentRecurring
@@ -3135,6 +3163,105 @@ async function processOrphanedOrderAttemptPayment(event, payment, attempt) {
   }
 }
 
+async function bindOrderAttemptFromWebhookReference({ attempt, payment, resourceId }) {
+  if (!attempt) return null;
+  const normalizedResourceId = String(resourceId || payment?.id || "").trim();
+  if (!normalizedResourceId) {
+    const error = new Error("Pagamento do pedido sem identificador.");
+    throw webhookStage(error, "webhook_order_reference_validation", "ORDER_PAYMENT_WEBHOOK_ID_MISSING");
+  }
+
+  try {
+    validatePaymentIdentity(payment, {
+      paymentId: normalizedResourceId,
+      amount: attempt.expectedAmount,
+      externalReference: attempt.externalReference,
+      collectorId: attempt.expectedCollectorId,
+    });
+    if (payment.currency_id && String(payment.currency_id) !== String(attempt.currency || "BRL")) {
+      throw new Error("Moeda do pagamento divergente.");
+    }
+  } catch (error) {
+    throw webhookStage(error, "webhook_order_reference_validation", "ORDER_PAYMENT_WEBHOOK_INVALID");
+  }
+
+  if (attempt.paymentId) {
+    if (String(attempt.paymentId) !== normalizedResourceId) {
+      const error = new Error("Referência do pedido já está vinculada a outro pagamento.");
+      throw webhookStage(error, "webhook_order_reference_binding", "ORDER_PAYMENT_BINDING_CONFLICT");
+    }
+    return attempt;
+  }
+
+  const updated = await OrderPaymentAttempt.findOneAndUpdate(
+    { _id: attempt._id, paymentId: "" },
+    {
+      $set: {
+        paymentId: normalizedResourceId,
+        status: String(payment.status || attempt.status || "pending"),
+        lastCheckedAt: new Date(),
+      },
+    },
+    { new: true, runValidators: true },
+  );
+  if (updated) return updated;
+
+  const current = await OrderPaymentAttempt.findOne({ _id: attempt._id });
+  if (current && String(current.paymentId || "") === normalizedResourceId) return current;
+
+  const error = new Error("Não foi possível vincular o pagamento à tentativa do pedido.");
+  throw webhookStage(error, "webhook_order_reference_binding", "ORDER_PAYMENT_BINDING_CONFLICT");
+}
+
+async function recoverOrderWebhookByExternalReference(data, payment) {
+  const externalReference = String(payment?.external_reference || "").trim();
+  if (!externalReference.toLowerCase().startsWith("order_payment_attempt:")) return null;
+
+  if (!isOpaqueOrderReference(externalReference)) {
+    const error = new Error("Referência de pagamento do pedido inválida.");
+    throw webhookStage(error, "webhook_order_reference_lookup", "ORDER_PAYMENT_REFERENCE_INVALID");
+  }
+
+  let attempt = await OrderPaymentAttempt.findOne({ externalReference });
+  if (!attempt) {
+    const error = new Error("Tentativa de pagamento do pedido ainda não localizada.");
+    throw webhookStage(error, "webhook_order_reference_lookup", "ORDER_PAYMENT_ATTEMPT_NOT_FOUND");
+  }
+
+  attempt = await bindOrderAttemptFromWebhookReference({
+    attempt,
+    payment,
+    resourceId: data.resourceId,
+  });
+
+  const pedido = await Pedido.findOne({
+    _id: attempt.pedidoId,
+    estabelecimentoId: attempt.estabelecimentoId,
+  });
+
+  appLogger.info("mercado_pago_order_webhook_race_recovered", {
+    estabelecimentoIdSuffix: idSuffix(attempt.estabelecimentoId),
+    pedidoIdSuffix: idSuffix(attempt.pedidoId),
+    paymentIdSuffix: idSuffix(data.resourceId),
+    paymentStatus: String(payment?.status || "").slice(0, 40) || null,
+  });
+
+  if (!pedido) {
+    return {
+      kind: "orphaned_order_attempt",
+      attempt,
+      pedido: null,
+      resource: payment,
+    };
+  }
+  return {
+    kind: pedido.excluido === true ? "archived_order" : "order",
+    attempt,
+    pedido,
+    resource: payment,
+  };
+}
+
 async function loadWebhookResource(data) {
   if (data.resourceType === "subscription_preapproval") {
     return {
@@ -3228,12 +3355,20 @@ async function loadWebhookResource(data) {
       resource,
     };
   }
+  const platformPayment = await requestPlatform(
+    `/v1/payments/${encodeURIComponent(data.resourceId)}`,
+    {
+      operation: "load_payment_webhook_for_classification",
+      stage: "webhook_resource_lookup",
+    },
+  );
+
+  const recoveredOrder = await recoverOrderWebhookByExternalReference(data, platformPayment);
+  if (recoveredOrder) return recoveredOrder;
+
   return {
     kind: "subscription",
-    resource: await requestPlatform(`/v1/payments/${encodeURIComponent(data.resourceId)}`, {
-      operation: "load_subscription_payment_webhook",
-      stage: "webhook_resource_lookup",
-    }),
+    resource: platformPayment,
   };
 }
 
