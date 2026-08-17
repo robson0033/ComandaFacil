@@ -95,6 +95,13 @@ const estabelecimentoId = req =>
   req.session.user.estabelecimentoId || req.session.user.id;
 const baseUrl = req =>
   String(process.env.APP_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
+const mercadoPagoWebhookUrl = req => {
+  const url = new URL(`${baseUrl(req)}/webhook/mercado-pago`);
+  // Força o Mercado Pago a entregar esta notification_url no formato Webhooks
+  // (com assinatura secreta validável), evitando notificações IPN legadas.
+  url.searchParams.set("source_news", "webhooks");
+  return url.toString();
+};
 const getPixTechnicalPayerEmail = () => {
   const candidates = [
     process.env.MERCADO_PAGO_PIX_PAYER_EMAIL,
@@ -1158,7 +1165,7 @@ exports.gerarPix = async (req, res) => {
       amount: valorPlano(),
       payerEmail,
       externalReference: attemptReference(attempt),
-      notificationUrl: `${baseUrl(req)}/webhook/mercado-pago`,
+      notificationUrl: mercadoPagoWebhookUrl(req),
     });
     const data = await requestPlatform("/v1/payments", {
       operation: "create_subscription_pix",
@@ -1988,7 +1995,7 @@ exports.gerarPixPedido = async (req, res) => {
         description: `Pedido ${String(pedido.codigoPublico || pedido._id).slice(pedido.codigoPublico ? 0 : -6).toUpperCase()} - ${cfgPublica.nomeEstabelecimento}`,
         payment_method_id: "pix",
         external_reference: attempt.externalReference,
-        notification_url: `${baseUrl(req)}/webhook/mercado-pago`,
+        notification_url: mercadoPagoWebhookUrl(req),
         // A janela comercial continua sendo 10 minutos (attempt.expiresAt).
         // O provedor recebe a menor expiração Pix aceita por sua API e o
         // ComandaFacil solicita cancelamento remoto ao fim dos 10 minutos.
