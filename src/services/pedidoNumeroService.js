@@ -91,7 +91,7 @@ async function reservarNumeroPedido({ estabelecimentoId, agora = new Date() } = 
   const contador = await PedidoSequencia.findOneAndUpdate(
     { _id },
     { $inc: { ultimoNumero: 1 } },
-    { new: true },
+    { returnDocument: 'after' },
   ).lean();
 
   const numeroPedido = Number(contador?.ultimoNumero);

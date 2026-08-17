@@ -691,6 +691,90 @@ function pixDaTentativa(attempt) {
   };
 }
 
+const SUBSCRIPTION_PIX_TERMINAL_UNPAID = new Set([
+  "cancelled",
+  "canceled",
+  "rejected",
+  "refunded",
+  "charged_back",
+]);
+
+async function reconciliarTentativaPixAssinatura(attempt, context = {}) {
+  if (!attempt || attempt.metodo !== "pix") {
+    return { attempt, remoteStatus: "", approved: false, terminal: false };
+  }
+  const paymentId = String(attempt.mercadoPagoPaymentId || "").trim();
+  if (!paymentId) {
+    return { attempt, remoteStatus: "", approved: false, terminal: false };
+  }
+
+  let payment;
+  try {
+    payment = await requestPlatform(`/v1/payments/${encodeURIComponent(paymentId)}`, {
+      operation: "reconcile_subscription_pix_before_reuse",
+      stage: "subscription_pix_status_lookup",
+    });
+  } catch (error) {
+    appLogger.warn("subscription_pix_status_lookup_failed", {
+      operation: "reconcile_subscription_pix_before_reuse",
+      source: String(context.source || "unknown"),
+      paymentIdSuffix: paymentId.slice(-8),
+      httpStatus: Number(error?.httpStatus || error?.status || 0) || null,
+      providerCode: error?.providerResponse?.providerCode || error?.code || null,
+      errorName: String(error?.name || "Error"),
+    });
+    return { attempt, remoteStatus: "unknown", approved: false, terminal: false };
+  }
+
+  const remoteStatus = String(payment?.status || "").trim().toLowerCase();
+  const now = new Date();
+  attempt.lastRemoteStatus = remoteStatus;
+  attempt.lastRemoteCheckedAt = now;
+
+  if (remoteStatus === "approved") {
+    await attempt.save();
+    await processSubscriptionPayment({
+      eventKey: `subscription_pix_reconcile:${paymentId}:approved`,
+      requestId: `subscription_pix_reconcile:${String(context.source || "unknown")}`,
+    }, payment);
+    appLogger.info("subscription_pix_reconciled_before_reuse", {
+      operation: "reconcile_subscription_pix_before_reuse",
+      source: String(context.source || "unknown"),
+      paymentIdSuffix: paymentId.slice(-8),
+      remoteStatus,
+    });
+    return { attempt: null, remoteStatus, approved: true, terminal: true };
+  }
+
+  if (SUBSCRIPTION_PIX_TERMINAL_UNPAID.has(remoteStatus)) {
+    attempt.ativa = false;
+    attempt.completedAt = now;
+    attempt.erro = "";
+    if (["cancelled", "canceled"].includes(remoteStatus)) {
+      attempt.status = SUBSCRIPTION_ATTEMPT_STATUS.CANCELLED;
+      attempt.cancelledAt = attempt.cancelledAt || now;
+    } else {
+      attempt.status = SUBSCRIPTION_ATTEMPT_STATUS.FAILED;
+    }
+    await attempt.save();
+    appLogger.info("subscription_pix_terminal_before_reuse", {
+      operation: "reconcile_subscription_pix_before_reuse",
+      source: String(context.source || "unknown"),
+      paymentIdSuffix: paymentId.slice(-8),
+      remoteStatus,
+    });
+    return { attempt: null, remoteStatus, approved: false, terminal: true };
+  }
+
+  if (remoteStatus === "authorized") {
+    attempt.status = SUBSCRIPTION_ATTEMPT_STATUS.AUTHORIZED;
+  } else if (remoteStatus === "pending" || remoteStatus === "in_process") {
+    attempt.status = SUBSCRIPTION_ATTEMPT_STATUS.PENDING;
+  }
+  await attempt.save();
+  return { attempt, remoteStatus, approved: false, terminal: false };
+}
+
 function chaveCriptografia() {
   const segredo = process.env.TOKEN_ENCRYPTION_KEY;
   if (!segredo) throw new Error("TOKEN_ENCRYPTION_KEY não foi configurada.");
@@ -795,17 +879,29 @@ function flashSafeIntegrationError(req, error) {
 
 exports.pagina = async (req, res) => {
   try {
-    const assinatura = await assinaturaDoUsuario(req);
-    const tentativaAtiva = await tentativaAtivaDoEstabelecimento(estabelecimentoId(req));
+    let assinatura = await assinaturaDoUsuario(req);
+    let tentativaAtiva = await tentativaAtivaDoEstabelecimento(estabelecimentoId(req));
     const dono = await registroModel.findById(estabelecimentoId(req)).lean();
     const integracao = mercadoPagoConfigStatus("subscription");
-    const tentativaPix = await AssinaturaTentativa.findOne({
-      estabelecimentoId: estabelecimentoId(req),
-      metodo: "pix",
-      ativa: true,
-      pixCopiaCola: { $ne: "" },
-      expiresAt: { $gt: new Date() },
-    }).sort({ createdAt: -1 }).lean();
+
+    if (tentativaAtiva?.metodo === "pix" && tentativaAtiva.pixCopiaCola) {
+      const reconciliacao = await reconciliarTentativaPixAssinatura(tentativaAtiva, {
+        source: "subscription_page",
+      });
+      if (reconciliacao.approved) {
+        assinatura = await Assinatura.findOne({
+          estabelecimentoId: estabelecimentoId(req),
+        });
+      }
+      tentativaAtiva = await tentativaAtivaDoEstabelecimento(estabelecimentoId(req));
+    }
+
+    const tentativaPix = tentativaAtiva?.metodo === "pix"
+      && tentativaAtiva.pixCopiaCola
+      && tentativaAtiva.expiresAt
+      && new Date(tentativaAtiva.expiresAt) > new Date()
+      ? tentativaAtiva
+      : null;
     return res.render("assinatura", {
       assinatura: assinatura.toObject(),
       valorPlano: valorPlano(),
@@ -1133,7 +1229,28 @@ exports.gerarPix = async (req, res) => {
     const assinatura = await assinaturaDoUsuario(req);
     const dono = await registroModel.findById(id).lean();
     const payerEmail = validarEmailPagador(dono);
-    const { attempt, created } = await obterOuCriarTentativa(assinatura, "pix");
+    let { attempt, created } = await obterOuCriarTentativa(assinatura, "pix");
+    if (!created && attempt.pixCopiaCola) {
+      const reconciliacao = await reconciliarTentativaPixAssinatura(attempt, {
+        source: "subscription_pix_create",
+      });
+      if (reconciliacao.approved) {
+        if (wantsJson(req)) {
+          return res.status(200).json({
+            ok: true,
+            code: "SUBSCRIPTION_ALREADY_PAID",
+            subscriptionActive: true,
+            redirectUrl: "/assinatura",
+          });
+        }
+        return saveSessionOrRun(req, () => res.redirect("/assinatura"));
+      }
+      if (reconciliacao.terminal) {
+        ({ attempt, created } = await obterOuCriarTentativa(assinatura, "pix"));
+      } else {
+        attempt = reconciliacao.attempt || attempt;
+      }
+    }
     if (!created) {
       if (!attempt.pixCopiaCola) {
         safeFlash(req, "success", "Seu Pix já está sendo gerado.");

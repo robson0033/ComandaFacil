@@ -226,6 +226,11 @@ document.querySelectorAll('[data-payment-button]').forEach(paymentButton => paym
       throw error;
     }
 
+    if (payload.subscriptionActive === true) {
+      window.location.assign(String(payload.redirectUrl || '/assinatura'));
+      return;
+    }
+
     if (paymentMethod === 'cartao') {
       const redirectUrl = new URL(String(payload.checkoutUrl || ''));
       const host = redirectUrl.hostname.toLowerCase();
