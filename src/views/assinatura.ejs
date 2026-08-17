@@ -73,7 +73,7 @@ async function pollSubscriptionPixStatus() {
       return;
     }
     if (payload.terminal === true) {
-      expirePixBox(pixBox);
+      expirePixBox(pixBox, String(payload.status || ''), String(payload.statusDetail || ''));
     }
   } catch {
     // O webhook continua sendo a via principal; uma falha temporária no
@@ -98,21 +98,36 @@ function enableSubscriptionPaymentButtons() {
     }
   });
 }
-function expirePixBox(pixBox) {
+function expirePixBox(pixBox, remoteStatus = 'expired', remoteStatusDetail = '') {
   clearPixExpirationTimer();
   clearPixStatusPolling();
   pixBox.dataset.pixExpired = 'true';
   const countdown = pixBox.querySelector('[data-pix-countdown]');
   if (countdown) countdown.textContent = '00:00';
+  const status = String(remoteStatus || '').toLowerCase();
   const label = pixBox.querySelector('[data-pix-expiration-label]');
-  if (label) label.firstChild.textContent = 'Este Pix expirou. ';
+  const expired = pixBox.querySelector('[data-pix-expired]');
+  const expiredTitle = expired?.querySelector('strong');
+  const expiredText = expired?.querySelector('span');
+  if (status === 'rejected') {
+    if (label) label.firstChild.textContent = 'Este Pix foi recusado. ';
+    if (expiredTitle) expiredTitle.textContent = 'Pix recusado pelo Mercado Pago';
+    if (expiredText) expiredText.textContent = 'A cobrança foi recusada antes do pagamento. Aguarde alguns minutos e gere uma nova cobrança.';
+  } else if (status === 'cancelled' || status === 'canceled') {
+    if (label) label.firstChild.textContent = 'Este Pix foi cancelado. ';
+    if (expiredTitle) expiredTitle.textContent = 'Pix cancelado';
+    if (expiredText) expiredText.textContent = 'Esta cobrança foi cancelada e não pode mais ser utilizada. Gere uma nova cobrança.';
+  } else {
+    if (label) label.firstChild.textContent = 'Este Pix expirou. ';
+    if (expiredTitle) expiredTitle.textContent = 'Pix expirado';
+    if (expiredText) expiredText.textContent = 'Este código não pode mais ser utilizado. Gere uma nova cobrança para continuar.';
+  }
   const image = pixBox.querySelector('[data-pix-qr]');
   if (image) { image.hidden = true; image.removeAttribute('src'); }
   const code = pixBox.querySelector('#pixCode');
   if (code) { code.value = ''; code.hidden = true; }
   const copyButton = pixBox.querySelector('#copyPixCode');
   if (copyButton) { copyButton.disabled = true; copyButton.hidden = true; }
-  const expired = pixBox.querySelector('[data-pix-expired]');
   if (expired) expired.hidden = false;
   document.querySelector('[data-active-attempt]')?.remove();
   enableSubscriptionPaymentButtons();

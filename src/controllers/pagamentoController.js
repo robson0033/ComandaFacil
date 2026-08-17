@@ -311,6 +311,7 @@ function safeMercadoPagoFailure(error) {
     "SUBSCRIPTION_PIX_QR_MISSING",
     "SUBSCRIPTION_PIX_RESPONSE_INVALID",
     "SUBSCRIPTION_PIX_TERMINAL_BEFORE_DISPLAY",
+    "SUBSCRIPTION_PIX_REJECTED_BEFORE_DISPLAY",
     "SUBSCRIPTION_CHECKOUT_URL_MISSING",
     "SUBSCRIPTION_CHECKOUT_URL_INVALID",
     "SUBSCRIPTION_PAYER_EMAIL_INVALID",
@@ -786,6 +787,7 @@ async function reconciliarTentativaPixAssinatura(attempt, context = {}) {
   }
 
   const remoteStatus = String(payment?.status || "").trim().toLowerCase();
+  const remoteStatusDetail = String(payment?.status_detail || "").trim().toLowerCase();
   const now = new Date();
   attempt.lastRemoteStatus = remoteStatus;
   attempt.lastRemoteCheckedAt = now;
@@ -802,7 +804,7 @@ async function reconciliarTentativaPixAssinatura(attempt, context = {}) {
       paymentIdSuffix: paymentId.slice(-8),
       remoteStatus,
     });
-    return { attempt: null, remoteStatus, approved: true, terminal: true };
+    return { attempt: null, remoteStatus, remoteStatusDetail, approved: true, terminal: true };
   }
 
   if (SUBSCRIPTION_PIX_TERMINAL_UNPAID.has(remoteStatus)) {
@@ -821,8 +823,18 @@ async function reconciliarTentativaPixAssinatura(attempt, context = {}) {
       source: String(context.source || "unknown"),
       paymentIdSuffix: paymentId.slice(-8),
       remoteStatus,
+      remoteStatusDetail: remoteStatusDetail || null,
     });
-    return { attempt: null, remoteStatus, approved: false, terminal: true };
+    if (remoteStatus === "rejected") {
+      appLogger.warn("subscription_pix_rejected", {
+        operation: "reconcile_subscription_pix_before_reuse",
+        source: String(context.source || "unknown"),
+        paymentIdSuffix: paymentId.slice(-8),
+        remoteStatus,
+        remoteStatusDetail: remoteStatusDetail || null,
+      });
+    }
+    return { attempt: null, remoteStatus, remoteStatusDetail, approved: false, terminal: true };
   }
 
   if (remoteStatus === "authorized") {
@@ -831,7 +843,7 @@ async function reconciliarTentativaPixAssinatura(attempt, context = {}) {
     attempt.status = SUBSCRIPTION_ATTEMPT_STATUS.PENDING;
   }
   await attempt.save();
-  return { attempt, remoteStatus, approved: false, terminal: false };
+  return { attempt, remoteStatus, remoteStatusDetail, approved: false, terminal: false };
 }
 
 function chaveCriptografia() {
@@ -1410,6 +1422,9 @@ exports.gerarPix = async (req, res) => {
     const statusConfirmado = String(paymentConfirmado?.status || data.status || "")
       .trim()
       .toLowerCase();
+    const statusDetailConfirmado = String(
+      paymentConfirmado?.status_detail || data.status_detail || "",
+    ).trim().toLowerCase();
     if (statusConfirmado === "approved") {
       await processSubscriptionPayment({
         eventKey: `subscription_pix_create_reconcile:${String(data.id)}:approved`,
@@ -1427,6 +1442,12 @@ exports.gerarPix = async (req, res) => {
     }
 
     if (SUBSCRIPTION_PIX_TERMINAL_UNPAID.has(statusConfirmado)) {
+      appLogger.warn("subscription_pix_terminal_before_display", {
+        operation: "confirm_subscription_pix_before_display",
+        paymentIdSuffix: idSuffix(data.id),
+        remoteStatus: statusConfirmado,
+        remoteStatusDetail: statusDetailConfirmado || null,
+      });
       await AssinaturaTentativa.updateOne(
         { _id: attempt._id },
         {
@@ -1442,9 +1463,17 @@ exports.gerarPix = async (req, res) => {
           },
         },
       );
-      const error = new Error("O Pix não ficou disponível para pagamento. Gere uma nova cobrança.");
-      error.code = "SUBSCRIPTION_PIX_TERMINAL_BEFORE_DISPLAY";
+      const error = new Error(
+        statusConfirmado === "rejected"
+          ? "O Mercado Pago recusou esta cobrança Pix. Aguarde alguns minutos antes de gerar outra cobrança."
+          : "O Pix não ficou disponível para pagamento. Gere uma nova cobrança.",
+      );
+      error.code = statusConfirmado === "rejected"
+        ? "SUBSCRIPTION_PIX_REJECTED_BEFORE_DISPLAY"
+        : "SUBSCRIPTION_PIX_TERMINAL_BEFORE_DISPLAY";
       error.stage = "subscription_pix_post_create_status_lookup";
+      error.remoteStatus = statusConfirmado;
+      error.remoteStatusDetail = statusDetailConfirmado;
       throw error;
     }
 
@@ -1554,6 +1583,7 @@ exports.statusPixAssinatura = async (req, res) => {
         terminal: true,
         canGenerate: true,
         status: String(reconciliacao.remoteStatus || "terminal"),
+        statusDetail: String(reconciliacao.remoteStatusDetail || ""),
       });
     }
 
