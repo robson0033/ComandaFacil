@@ -2016,7 +2016,7 @@
         <% } %>
 
         <% itensPendentesMesa.forEach(item => { %>
-          <div class="pending-order-item" data-pedido-id="<%= item.pedidoId %>" data-item-id="<%= item.itemId %>">
+          <div class="pending-order-item" data-pedido-id="<%= item.pedidoId %>">
             <strong><%= item.quantidade %>x</strong>
 
             <div>
@@ -2073,7 +2073,6 @@
                   type="button"
                   class="remove-pending-order"
                   data-remove-mesa-order="<%= item.pedidoId %>"
-                  data-remove-mesa-item="<%= item.itemId %>"
                 >
                   Solicitar novamente
                 </button>
@@ -2082,7 +2081,6 @@
                   type="button"
                   class="remove-pending-order"
                   data-remove-mesa-order="<%= item.pedidoId %>"
-                  data-remove-mesa-item="<%= item.itemId %>"
                 >
                   Solicitar troca/remover
                 </button>
@@ -3443,17 +3441,15 @@
       if (!button || button.dataset.busy === 'true') return;
 
       const pedidoId = String(button.dataset.removeMesaOrder || '').trim();
-      const itemId = String(button.dataset.removeMesaItem || '').trim();
-      if (!pedidoId || !itemId) return;
+      if (!pedidoId) return;
 
       const confirmado = window.confirm(
-        'Solicitar a troca/remoção somente deste item?\n\nOs outros itens do mesmo pedido continuarão na conta. Um funcionário autorizado precisará aprovar.'
+        'Solicitar a troca/remoção deste pedido?\n\nO pedido não será apagado agora. Um funcionário autorizado precisará aprovar. Se este envio tiver mais de um item, todos os itens enviados juntos fazem parte da mesma solicitação.'
       );
       if (!confirmado) return;
 
       const botoesDoPedido = Array.from(document.querySelectorAll('[data-remove-mesa-order]'))
-        .filter(item => String(item.dataset.removeMesaOrder || '') === pedidoId
-          && String(item.dataset.removeMesaItem || '') === itemId);
+        .filter(item => String(item.dataset.removeMesaOrder || '') === pedidoId);
       botoesDoPedido.forEach(item => {
         item.dataset.busy = 'true';
         item.disabled = true;
@@ -3470,7 +3466,7 @@
               'Content-Type': 'application/json',
               'X-CSRF-Token': csrfTokenPublico,
             },
-            body: JSON.stringify({ itemId }),
+            body: '{}',
           },
         );
 

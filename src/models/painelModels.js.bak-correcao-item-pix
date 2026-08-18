@@ -1024,20 +1024,6 @@ const Pedido = mongoose.model(
             min: 0,
           },
           custoUnitarioSnapshot: { type: Number, default: 0, min: 0 },
-          // Solicitação de troca/remoção é por ITEM, não pelo pedido inteiro.
-          // Isso evita que clicar em um produto marque/remova todos os itens
-          // enviados juntos no mesmo pedido da mesa.
-          remocaoSolicitacaoStatus: {
-            type: String,
-            enum: ["nenhuma", "pendente", "aprovada", "recusada"],
-            default: "nenhuma",
-          },
-          remocaoSolicitadaEm: { type: Date, default: null },
-          remocaoDecididaEm: { type: Date, default: null },
-          remocaoDecididaPor: {
-            type: mongoose.Schema.Types.ObjectId,
-            default: null,
-          },
           fichaTecnicaSnapshotCriado: {
             type: Boolean,
             default: false,

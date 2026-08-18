@@ -122,12 +122,3 @@ test("criação incerta não libera outra forma e recuperação busca pela exter
   const baixaFinanceira = service.indexOf("pedido.pagamentoStatus = \"pago\"");
   assert.ok(estoque >= 0 && baixaFinanceira > estoque, "estoque de toda a comanda deve ser processado antes de marcar pedidos como pagos");
 });
-
-
-test("modal Pix da mesa pode ser fechado sem cancelar o pagamento", () => {
-  const view = read("src/views/admin-real.ejs");
-  assert.match(view, /id="fecharPixMesa"/);
-  assert.match(view, /id="fecharPixMesaRodape"/);
-  assert.match(view, /function fecharAcompanhamentoPixMesa\(\)/);
-  assert.match(view, /Fechar o modal NÃO cancela o Pix/);
-});

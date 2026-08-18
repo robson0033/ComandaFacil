@@ -1,0 +1,37 @@
+CORREÇÃO - PIX DA MESA + TROCA/REMOÇÃO POR ITEM
+
+1) Copie/extraia esta pasta dentro da raiz do projeto ComandaFacil.
+2) Na raiz do projeto, execute:
+
+   node aplicar-correcao-item-pix.js
+
+3) Rode os testes:
+
+   NODE_ENV=test node --test test/mesaPedidoTrocaP0.test.js test/mesaPixPagamentoP0.test.js
+
+Esperado: fail 0.
+
+4) Depois rode sua suíte completa:
+
+   NODE_ENV=test node --test
+
+ALTERAÇÕES
+- Modal de Pix: botão X e botão Fechar. Fechar NÃO cancela o Pix.
+- Troca/remoção: cada linha/item tem sua própria solicitação.
+- Aprovar uma solicitação remove apenas o item escolhido.
+- Total, subtotal e custo do pedido são recalculados.
+- Se era o único item do pedido, o pedido é cancelado normalmente.
+- Jobs de impressão ainda pendentes com snapshot antigo são cancelados para não imprimir item removido.
+
+ERRO PRINTER_NOT_FOUND
+Esse erro significa que o agente recebeu o job, mas a impressora configurada no painel não corresponde a uma impressora disponível no computador do agente. Em Configurações > Impressoras, atualize a lista, escolha a impressora encontrada pelo agente, salve e teste a impressão. O patch não inventa/faz fallback para outra impressora, porque isso poderia mandar o QR Code para a impressora errada.
+
+MERCADO PAGO NÃO CONECTADO
+A mensagem "Conecte a conta Mercado Pago do estabelecimento antes de cobrar por Pix" é esperada quando a loja ainda não conectou a própria conta em Configurações > Recebimentos pelo Mercado Pago.
+
+REVERTER
+Se necessário:
+
+   node reverter-correcao-item-pix.js
+
+Os backups usam .bak-correcao-item-pix.

@@ -5431,7 +5431,7 @@
 
                 <div class="order-items">
                   <% (subpedido.itens || []).forEach(item => { %>
-                    <div class="order-item" data-order-item-id="<%= item._id %>">
+                    <div class="order-item">
                       <div class="order-item-quantity"><%= item.quantidade %>x</div>
                       <div>
                         <div class="order-item-name"><%= item.nome %></div>
@@ -5450,20 +5450,6 @@
                           </div>
                         <% } %>
                         <% if (item.observacao) { %><span class="order-item-note">Observação: <%= item.observacao %></span><% } %>
-                        <% if (String(item.remocaoSolicitacaoStatus || '') === 'pendente') { %>
-                          <div class="order-observation" data-removal-request-box style="border-color:#f1b45d;background:#fff8e8;margin-top:8px;">
-                            <strong>⚠ Cliente solicitou troca/remoção somente deste item.</strong>
-                            <div style="margin-top:6px;">Os outros itens do pedido continuam ativos.</div>
-                            <% if (pode('autorizar_troca_mesa')) { %>
-                              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
-                                <button type="button" class="mini-button edit" data-removal-decision="aprovar" data-removal-order-id="<%= subpedido._id %>" data-removal-item-id="<%= item._id %>" data-removal-mesa-id="<%= comanda.mesaId %>">Aprovar troca do item</button>
-                                <button type="button" class="mini-button" data-removal-decision="recusar" data-removal-order-id="<%= subpedido._id %>" data-removal-item-id="<%= item._id %>" data-removal-mesa-id="<%= comanda.mesaId %>">Recusar</button>
-                              </div>
-                            <% } else { %>
-                              <small style="display:block;margin-top:8px;">Aguardando funcionário com permissão para autorizar troca de mesa.</small>
-                            <% } %>
-                          </div>
-                        <% } %>
                       </div>
                       <div class="order-item-price"><%= formatarMoeda(Number(item.subtotal) || Number(item.preco || 0) * Number(item.quantidade || 0)) %></div>
                     </div>
@@ -5474,6 +5460,20 @@
                   <div class="order-observation"><strong>Observação deste pedido:</strong> <%= subpedido.observacao %></div>
                 <% } %>
 
+                <% if (String(subpedido.remocaoSolicitacaoStatus || '') === 'pendente') { %>
+                  <div class="order-observation" data-removal-request-box style="border-color:#f1b45d;background:#fff8e8;">
+                    <strong>⚠ Cliente solicitou troca/remoção deste pedido.</strong>
+                    <div style="margin-top:6px;">O pedido continua ativo até um responsável autorizar.</div>
+                    <% if (pode('autorizar_troca_mesa')) { %>
+                      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+                        <button type="button" class="mini-button edit" data-removal-decision="aprovar" data-removal-order-id="<%= subpedido._id %>" data-removal-mesa-id="<%= comanda.mesaId %>">Aprovar troca</button>
+                        <button type="button" class="mini-button" data-removal-decision="recusar" data-removal-order-id="<%= subpedido._id %>" data-removal-mesa-id="<%= comanda.mesaId %>">Recusar</button>
+                      </div>
+                    <% } else { %>
+                      <small style="display:block;margin-top:8px;">Aguardando funcionário com permissão para autorizar troca de mesa.</small>
+                    <% } %>
+                  </div>
+                <% } %>
 
                 <div class="table-tab-note">Subtotal deste pedido: <strong><%= formatarMoeda(subpedido.total || 0) %></strong></div>
               </section>
@@ -10107,7 +10107,6 @@
           <h2 id="tituloPixMesa">Pagamento Pix da mesa</h2>
           <p id="detalhePixMesa">Preparando o pagamento.</p>
         </div>
-        <button type="button" class="close-modal" id="fecharPixMesa" aria-label="Fechar acompanhamento do Pix" title="Fechar sem cancelar o Pix">×</button>
       </div>
       <div class="pix-mesa-status-card" aria-live="polite">
         <strong id="statusPixMesa">Gerando pagamento Pix...</strong>
@@ -10115,7 +10114,6 @@
         <small id="erroPixMesa"></small>
       </div>
       <div class="modal-footer">
-        <button type="button" class="button secondary" id="fecharPixMesaRodape">Fechar</button>
         <button type="button" class="button secondary" id="cancelarPixMesa">Cancelar Pix e escolher outra forma</button>
       </div>
     </div>
@@ -10753,8 +10751,6 @@
         valor: document.querySelector('#valorPixMesa'),
         erro: document.querySelector('#erroPixMesa'),
         cancelar: document.querySelector('#cancelarPixMesa'),
-        fechar: document.querySelector('#fecharPixMesa'),
-        fecharRodape: document.querySelector('#fecharPixMesaRodape'),
       };
     }
 
@@ -10904,18 +10900,6 @@
       event.stopPropagation();
       void iniciarPixMesa(form);
     }, true);
-
-    function fecharAcompanhamentoPixMesa() {
-      pararPollingPixMesa();
-      elementosPixMesa().modal?.classList.remove('ativo');
-      // Fechar o modal NÃO cancela o Pix. O backend continua protegendo a mesa
-      // contra outra forma de pagamento enquanto houver uma tentativa ativa.
-      const submit = pixMesaUi.form?.querySelector('button[type="submit"]');
-      if (submit && !pixMesaUi.busy && !pixMesaUi.finalizado) submit.disabled = false;
-    }
-
-    document.querySelector('#fecharPixMesa')?.addEventListener('click', fecharAcompanhamentoPixMesa);
-    document.querySelector('#fecharPixMesaRodape')?.addEventListener('click', fecharAcompanhamentoPixMesa);
 
     document.querySelector('#cancelarPixMesa')?.addEventListener('click', async () => {
       if (!pixMesaUi.mesaId || pixMesaUi.busy || pixMesaUi.finalizado) return;
@@ -13237,19 +13221,18 @@ document.addEventListener('click', async event => {
 
   const decisao = String(button.dataset.removalDecision || '');
   const pedidoId = String(button.dataset.removalOrderId || '');
-  const itemId = String(button.dataset.removalItemId || '');
   const mesaId = String(button.dataset.removalMesaId || '');
-  if (!['aprovar', 'recusar'].includes(decisao) || !pedidoId || !itemId || !mesaId) return;
+  if (!['aprovar', 'recusar'].includes(decisao) || !pedidoId || !mesaId) return;
 
   if (decisao === 'aprovar') {
     const confirmou = window.confirm(
-      'Aprovar a troca e remover somente este item?\n\nOs outros itens do mesmo pedido continuarão na conta. Se já foi impresso ou está em preparo, confirme com a cozinha antes de continuar.'
+      'Aprovar a troca e cancelar este pedido?\n\nSe ele já tiver sido impresso ou estiver em preparo, confirme com a cozinha antes de continuar.'
     );
     if (!confirmou) return;
   }
 
   const botoes = Array.from(document.querySelectorAll(
-    `[data-removal-order-id="${CSS.escape(pedidoId)}"][data-removal-item-id="${CSS.escape(itemId)}"]`
+    `[data-removal-order-id="${CSS.escape(pedidoId)}"]`
   ));
   botoes.forEach(item => {
     item.dataset.busy = 'true';
@@ -13263,7 +13246,7 @@ document.addEventListener('click', async event => {
         method: 'POST',
         skipAdminLoading: true,
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ itemId }),
+        body: '{}',
       }
     );
     const result = await response.json();

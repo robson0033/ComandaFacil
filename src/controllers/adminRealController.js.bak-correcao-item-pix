@@ -7694,7 +7694,6 @@ exports.mesaPublica = async (
       (pedido.itens || []).forEach((item) => {
         itensPendentesMesa.push({
           pedidoId: pedido._id,
-          itemId: item._id,
           produtoId: item.produtoId,
           nome: item.nome,
           quantidade: item.quantidade,
@@ -7711,8 +7710,8 @@ exports.mesaPublica = async (
           tamanhoPizzaNome: String(item.tamanhoPizzaNome || ""),
           variacaoNome: String(item.variacaoNome || ""),
           status: pedido.status,
-          remocaoSolicitacaoStatus: String(item.remocaoSolicitacaoStatus || "nenhuma"),
-          remocaoSolicitadaEm: item.remocaoSolicitadaEm || null,
+          remocaoSolicitacaoStatus: String(pedido.remocaoSolicitacaoStatus || "nenhuma"),
+          remocaoSolicitadaEm: pedido.remocaoSolicitadaEm || null,
           createdAt: pedido.createdAt,
         });
 
@@ -8199,12 +8198,11 @@ exports.solicitarRemocaoPedidoMesa = async (req, res) => {
     }
 
     const pedidoId = String(req.params.pedidoId || "").trim();
-    const itemId = String(req.body?.itemId || "").trim();
-    if (!mongoose.isValidObjectId(pedidoId) || !mongoose.isValidObjectId(itemId)) {
+    if (!mongoose.isValidObjectId(pedidoId)) {
       return res.status(404).json({
         success: false,
-        code: "ITEM_PEDIDO_NAO_ENCONTRADO",
-        message: "Item não encontrado para esta mesa.",
+        code: "PEDIDO_NAO_ENCONTRADO",
+        message: "Pedido não encontrado para esta mesa.",
       });
     }
 
@@ -8216,30 +8214,23 @@ exports.solicitarRemocaoPedidoMesa = async (req, res) => {
       excluido: { $ne: true },
     };
 
-    // O operador posicional $ altera somente o item que corresponde ao itemId.
-    // O pedido pode conter vários itens enviados juntos, mas os demais permanecem intactos.
     const pedido = await Pedido.findOneAndUpdate(
       {
         ...filtroBase,
         pagamentoStatus: "pendente",
         status: { $nin: ["cancelado", "finalizado"] },
-        itens: {
-          $elemMatch: {
-            _id: itemId,
-            $or: [
-              { remocaoSolicitacaoStatus: { $exists: false } },
-              { remocaoSolicitacaoStatus: "nenhuma" },
-              { remocaoSolicitacaoStatus: "recusada" },
-            ],
-          },
-        },
+        $or: [
+          { remocaoSolicitacaoStatus: { $exists: false } },
+          { remocaoSolicitacaoStatus: "nenhuma" },
+          { remocaoSolicitacaoStatus: "recusada" },
+        ],
       },
       {
         $set: {
-          "itens.$.remocaoSolicitacaoStatus": "pendente",
-          "itens.$.remocaoSolicitadaEm": new Date(),
-          "itens.$.remocaoDecididaEm": null,
-          "itens.$.remocaoDecididaPor": null,
+          remocaoSolicitacaoStatus: "pendente",
+          remocaoSolicitadaEm: new Date(),
+          remocaoDecididaEm: null,
+          remocaoDecididaPor: null,
         },
       },
       { returnDocument: "after", runValidators: true },
@@ -8247,159 +8238,87 @@ exports.solicitarRemocaoPedidoMesa = async (req, res) => {
 
     if (!pedido) {
       const existente = await Pedido.findOne(filtroBase)
-        .select("_id pagamentoStatus status itens._id itens.remocaoSolicitacaoStatus")
+        .select("_id pagamentoStatus status remocaoSolicitacaoStatus")
         .lean();
-      const item = (existente?.itens || []).find(
-        candidato => String(candidato?._id || "") === itemId,
-      );
 
-      if (!existente || !item) {
+      if (!existente) {
         return res.status(404).json({
           success: false,
-          code: "ITEM_PEDIDO_NAO_ENCONTRADO",
-          message: "Item não encontrado para esta mesa.",
+          code: "PEDIDO_NAO_ENCONTRADO",
+          message: "Pedido não encontrado para esta mesa.",
         });
       }
 
-      if (String(item.remocaoSolicitacaoStatus || "") === "pendente") {
+      if (String(existente.remocaoSolicitacaoStatus || "") === "pendente") {
         return res.json({
           success: true,
           pedidoId: String(existente._id),
-          itemId,
           aguardandoAprovacao: true,
-          message: "A solicitação deste item já foi enviada e aguarda autorização do estabelecimento.",
+          message: "A solicitação já foi enviada e aguarda autorização do estabelecimento.",
         });
       }
 
       return res.status(409).json({
         success: false,
-        code: "ITEM_NAO_PODE_SOLICITAR_TROCA",
-        message: "Este item não pode mais ser alterado porque o pedido já foi pago, cancelado ou finalizado.",
+        code: "PEDIDO_NAO_PODE_SOLICITAR_TROCA",
+        message: "Este pedido não pode mais ser alterado porque já foi pago, cancelado ou finalizado.",
       });
     }
 
     return res.json({
       success: true,
       pedidoId: String(pedido._id),
-      itemId,
       aguardandoAprovacao: true,
-      message: "Solicitação do item enviada. Aguarde a autorização do estabelecimento.",
+      message: "Solicitação enviada. Aguarde a autorização do estabelecimento.",
     });
   } catch (error) {
-    appLogger.error("Erro ao solicitar remoção de item da mesa:", error);
+    appLogger.error("Erro ao solicitar remoção de pedido da mesa:", error);
     return res.status(500).json({
       success: false,
-      code: "ITEM_MESA_SOLICITACAO_REMOCAO_FALHOU",
+      code: "PEDIDO_MESA_SOLICITACAO_REMOCAO_FALHOU",
       message: "Não foi possível enviar a solicitação agora.",
     });
   }
 };
 
-function totaisPedidoMesaDepoisDaRemocao(pedido, itens) {
-  const subtotalCentavos = itens.reduce((total, item) => (
-    total + Math.max(0, Math.round(Number(item?.subtotal || 0) * 100))
-  ), 0);
-  const custoCentavos = itens.reduce((total, item) => {
-    const custoUnitario = Math.max(0, Number(item?.custoUnitarioSnapshot || 0));
-    const quantidade = Math.max(0, Number(item?.quantidade || 0));
-    return total + Math.round(custoUnitario * quantidade * 100);
-  }, 0);
-  const taxaEntregaCentavos = Math.max(0, Math.round(Number(pedido?.taxaEntregaCentavos || 0)));
-  return {
-    subtotalProdutos: subtotalCentavos / 100,
-    total: (subtotalCentavos + taxaEntregaCentavos) / 100,
-    custo: custoCentavos / 100,
-  };
-}
-
 exports.aprovarRemocaoPedidoMesa = async (req, res) => {
   try {
     const idEstabelecimento = estabelecimentoId(req);
     const pedidoId = String(req.params.id || "").trim();
-    const itemId = String(req.body?.itemId || "").trim();
-    if (!mongoose.isValidObjectId(pedidoId) || !mongoose.isValidObjectId(itemId)) {
-      return res.status(404).json({ success: false, message: "Item do pedido não encontrado." });
+    if (!mongoose.isValidObjectId(pedidoId)) {
+      return res.status(404).json({ success: false, message: "Pedido não encontrado." });
     }
-
-    const atual = await Pedido.findOne({
-      _id: pedidoId,
-      estabelecimentoId: idEstabelecimento,
-      canal: "mesa",
-      excluido: { $ne: true },
-      pagamentoStatus: "pendente",
-      status: { $nin: ["cancelado", "finalizado"] },
-      itens: { $elemMatch: { _id: itemId, remocaoSolicitacaoStatus: "pendente" } },
-    });
-
-    if (!atual) {
-      return res.status(409).json({
-        success: false,
-        code: "SOLICITACAO_ITEM_NAO_ELEGIVEL",
-        message: "A solicitação deste item não está mais disponível. O pedido pode ter sido pago ou alterado.",
-      });
-    }
-
-    const itemRemovido = atual.itens.find(item => String(item?._id || "") === itemId);
-    if (!itemRemovido) {
-      return res.status(409).json({
-        success: false,
-        code: "SOLICITACAO_ITEM_NAO_ELEGIVEL",
-        message: "O item solicitado não existe mais neste pedido.",
-      });
-    }
-
-    const itensRestantes = atual.itens
-      .filter(item => String(item?._id || "") !== itemId)
-      .map(item => item.toObject ? item.toObject() : item);
-    const pedidoEncerrado = itensRestantes.length === 0;
-    const totais = totaisPedidoMesaDepoisDaRemocao(atual, itensRestantes);
-
-    const set = {
-      itens: itensRestantes,
-      subtotalProdutos: totais.subtotalProdutos,
-      total: totais.total,
-      custo: totais.custo,
-    };
-    if (pedidoEncerrado) {
-      set.status = "cancelado";
-      set.pagamentoStatus = "cancelado";
-      // Compatibilidade com os fluxos antigos que ocultam pedido totalmente cancelado por troca.
-      set.remocaoSolicitacaoStatus = "aprovada";
-      set.remocaoDecididaEm = new Date();
-      set.remocaoDecididaPor = req.session.user.id;
-    }
-
-    const filtroAtualizacao = {
-      _id: atual._id,
-      estabelecimentoId: idEstabelecimento,
-      canal: "mesa",
-      excluido: { $ne: true },
-      pagamentoStatus: "pendente",
-      status: { $nin: ["cancelado", "finalizado"] },
-      itens: { $elemMatch: { _id: itemId, remocaoSolicitacaoStatus: "pendente" } },
-    };
-    if (Number.isInteger(atual.__v)) filtroAtualizacao.__v = atual.__v;
-
-    const update = { $set: set };
-    if (Number.isInteger(atual.__v)) update.$inc = { __v: 1 };
 
     const pedido = await Pedido.findOneAndUpdate(
-      filtroAtualizacao,
-      update,
+      {
+        _id: pedidoId,
+        estabelecimentoId: idEstabelecimento,
+        canal: "mesa",
+        excluido: { $ne: true },
+        pagamentoStatus: "pendente",
+        status: { $nin: ["cancelado", "finalizado"] },
+        remocaoSolicitacaoStatus: "pendente",
+      },
+      {
+        $set: {
+          status: "cancelado",
+          pagamentoStatus: "cancelado",
+          remocaoSolicitacaoStatus: "aprovada",
+          remocaoDecididaEm: new Date(),
+          remocaoDecididaPor: req.session.user.id,
+        },
+      },
       { returnDocument: "after", runValidators: true },
     );
 
     if (!pedido) {
       return res.status(409).json({
         success: false,
-        code: "SOLICITACAO_ITEM_CONCORRENTE",
-        message: "O pedido mudou enquanto a solicitação era analisada. Atualize a comanda e tente novamente.",
+        code: "SOLICITACAO_NAO_ELEGIVEL",
+        message: "A solicitação não está mais disponível. O pedido pode ter sido pago ou alterado.",
       });
     }
 
-    // Jobs ainda não enviados contêm um snapshot antigo com o item removido.
-    // Eles são cancelados para não imprimir uma comanda desatualizada. Jobs já enviados
-    // não são reenviados automaticamente, evitando duplicidade na cozinha.
     await PrintJob.updateMany(
       {
         estabelecimentoId: idEstabelecimento,
@@ -8409,7 +8328,7 @@ exports.aprovarRemocaoPedidoMesa = async (req, res) => {
       {
         $set: {
           status: "cancelado",
-          erro: "Item removido da mesa antes da impressão; snapshot antigo cancelado.",
+          erro: "Troca de pedido da mesa aprovada pelo estabelecimento.",
           lockedBy: "",
           leaseToken: "",
           leaseExpiresAt: null,
@@ -8418,7 +8337,7 @@ exports.aprovarRemocaoPedidoMesa = async (req, res) => {
       },
     );
 
-    const possuiOutrosPedidos = pedidoEncerrado && await Pedido.exists({
+    const possuiOutrosPedidos = await Pedido.exists({
       estabelecimentoId: idEstabelecimento,
       mesaId: pedido.mesaId,
       excluido: { $ne: true },
@@ -8427,7 +8346,7 @@ exports.aprovarRemocaoPedidoMesa = async (req, res) => {
       status: { $nin: ["finalizado", "cancelado"] },
     });
 
-    if (pedidoEncerrado && !possuiOutrosPedidos && pedido.mesaId) {
+    if (!possuiOutrosPedidos && pedido.mesaId) {
       await Mesa.updateOne(
         { _id: pedido.mesaId, estabelecimentoId: idEstabelecimento },
         { $set: { status: "livre" } },
@@ -8438,7 +8357,7 @@ exports.aprovarRemocaoPedidoMesa = async (req, res) => {
       estabelecimentoId: idEstabelecimento,
       entidade: "pedido",
       entidadeId: pedido._id,
-      acao: "troca_item_mesa_aprovada",
+      acao: "troca_mesa_aprovada",
       usuarioId: req.session.user.id,
       usuarioTipo: req.session.user.tipo,
       dadosResumidos: {
@@ -8446,29 +8365,22 @@ exports.aprovarRemocaoPedidoMesa = async (req, res) => {
           .slice(pedido.codigoPublico ? 0 : -6)
           .toUpperCase(),
         mesaId: String(pedido.mesaId || ""),
-        itemId,
-        itemNome: String(itemRemovido.nome || "").slice(0, 120),
-        pedidoEncerrado,
-        totalRestante: pedido.total,
+        pagamentoStatus: pedido.pagamentoStatus,
       },
-      operationKey: `auditoria:troca_item_mesa_aprovada:${pedido._id}:${itemId}`,
+      operationKey: `auditoria:troca_mesa_aprovada:${pedido._id}`,
     });
 
     return res.json({
       success: true,
       pedidoId: String(pedido._id),
-      itemId,
       mesaId: String(pedido.mesaId || ""),
-      pedidoEncerrado,
-      message: pedidoEncerrado
-        ? "Troca aprovada. O único item foi removido e o pedido saiu da conta da mesa."
-        : "Troca aprovada. Somente o item solicitado foi removido da conta da mesa.",
+      message: "Troca aprovada. O pedido foi cancelado e saiu da conta da mesa.",
     });
   } catch (error) {
-    appLogger.error("Erro ao aprovar troca de item da mesa:", error);
+    appLogger.error("Erro ao aprovar troca de pedido da mesa:", error);
     return res.status(500).json({
       success: false,
-      code: "APROVACAO_TROCA_ITEM_MESA_FALHOU",
+      code: "APROVACAO_TROCA_MESA_FALHOU",
       message: "Não foi possível aprovar a troca agora.",
     });
   }
@@ -8478,9 +8390,8 @@ exports.recusarRemocaoPedidoMesa = async (req, res) => {
   try {
     const idEstabelecimento = estabelecimentoId(req);
     const pedidoId = String(req.params.id || "").trim();
-    const itemId = String(req.body?.itemId || "").trim();
-    if (!mongoose.isValidObjectId(pedidoId) || !mongoose.isValidObjectId(itemId)) {
-      return res.status(404).json({ success: false, message: "Item do pedido não encontrado." });
+    if (!mongoose.isValidObjectId(pedidoId)) {
+      return res.status(404).json({ success: false, message: "Pedido não encontrado." });
     }
 
     const pedido = await Pedido.findOneAndUpdate(
@@ -8489,13 +8400,13 @@ exports.recusarRemocaoPedidoMesa = async (req, res) => {
         estabelecimentoId: idEstabelecimento,
         canal: "mesa",
         excluido: { $ne: true },
-        itens: { $elemMatch: { _id: itemId, remocaoSolicitacaoStatus: "pendente" } },
+        remocaoSolicitacaoStatus: "pendente",
       },
       {
         $set: {
-          "itens.$.remocaoSolicitacaoStatus": "recusada",
-          "itens.$.remocaoDecididaEm": new Date(),
-          "itens.$.remocaoDecididaPor": req.session.user.id,
+          remocaoSolicitacaoStatus: "recusada",
+          remocaoDecididaEm: new Date(),
+          remocaoDecididaPor: req.session.user.id,
         },
       },
       { returnDocument: "after", runValidators: true },
@@ -8508,27 +8419,23 @@ exports.recusarRemocaoPedidoMesa = async (req, res) => {
         canal: "mesa",
         excluido: { $ne: true },
       })
-        .select("_id mesaId itens._id itens.remocaoSolicitacaoStatus")
+        .select("_id mesaId remocaoSolicitacaoStatus")
         .lean();
-      const item = (existente?.itens || []).find(
-        candidato => String(candidato?._id || "") === itemId,
-      );
 
-      if (String(item?.remocaoSolicitacaoStatus || "") === "recusada") {
+      if (String(existente?.remocaoSolicitacaoStatus || "") === "recusada") {
         return res.json({
           success: true,
           pedidoId: String(existente._id),
-          itemId,
           mesaId: String(existente.mesaId || ""),
           idempotent: true,
-          message: "A solicitação deste item já estava recusada. O item continua na mesa.",
+          message: "A solicitação já estava recusada. O pedido continua na mesa.",
         });
       }
 
       return res.status(409).json({
         success: false,
-        code: "SOLICITACAO_ITEM_NAO_ELEGIVEL",
-        message: "A solicitação deste item já foi analisada ou não existe mais.",
+        code: "SOLICITACAO_NAO_ELEGIVEL",
+        message: "A solicitação já foi analisada ou não existe mais.",
       });
     }
 
@@ -8536,7 +8443,7 @@ exports.recusarRemocaoPedidoMesa = async (req, res) => {
       estabelecimentoId: idEstabelecimento,
       entidade: "pedido",
       entidadeId: pedido._id,
-      acao: "troca_item_mesa_recusada",
+      acao: "troca_mesa_recusada",
       usuarioId: req.session.user.id,
       usuarioTipo: req.session.user.tipo,
       dadosResumidos: {
@@ -8544,28 +8451,27 @@ exports.recusarRemocaoPedidoMesa = async (req, res) => {
           .slice(pedido.codigoPublico ? 0 : -6)
           .toUpperCase(),
         mesaId: String(pedido.mesaId || ""),
-        itemId,
         pagamentoStatus: pedido.pagamentoStatus,
       },
-      operationKey: `auditoria:troca_item_mesa_recusada:${pedido._id}:${itemId}:${Date.now()}`,
+      operationKey: `auditoria:troca_mesa_recusada:${pedido._id}:${Date.now()}`,
     });
 
     return res.json({
       success: true,
       pedidoId: String(pedido._id),
-      itemId,
       mesaId: String(pedido.mesaId || ""),
-      message: "Solicitação recusada. Somente este item continua na mesa.",
+      message: "Solicitação recusada. O pedido continua na mesa.",
     });
   } catch (error) {
-    appLogger.error("Erro ao recusar troca de item da mesa:", error);
+    appLogger.error("Erro ao recusar troca de pedido da mesa:", error);
     return res.status(500).json({
       success: false,
-      code: "RECUSA_TROCA_ITEM_MESA_FALHOU",
+      code: "RECUSA_TROCA_MESA_FALHOU",
       message: "Não foi possível recusar a solicitação agora.",
     });
   }
 };
+
 
 exports.avaliarPedidoMesa = async (
   req,
