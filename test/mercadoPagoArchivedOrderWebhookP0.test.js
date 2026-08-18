@@ -89,13 +89,8 @@ test("webhook approved de pedido arquivado vira conciliação e não marca o ped
   const attempt = makeAttempt();
   const pedido = makePedido();
   const event = makeEvent();
-  const alerts = [];
-  const originalTrigger = operationalAlerts.trigger;
-  operationalAlerts.trigger = payload => {
-    alerts.push(payload);
-    return { queued: false, suppressed: false, event: payload.event };
-  };
-  t.after(() => { operationalAlerts.trigger = originalTrigger; });
+  operationalAlerts.resetForTests();
+  t.after(() => operationalAlerts.resetForTests());
 
   await paymentController._testing.processWebhookEvent(event, {
     kind: "archived_order",
@@ -118,22 +113,20 @@ test("webhook approved de pedido arquivado vira conciliação e não marca o ped
     && item.tipo === "pix_online_pedido_arquivado"
     && item.status === "approved"));
   assert.equal(attempt.webhookEvents.includes(event.eventKey), true);
-  assert.equal(alerts.length, 1);
-  assert.equal(alerts[0].event, "mercado_pago_archived_order_payment_detected");
-  assert.equal(alerts[0].severity, "critical");
+  const archivedAlertProbe = operationalAlerts.trigger({
+    event: "mercado_pago_archived_order_payment_detected",
+    key: `mercado_pago_archived_order_payment_detected:${PAYMENT_ID}`,
+    severity: "critical",
+  });
+  assert.equal(archivedAlertProbe.suppressed, true);
 });
 
 test("webhook rejected de pedido arquivado é encerrado sem alerta financeiro crítico", async t => {
   const attempt = makeAttempt();
   const pedido = makePedido();
   const event = makeEvent();
-  const alerts = [];
-  const originalTrigger = operationalAlerts.trigger;
-  operationalAlerts.trigger = payload => {
-    alerts.push(payload);
-    return { queued: false, suppressed: false, event: payload.event };
-  };
-  t.after(() => { operationalAlerts.trigger = originalTrigger; });
+  operationalAlerts.resetForTests();
+  t.after(() => operationalAlerts.resetForTests());
 
   await paymentController._testing.processWebhookEvent(event, {
     kind: "archived_order",
@@ -148,19 +141,19 @@ test("webhook rejected de pedido arquivado é encerrado sem alerta financeiro cr
   assert.equal(pedido.pagamentoStatus, "pendente");
   assert.equal(pedido.pagamentoInconsistente, false);
   assert.equal(pedido.mercadoPagoStatus, "rejected");
-  assert.equal(alerts.length, 0);
+  const rejectedAlertProbe = operationalAlerts.trigger({
+    event: "mercado_pago_archived_order_payment_detected",
+    key: `mercado_pago_archived_order_payment_detected:${PAYMENT_ID}`,
+    severity: "critical",
+  });
+  assert.equal(rejectedAlertProbe.suppressed, false);
 });
 
 test("tentativa órfã aprovada é preservada para conciliação sem depender do Pedido", async t => {
   const attempt = makeAttempt();
   const event = makeEvent();
-  const alerts = [];
-  const originalTrigger = operationalAlerts.trigger;
-  operationalAlerts.trigger = payload => {
-    alerts.push(payload);
-    return { queued: false, suppressed: false, event: payload.event };
-  };
-  t.after(() => { operationalAlerts.trigger = originalTrigger; });
+  operationalAlerts.resetForTests();
+  t.after(() => operationalAlerts.resetForTests());
 
   await paymentController._testing.processWebhookEvent(event, {
     kind: "orphaned_order_attempt",
@@ -173,8 +166,12 @@ test("tentativa órfã aprovada é preservada para conciliação sem depender do
   assert.equal(attempt.reconciliationStatus, "reconciliation_required");
   assert.equal(event.estabelecimentoId, ESTABELECIMENTO);
   assert.equal(event.pedidoId, PEDIDO);
-  assert.equal(alerts.length, 1);
-  assert.equal(alerts[0].event, "mercado_pago_orphaned_order_payment_detected");
+  const orphanAlertProbe = operationalAlerts.trigger({
+    event: "mercado_pago_orphaned_order_payment_detected",
+    key: `mercado_pago_orphaned_order_payment_detected:${PAYMENT_ID}`,
+    severity: "critical",
+  });
+  assert.equal(orphanAlertProbe.suppressed, true);
 });
 
 test("validação de tentativa arquivada fornece stage específico em vez de webhook_unknown", async () => {

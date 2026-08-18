@@ -28,9 +28,9 @@ function routeInventory() {
   return rows;
 }
 
-test("inventário possui 96 rotas e não contém método/path duplicado", () => {
+test("inventário possui 94 rotas e não contém método/path duplicado", () => {
   const inventory = routeInventory();
-  assert.equal(inventory.length, 96);
+  assert.equal(inventory.length, 94);
   const keys = inventory.map(item => `${item.method} ${item.path}`);
   assert.equal(new Set(keys).size, keys.length);
 });
@@ -121,12 +121,10 @@ test("permissões são centralizadas e nome desconhecido falha fechado", () => {
     "imprimir_pedidos",
     "configurar_impressoras",
     "arquivar_pedidos",
-    "autorizar_troca_mesa",
   ]) {
     assert.equal(ALL_PERMISSIONS.has(permission), true, permission);
   }
   assert.equal(CRITICAL_PERMISSIONS.has("arquivar_pedidos"), true);
-  assert.equal(CRITICAL_PERMISSIONS.has("autorizar_troca_mesa"), true);
   assert.throws(() => permissao("catálogo"), /Permissão desconhecida/);
   assert.throws(() => permissao("adicionais"), /Permissão desconhecida/);
 });

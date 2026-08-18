@@ -2065,26 +2065,13 @@
                   }
                 ) %>
               </strong>
-              <% if (String(item.remocaoSolicitacaoStatus || 'nenhuma') === 'pendente') { %>
-                <span data-removal-request-pending style="font-size:11px;font-weight:900;color:#a85b00;text-align:right;">Aguardando autorização</span>
-              <% } else if (String(item.remocaoSolicitacaoStatus || 'nenhuma') === 'recusada') { %>
-                <span style="font-size:11px;font-weight:900;color:#8a3b2f;text-align:right;">Solicitação recusada</span>
-                <button
-                  type="button"
-                  class="remove-pending-order"
-                  data-remove-mesa-order="<%= item.pedidoId %>"
-                >
-                  Solicitar novamente
-                </button>
-              <% } else { %>
-                <button
-                  type="button"
-                  class="remove-pending-order"
-                  data-remove-mesa-order="<%= item.pedidoId %>"
-                >
-                  Solicitar troca/remover
-                </button>
-              <% } %>
+              <button
+                type="button"
+                class="remove-pending-order"
+                data-remove-mesa-order="<%= item.pedidoId %>"
+              >
+                Remover pedido
+              </button>
             </div>
           </div>
         <% }) %>
@@ -3420,22 +3407,6 @@
       }
     }
 
-    let mesaRemovalApprovalTimer = null;
-
-    function agendarAtualizacaoSolicitacaoMesa() {
-      if (mesaRemovalApprovalTimer || !document.querySelector('[data-removal-request-pending]')) return;
-      mesaRemovalApprovalTimer = window.setInterval(async () => {
-        if (document.hidden || !document.querySelector('[data-removal-request-pending]')) return;
-        const atualizou = await atualizarPedidosMesaSemReload();
-        if (atualizou && !document.querySelector('[data-removal-request-pending]')) {
-          window.clearInterval(mesaRemovalApprovalTimer);
-          mesaRemovalApprovalTimer = null;
-        }
-      }, 4000);
-    }
-
-    agendarAtualizacaoSolicitacaoMesa();
-
     document.addEventListener('click', async event => {
       const button = event.target.closest('[data-remove-mesa-order]');
       if (!button || button.dataset.busy === 'true') return;
@@ -3444,7 +3415,7 @@
       if (!pedidoId) return;
 
       const confirmado = window.confirm(
-        'Solicitar a troca/remoção deste pedido?\n\nO pedido não será apagado agora. Um funcionário autorizado precisará aprovar. Se este envio tiver mais de um item, todos os itens enviados juntos fazem parte da mesma solicitação.'
+        'Remover este pedido da mesa?\n\nIsso só é permitido enquanto o pagamento estiver pendente. Se este envio tiver mais de um item, todos os itens enviados juntos serão removidos.'
       );
       if (!confirmado) return;
 
@@ -3453,7 +3424,7 @@
       botoesDoPedido.forEach(item => {
         item.dataset.busy = 'true';
         item.disabled = true;
-        item.textContent = 'Enviando...';
+        item.textContent = 'Removendo...';
       });
 
       try {
@@ -3472,18 +3443,17 @@
 
         const result = await response.json();
         if (!response.ok) {
-          throw new Error(result.message || 'Não foi possível enviar a solicitação.');
+          throw new Error(result.message || 'Não foi possível remover o pedido.');
         }
 
         await atualizarPedidosMesaSemReload();
-        agendarAtualizacaoSolicitacaoMesa();
-        showToast(result.message || 'Solicitação enviada.');
+        showToast(result.message || 'Pedido removido.');
       } catch (error) {
-        alert(error.message || 'Não foi possível enviar a solicitação.');
+        alert(error.message || 'Não foi possível remover o pedido.');
         botoesDoPedido.forEach(item => {
           item.dataset.busy = '';
           item.disabled = false;
-          item.textContent = 'Solicitar troca/remover';
+          item.textContent = 'Remover pedido';
         });
       }
     });

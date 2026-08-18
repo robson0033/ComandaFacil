@@ -24,8 +24,10 @@ function agentStatus(overrides = {}) {
 }
 
 let originalPedidoFindOne;
+let originalPedidoUpdateOne;
 test.beforeEach(() => {
   originalPedidoFindOne = Pedido.findOne;
+  originalPedidoUpdateOne = Pedido.updateOne;
   Pedido.findOne = filtro => ({
     async select() {
       return filtro.excluido?.$ne === true
@@ -33,9 +35,18 @@ test.beforeEach(() => {
         : null;
     },
   });
+  // criarJobsAutomaticos() persiste no Pedido o marcador de que o evento
+  // automático já foi processado. Este é um teste unitário do serviço; não
+  // deve depender de uma conexão MongoDB real apenas para gravar esse marcador.
+  Pedido.updateOne = async () => ({
+    acknowledged: true,
+    matchedCount: 1,
+    modifiedCount: 1,
+  });
 });
 test.afterEach(() => {
   Pedido.findOne = originalPedidoFindOne;
+  Pedido.updateOne = originalPedidoUpdateOne;
 });
 
 function order(overrides = {}) {
@@ -787,7 +798,7 @@ test("agente que confirma enviado conclui sem chamar impressão novamente", asyn
   assert.ok(concluded.concluidoEm instanceof Date);
 });
 
-test("resultado desconhecido é preservado e falha antes do envio é única condição de retry", async t => {
+test("resultado desconhecido é preservado e falha confirmada pelo agente não recebe retry automático", async t => {
   const originalFindOne = PrintJob.findOne;
   const originalUpdate = PrintJob.findOneAndUpdate;
   const leaseId = crypto.randomUUID();
@@ -819,7 +830,12 @@ test("resultado desconhecido é preservado e falha antes do envio é única cond
     leaseId,
     status: "falhou_antes_envio",
   }));
-  assert.equal(update.status, "aguardando_retry");
+  assert.equal(update.status, "falhou");
+  assert.equal(update.nextAttemptAt, null);
+  assert.equal(update.lockedBy, "");
+  assert.equal(update.leaseToken, "");
+  assert.equal(update.leaseExpiresAt, null);
+  assert.match(update.erro, /Retry automático bloqueado/i);
 });
 
 test("reconciliação é isolada pela loja e idempotente", async t => {

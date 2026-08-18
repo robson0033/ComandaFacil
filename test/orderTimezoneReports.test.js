@@ -6,7 +6,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const admin = require("../src/controllers/adminRealController");
-const { Pedido } = require("../src/models/painelModels");
+const { Categoria, Pedido, Produto } = require("../src/models/painelModels");
 const {
   DEFAULT_TIMEZONE,
   formatDateTimeInTimezone,
@@ -88,13 +88,32 @@ test("gráfico de hoje possui 24 horas e coloca 15:26 exclusivamente em 15h", ()
 });
 
 test("agrega faturamento horário por pagoEm com timezone explícito", async t => {
-  const original = Pedido.aggregate;
+  const originalAggregate = Pedido.aggregate;
+  const originalCountDocuments = Pedido.countDocuments;
+  const originalCategoriaFind = Categoria.find;
+  const originalProdutoFind = Produto.find;
+
   let pipeline;
   Pedido.aggregate = async value => {
     pipeline = value;
     return [{ financeiro: [], finalizados: [], grafico: [], produtos: [] }];
   };
-  t.after(() => { Pedido.aggregate = original; });
+  Pedido.countDocuments = async () => 0;
+
+  const emptyLeanQuery = () => ({
+    select() { return this; },
+    lean: async () => [],
+  });
+  Categoria.find = () => emptyLeanQuery();
+  Produto.find = () => emptyLeanQuery();
+
+  t.after(() => {
+    Pedido.aggregate = originalAggregate;
+    Pedido.countDocuments = originalCountDocuments;
+    Categoria.find = originalCategoriaFind;
+    Produto.find = originalProdutoFind;
+  });
+
   await admin._testing.agregarRelatorios({
     idEstabelecimento: "tenant-a",
     periodo: { filtro: "hoje", inicio: new Date("2026-08-01T03:00:00Z"), fim: new Date("2026-08-02T02:59:59.999Z") },

@@ -431,6 +431,26 @@ route.post(
 );
 
 route.post(
+  '/admin/pedidos/:id/solicitacao-remocao/aprovar',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissao('pedidos'),
+  permissao('autorizar_troca_mesa'),
+  admin.aprovarRemocaoPedidoMesa
+);
+
+route.post(
+  '/admin/pedidos/:id/solicitacao-remocao/recusar',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissao('pedidos'),
+  permissao('autorizar_troca_mesa'),
+  admin.recusarRemocaoPedidoMesa
+);
+
+route.post(
   '/admin/pedidos/:id/arquivar',
   loginRequired,
   carregarAssinatura,
@@ -756,6 +776,15 @@ route.post(
   limitePedidoMesaHora,
   anonymousSameOriginProtection,
   admin.criarPedidoMesa
+);
+
+route.post(
+  '/mesa/:token/pedidos/:pedidoId/remover',
+  respostaPedidoSemCache,
+  limitePedidoMesa,
+  limitePedidoMesaHora,
+  anonymousSameOriginProtection,
+  admin.solicitarRemocaoPedidoMesa
 );
 
 

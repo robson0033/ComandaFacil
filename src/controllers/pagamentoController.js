@@ -3561,7 +3561,7 @@ async function bindOrderAttemptFromWebhookReference({ attempt, payment, resource
         lastCheckedAt: new Date(),
       },
     },
-    { new: true, runValidators: true },
+    { returnDocument: "after", runValidators: true },
   );
   if (updated) return updated;
 

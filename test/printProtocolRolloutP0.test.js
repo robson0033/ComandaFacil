@@ -90,6 +90,6 @@ test("rota é fixa, autenticada e aponta para o release atual do agente", () => 
   assert.match(route, /\/admin\/agente\/download\/1\.2\.0/);
   assert.match(route, /download\/1\.2\.0'.*loginRequired/);
   assert.doesNotMatch(route, /download\/:.*path|download\/\*/);
-  assert.match(view, /releases\/latest\/download\/agente\.7z/);
+  assert.match(view, /releases\/latest\/download\/agente\.zip/);
   assert.match(view, /data-staged-agent-version="1\.2\.0"/);
 });

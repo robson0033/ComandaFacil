@@ -76,13 +76,17 @@ test("ficha vazia remove todos os ingredientes", async () => {
 
 test("cadastro persiste fichaTecnica validada", async () => {
   const originals = {
-    categoriaExists: models.Categoria.exists,
+    categoriaFindOne: models.Categoria.findOne,
     estoqueFind: models.Estoque.find,
     estoqueCountDocuments: models.Estoque.countDocuments,
     produtoCreate: models.Produto.create,
   };
   let criado;
-  models.Categoria.exists = async () => true;
+  models.Categoria.findOne = () => queryLean({
+    _id: "507f191e810c19729de860ed",
+    tipo: "catalogo",
+    tipoProduto: "normal",
+  });
   models.Estoque.find = () => queryLean([{
     _id: INGREDIENTE,
     nome: "Farinha",
@@ -108,7 +112,7 @@ test("cadastro persiste fichaTecnica validada", async () => {
     assert.equal(criado.fichaTecnica.length, 1);
     assert.equal(criado.fichaTecnica[0].quantidade, 100);
   } finally {
-    models.Categoria.exists = originals.categoriaExists;
+    models.Categoria.findOne = originals.categoriaFindOne;
     models.Estoque.find = originals.estoqueFind;
     models.Estoque.countDocuments = originals.estoqueCountDocuments;
     models.Produto.create = originals.produtoCreate;
@@ -117,7 +121,7 @@ test("cadastro persiste fichaTecnica validada", async () => {
 
 test("edição substitui e também remove toda a fichaTecnica", async () => {
   const originals = {
-    categoriaExists: models.Categoria.exists,
+    categoriaFindOne: models.Categoria.findOne,
     estoqueFind: models.Estoque.find,
     produtoFindOne: models.Produto.findOne,
   };
@@ -129,7 +133,11 @@ test("edição substitui e também remove toda a fichaTecnica", async () => {
     fichaTecnica: [{ estoqueId: INGREDIENTE }],
     async save() {},
   };
-  models.Categoria.exists = async () => true;
+  models.Categoria.findOne = () => queryLean({
+    _id: "507f191e810c19729de860ed",
+    tipo: "catalogo",
+    tipoProduto: "normal",
+  });
   models.Estoque.find = () => queryLean([{
     _id: INGREDIENTE,
     nome: "Farinha",
@@ -157,7 +165,7 @@ test("edição substitui e também remove toda a fichaTecnica", async () => {
     }, { id: PRODUTO }), responseRedirect());
     assert.deepEqual(produto.fichaTecnica, []);
   } finally {
-    models.Categoria.exists = originals.categoriaExists;
+    models.Categoria.findOne = originals.categoriaFindOne;
     models.Estoque.find = originals.estoqueFind;
     models.Produto.findOne = originals.produtoFindOne;
   }

@@ -16,11 +16,25 @@ const publicCatalog = read("src/views/catalogo-publico.ejs");
 const adminView = read("src/views/admin-real.ejs");
 const server = read("server.js");
 
-test("Pix online do pedido usa janela fixa de 10 minutos", () => {
+test("Pix online mantém janela comercial de 10 minutos e expiração remota compatível com o provedor", () => {
+  // Regra comercial: o cliente tem somente 10 minutos para concluir o Pix.
   assert.match(expirationService, /ORDER_PIX_EXPIRATION_MINUTES\s*=\s*10\s*;/);
   assert.match(expirationService, /createdAt\.getTime\(\)\s*\+\s*ORDER_PIX_EXPIRATION_MS/);
   assert.match(pagamentoController, /expiresAt:\s*new Date\(Date\.now\(\)\s*\+\s*ORDER_PIX_EXPIRATION_MS\)/);
-  assert.match(pagamentoController, /date_of_expiration:[\s\S]{0,240}ORDER_PIX_EXPIRATION_MS/);
+
+  // A expiração enviada ao Mercado Pago é separada da janela comercial.
+  // O provedor recebe a menor janela aceita por sua API; o ComandaFacil
+  // continua expirando/cancelando localmente após os 10 minutos.
+  assert.match(expirationService, /ORDER_PIX_PROVIDER_EXPIRATION_MINUTES\s*=\s*31\s*;/);
+  assert.match(expirationService, /current\.getTime\(\)\s*\+\s*ORDER_PIX_PROVIDER_EXPIRATION_MS/);
+  assert.match(
+    pagamentoController,
+    /date_of_expiration:\s*providerPixExpirationDate\(\)\.toISOString\(\)/,
+  );
+  assert.match(
+    pagamentoController,
+    /requestedExpiration[\s\S]{0,360}attempt\.expiresAt\s*=\s*providerExpiration[\s\S]{0,360}requestedExpiration/,
+  );
 });
 
 test("expiração deixa de ser pagamento ativo e vira estado arquivável", () => {

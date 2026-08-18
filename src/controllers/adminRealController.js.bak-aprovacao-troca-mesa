@@ -703,8 +703,6 @@ function montarAcessoPainel(usuario = {}) {
       pode("configurar_impressoras"),
     podeArquivarPedidos:
       pode("arquivar_pedidos"),
-    podeAutorizarTrocaMesa:
-      pode("autorizar_troca_mesa"),
   };
 }
 
@@ -3132,32 +3130,13 @@ exports.admin = async (req, res) => {
     const idsPedidosAgrupadosMesa = new Set(
       comandasMesaAbertasPainel.flatMap(comanda => comanda.pedidoIds || []),
     );
-    const mesasComComandaAberta = new Set(
-      comandasMesaAbertasPainel.map(comanda => String(comanda.mesaId || "")),
-    );
 
     // Pedidos de uma mesa com conta aberta deixam de virar vários cards.
-    // Se uma troca/remoção foi aprovada e ainda restam pedidos na mesma comanda,
-    // o item cancelado simplesmente sai da comanda e não vira um card separado.
-    // Se ele era o último pedido aberto da mesa, o cancelado continua visível
-    // como histórico operacional.
-    const listaPedidosPainel = listaPedidos.filter(pedido => {
-      if (idsPedidosAgrupadosMesa.has(String(pedido._id))) return false;
-
-      const mesaIdPedido = pedido?.mesaId?._id
-        ? String(pedido.mesaId._id)
-        : String(pedido?.mesaId || "");
-      const canceladoPorTrocaComMesaAindaAberta =
-        String(pedido?.canal || "") === "mesa"
-        && String(pedido?.remocaoSolicitacaoStatus || "") === "aprovada"
-        && (
-          String(pedido?.status || "") === "cancelado"
-          || String(pedido?.pagamentoStatus || "") === "cancelado"
-        )
-        && mesasComComandaAberta.has(mesaIdPedido);
-
-      return !canceladoPorTrocaComMesaAindaAberta;
-    });
+    // Eles continuam existindo individualmente no banco e aparecem dentro do
+    // único card da comanda da mesa. Pedidos já pagos/fechados seguem históricos.
+    const listaPedidosPainel = listaPedidos.filter(
+      pedido => !idsPedidosAgrupadosMesa.has(String(pedido._id)),
+    );
 
     const filtrosPedidos = {
       periodoAtual: pedidoPeriodo.filtro,
@@ -6633,34 +6612,6 @@ exports.atualizarStatusPedido =
         );
       }
 
-      if (
-        status === "cancelado"
-        && String(pedido.canal || "") === "mesa"
-        && req.session?.user?.tipo !== "proprietario"
-        && !Array.isArray(req.permissoesAtuais)
-      ) {
-        return erroERedirecionar(
-          req,
-          res,
-          "pedidos",
-          "Somente funcionários autorizados podem cancelar pedidos de mesa.",
-        );
-      }
-
-      if (
-        status === "cancelado"
-        && String(pedido.canal || "") === "mesa"
-        && req.session?.user?.tipo !== "proprietario"
-        && !req.permissoesAtuais.includes("autorizar_troca_mesa")
-      ) {
-        return erroERedirecionar(
-          req,
-          res,
-          "pedidos",
-          "Somente funcionários autorizados podem cancelar pedidos de mesa.",
-        );
-      }
-
       if (status === "cancelado") {
         const resultadoEstoque = await restaurarEstoqueDoPedido(pedido._id);
         if (!resultadoEstoque?.success) {
@@ -7329,14 +7280,6 @@ exports.arquivarPedido = async (req, res) => {
             pedido.pagamentoStatus ||
             'pendente',
 
-          remocaoSolicitacaoStatus:
-            pedido.remocaoSolicitacaoStatus ||
-            'nenhuma',
-
-          remocaoSolicitadaEm:
-            pedido.remocaoSolicitadaEm ||
-            null,
-
           pagamentoPixOnlineGerenciado:
             String(pedido.formaPagamento || '') === 'pix_online'
             || (
@@ -7677,8 +7620,6 @@ exports.mesaPublica = async (
           tamanhoPizzaNome: String(item.tamanhoPizzaNome || ""),
           variacaoNome: String(item.variacaoNome || ""),
           status: pedido.status,
-          remocaoSolicitacaoStatus: String(pedido.remocaoSolicitacaoStatus || "nenhuma"),
-          remocaoSolicitadaEm: pedido.remocaoSolicitadaEm || null,
           createdAt: pedido.createdAt,
         });
 
@@ -8122,7 +8063,7 @@ exports.criarPedidoMesa = async (
 
 
 
-exports.solicitarRemocaoPedidoMesa = async (req, res) => {
+exports.removerPedidoMesa = async (req, res) => {
   try {
     const mesa = await Mesa.findOne({
       token: req.params.token,
@@ -8148,7 +8089,7 @@ exports.solicitarRemocaoPedidoMesa = async (req, res) => {
       });
     }
 
-    const filtroBase = {
+    const filtroPedidoMesa = {
       _id: pedidoId,
       estabelecimentoId: mesa.estabelecimentoId,
       mesaId: mesa._id,
@@ -8156,31 +8097,22 @@ exports.solicitarRemocaoPedidoMesa = async (req, res) => {
       excluido: { $ne: true },
     };
 
+    // A troca é autorizada exclusivamente enquanto o pagamento continua pendente.
+    // O filtro atômico também impede que uma requisição atrasada cancele um pedido
+    // que tenha sido pago/cancelado/finalizado em outra aba no mesmo instante.
     const pedido = await Pedido.findOneAndUpdate(
       {
-        ...filtroBase,
+        ...filtroPedidoMesa,
         pagamentoStatus: "pendente",
         status: { $nin: ["cancelado", "finalizado"] },
-        $or: [
-          { remocaoSolicitacaoStatus: { $exists: false } },
-          { remocaoSolicitacaoStatus: "nenhuma" },
-          { remocaoSolicitacaoStatus: "recusada" },
-        ],
       },
-      {
-        $set: {
-          remocaoSolicitacaoStatus: "pendente",
-          remocaoSolicitadaEm: new Date(),
-          remocaoDecididaEm: null,
-          remocaoDecididaPor: null,
-        },
-      },
+      { $set: { status: "cancelado" } },
       { returnDocument: "after", runValidators: true },
     );
 
     if (!pedido) {
-      const existente = await Pedido.findOne(filtroBase)
-        .select("_id pagamentoStatus status remocaoSolicitacaoStatus")
+      const existente = await Pedido.findOne(filtroPedidoMesa)
+        .select("_id pagamentoStatus status")
         .lean();
 
       if (!existente) {
@@ -8191,86 +8123,26 @@ exports.solicitarRemocaoPedidoMesa = async (req, res) => {
         });
       }
 
-      if (String(existente.remocaoSolicitacaoStatus || "") === "pendente") {
-        return res.json({
-          success: true,
-          pedidoId: String(existente._id),
-          aguardandoAprovacao: true,
-          message: "A solicitação já foi enviada e aguarda autorização do estabelecimento.",
-        });
-      }
-
       return res.status(409).json({
         success: false,
-        code: "PEDIDO_NAO_PODE_SOLICITAR_TROCA",
-        message: "Este pedido não pode mais ser alterado porque já foi pago, cancelado ou finalizado.",
+        code: "PEDIDO_NAO_PODE_SER_TROCADO",
+        message: "Este pedido não pode mais ser removido porque já foi pago, cancelado ou finalizado.",
       });
     }
 
-    return res.json({
-      success: true,
-      pedidoId: String(pedido._id),
-      aguardandoAprovacao: true,
-      message: "Solicitação enviada. Aguarde a autorização do estabelecimento.",
-    });
-  } catch (error) {
-    appLogger.error("Erro ao solicitar remoção de pedido da mesa:", error);
-    return res.status(500).json({
-      success: false,
-      code: "PEDIDO_MESA_SOLICITACAO_REMOCAO_FALHOU",
-      message: "Não foi possível enviar a solicitação agora.",
-    });
-  }
-};
-
-exports.aprovarRemocaoPedidoMesa = async (req, res) => {
-  try {
-    const idEstabelecimento = estabelecimentoId(req);
-    const pedidoId = String(req.params.id || "").trim();
-    if (!mongoose.isValidObjectId(pedidoId)) {
-      return res.status(404).json({ success: false, message: "Pedido não encontrado." });
-    }
-
-    const pedido = await Pedido.findOneAndUpdate(
-      {
-        _id: pedidoId,
-        estabelecimentoId: idEstabelecimento,
-        canal: "mesa",
-        excluido: { $ne: true },
-        pagamentoStatus: "pendente",
-        status: { $nin: ["cancelado", "finalizado"] },
-        remocaoSolicitacaoStatus: "pendente",
-      },
-      {
-        $set: {
-          status: "cancelado",
-          pagamentoStatus: "cancelado",
-          remocaoSolicitacaoStatus: "aprovada",
-          remocaoDecididaEm: new Date(),
-          remocaoDecididaPor: req.session.user.id,
-        },
-      },
-      { returnDocument: "after", runValidators: true },
-    );
-
-    if (!pedido) {
-      return res.status(409).json({
-        success: false,
-        code: "SOLICITACAO_NAO_ELEGIVEL",
-        message: "A solicitação não está mais disponível. O pedido pode ter sido pago ou alterado.",
-      });
-    }
-
+    // Jobs que ainda não chegaram ao agente podem ser cancelados com segurança.
+    // Estados em que o agente já pode ter recebido o trabalho não são alterados,
+    // evitando assumir que uma impressão física já enviada possa ser desfeita.
     await PrintJob.updateMany(
       {
-        estabelecimentoId: idEstabelecimento,
+        estabelecimentoId: mesa.estabelecimentoId,
         pedidoId: pedido._id,
         status: { $in: ["pendente", "aguardando_retry"] },
       },
       {
         $set: {
           status: "cancelado",
-          erro: "Troca de pedido da mesa aprovada pelo estabelecimento.",
+          erro: "Pedido removido pelo cliente antes do pagamento.",
           lockedBy: "",
           leaseToken: "",
           leaseExpiresAt: null,
@@ -8279,137 +8151,33 @@ exports.aprovarRemocaoPedidoMesa = async (req, res) => {
       },
     );
 
-    const possuiOutrosPedidos = await Pedido.exists({
-      estabelecimentoId: idEstabelecimento,
-      mesaId: pedido.mesaId,
+    const aindaTemPedidosAbertos = await Pedido.exists({
+      estabelecimentoId: mesa.estabelecimentoId,
+      mesaId: mesa._id,
+      canal: "mesa",
       excluido: { $ne: true },
-      _id: { $ne: pedido._id },
       pagamentoStatus: "pendente",
-      status: { $nin: ["finalizado", "cancelado"] },
+      status: { $ne: "cancelado" },
     });
 
-    if (!possuiOutrosPedidos && pedido.mesaId) {
+    if (!aindaTemPedidosAbertos) {
       await Mesa.updateOne(
-        { _id: pedido.mesaId, estabelecimentoId: idEstabelecimento },
+        { _id: mesa._id, estabelecimentoId: mesa.estabelecimentoId },
         { $set: { status: "livre" } },
       );
     }
 
-    await registrarAuditoria({
-      estabelecimentoId: idEstabelecimento,
-      entidade: "pedido",
-      entidadeId: pedido._id,
-      acao: "troca_mesa_aprovada",
-      usuarioId: req.session.user.id,
-      usuarioTipo: req.session.user.tipo,
-      dadosResumidos: {
-        codigoPedido: String(pedido.codigoPublico || pedido._id)
-          .slice(pedido.codigoPublico ? 0 : -6)
-          .toUpperCase(),
-        mesaId: String(pedido.mesaId || ""),
-        pagamentoStatus: pedido.pagamentoStatus,
-      },
-      operationKey: `auditoria:troca_mesa_aprovada:${pedido._id}`,
-    });
-
     return res.json({
       success: true,
       pedidoId: String(pedido._id),
-      mesaId: String(pedido.mesaId || ""),
-      message: "Troca aprovada. O pedido foi cancelado e saiu da conta da mesa.",
+      message: "Pedido removido. Agora você pode escolher outro item.",
     });
   } catch (error) {
-    appLogger.error("Erro ao aprovar troca de pedido da mesa:", error);
+    appLogger.error("Erro ao remover pedido pendente da mesa:", error);
     return res.status(500).json({
       success: false,
-      code: "APROVACAO_TROCA_MESA_FALHOU",
-      message: "Não foi possível aprovar a troca agora.",
-    });
-  }
-};
-
-exports.recusarRemocaoPedidoMesa = async (req, res) => {
-  try {
-    const idEstabelecimento = estabelecimentoId(req);
-    const pedidoId = String(req.params.id || "").trim();
-    if (!mongoose.isValidObjectId(pedidoId)) {
-      return res.status(404).json({ success: false, message: "Pedido não encontrado." });
-    }
-
-    const pedido = await Pedido.findOneAndUpdate(
-      {
-        _id: pedidoId,
-        estabelecimentoId: idEstabelecimento,
-        canal: "mesa",
-        excluido: { $ne: true },
-        remocaoSolicitacaoStatus: "pendente",
-      },
-      {
-        $set: {
-          remocaoSolicitacaoStatus: "recusada",
-          remocaoDecididaEm: new Date(),
-          remocaoDecididaPor: req.session.user.id,
-        },
-      },
-      { returnDocument: "after", runValidators: true },
-    );
-
-    if (!pedido) {
-      const existente = await Pedido.findOne({
-        _id: pedidoId,
-        estabelecimentoId: idEstabelecimento,
-        canal: "mesa",
-        excluido: { $ne: true },
-      })
-        .select("_id mesaId remocaoSolicitacaoStatus")
-        .lean();
-
-      if (String(existente?.remocaoSolicitacaoStatus || "") === "recusada") {
-        return res.json({
-          success: true,
-          pedidoId: String(existente._id),
-          mesaId: String(existente.mesaId || ""),
-          idempotent: true,
-          message: "A solicitação já estava recusada. O pedido continua na mesa.",
-        });
-      }
-
-      return res.status(409).json({
-        success: false,
-        code: "SOLICITACAO_NAO_ELEGIVEL",
-        message: "A solicitação já foi analisada ou não existe mais.",
-      });
-    }
-
-    await registrarAuditoria({
-      estabelecimentoId: idEstabelecimento,
-      entidade: "pedido",
-      entidadeId: pedido._id,
-      acao: "troca_mesa_recusada",
-      usuarioId: req.session.user.id,
-      usuarioTipo: req.session.user.tipo,
-      dadosResumidos: {
-        codigoPedido: String(pedido.codigoPublico || pedido._id)
-          .slice(pedido.codigoPublico ? 0 : -6)
-          .toUpperCase(),
-        mesaId: String(pedido.mesaId || ""),
-        pagamentoStatus: pedido.pagamentoStatus,
-      },
-      operationKey: `auditoria:troca_mesa_recusada:${pedido._id}:${Date.now()}`,
-    });
-
-    return res.json({
-      success: true,
-      pedidoId: String(pedido._id),
-      mesaId: String(pedido.mesaId || ""),
-      message: "Solicitação recusada. O pedido continua na mesa.",
-    });
-  } catch (error) {
-    appLogger.error("Erro ao recusar troca de pedido da mesa:", error);
-    return res.status(500).json({
-      success: false,
-      code: "RECUSA_TROCA_MESA_FALHOU",
-      message: "Não foi possível recusar a solicitação agora.",
+      code: "PEDIDO_MESA_REMOCAO_FALHOU",
+      message: "Não foi possível remover o pedido.",
     });
   }
 };

@@ -2069,13 +2069,6 @@
                 <span data-removal-request-pending style="font-size:11px;font-weight:900;color:#a85b00;text-align:right;">Aguardando autorização</span>
               <% } else if (String(item.remocaoSolicitacaoStatus || 'nenhuma') === 'recusada') { %>
                 <span style="font-size:11px;font-weight:900;color:#8a3b2f;text-align:right;">Solicitação recusada</span>
-                <button
-                  type="button"
-                  class="remove-pending-order"
-                  data-remove-mesa-order="<%= item.pedidoId %>"
-                >
-                  Solicitar novamente
-                </button>
               <% } else { %>
                 <button
                   type="button"

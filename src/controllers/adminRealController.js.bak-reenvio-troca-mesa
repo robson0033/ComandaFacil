@@ -3132,32 +3132,13 @@ exports.admin = async (req, res) => {
     const idsPedidosAgrupadosMesa = new Set(
       comandasMesaAbertasPainel.flatMap(comanda => comanda.pedidoIds || []),
     );
-    const mesasComComandaAberta = new Set(
-      comandasMesaAbertasPainel.map(comanda => String(comanda.mesaId || "")),
-    );
 
     // Pedidos de uma mesa com conta aberta deixam de virar vários cards.
-    // Se uma troca/remoção foi aprovada e ainda restam pedidos na mesma comanda,
-    // o item cancelado simplesmente sai da comanda e não vira um card separado.
-    // Se ele era o último pedido aberto da mesa, o cancelado continua visível
-    // como histórico operacional.
-    const listaPedidosPainel = listaPedidos.filter(pedido => {
-      if (idsPedidosAgrupadosMesa.has(String(pedido._id))) return false;
-
-      const mesaIdPedido = pedido?.mesaId?._id
-        ? String(pedido.mesaId._id)
-        : String(pedido?.mesaId || "");
-      const canceladoPorTrocaComMesaAindaAberta =
-        String(pedido?.canal || "") === "mesa"
-        && String(pedido?.remocaoSolicitacaoStatus || "") === "aprovada"
-        && (
-          String(pedido?.status || "") === "cancelado"
-          || String(pedido?.pagamentoStatus || "") === "cancelado"
-        )
-        && mesasComComandaAberta.has(mesaIdPedido);
-
-      return !canceladoPorTrocaComMesaAindaAberta;
-    });
+    // Eles continuam existindo individualmente no banco e aparecem dentro do
+    // único card da comanda da mesa. Pedidos já pagos/fechados seguem históricos.
+    const listaPedidosPainel = listaPedidos.filter(
+      pedido => !idsPedidosAgrupadosMesa.has(String(pedido._id)),
+    );
 
     const filtrosPedidos = {
       periodoAtual: pedidoPeriodo.filtro,
@@ -8164,7 +8145,6 @@ exports.solicitarRemocaoPedidoMesa = async (req, res) => {
         $or: [
           { remocaoSolicitacaoStatus: { $exists: false } },
           { remocaoSolicitacaoStatus: "nenhuma" },
-          { remocaoSolicitacaoStatus: "recusada" },
         ],
       },
       {
@@ -8197,6 +8177,14 @@ exports.solicitarRemocaoPedidoMesa = async (req, res) => {
           pedidoId: String(existente._id),
           aguardandoAprovacao: true,
           message: "A solicitação já foi enviada e aguarda autorização do estabelecimento.",
+        });
+      }
+
+      if (String(existente.remocaoSolicitacaoStatus || "") === "recusada") {
+        return res.status(409).json({
+          success: false,
+          code: "SOLICITACAO_JA_ANALISADA",
+          message: "Esta solicitação já foi analisada. Fale com um atendente para pedir uma nova alteração.",
         });
       }
 
@@ -8355,25 +8343,6 @@ exports.recusarRemocaoPedidoMesa = async (req, res) => {
     );
 
     if (!pedido) {
-      const existente = await Pedido.findOne({
-        _id: pedidoId,
-        estabelecimentoId: idEstabelecimento,
-        canal: "mesa",
-        excluido: { $ne: true },
-      })
-        .select("_id mesaId remocaoSolicitacaoStatus")
-        .lean();
-
-      if (String(existente?.remocaoSolicitacaoStatus || "") === "recusada") {
-        return res.json({
-          success: true,
-          pedidoId: String(existente._id),
-          mesaId: String(existente.mesaId || ""),
-          idempotent: true,
-          message: "A solicitação já estava recusada. O pedido continua na mesa.",
-        });
-      }
-
       return res.status(409).json({
         success: false,
         code: "SOLICITACAO_NAO_ELEGIVEL",

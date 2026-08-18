@@ -47,6 +47,9 @@ function attempt(overrides = {}) {
     ativa: true,
     expiresAt: new Date(Date.now() + 60_000),
     mercadoPagoPreapprovalId: "",
+    // O pagamento da assinatura é validado contra o valor persistido na tentativa.
+    // Os cenários deste arquivo usam R$ 39,90 como valor de teste.
+    valorCentavos: 3990,
     ...overrides,
   };
 }

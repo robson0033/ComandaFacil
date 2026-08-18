@@ -264,7 +264,18 @@ test("frontend atualiza badge e botões sem duplicar efeitos", () => {
     },
   };
   const code = { textContent: "Código: 123456" };
-  const buttons = [{ disabled: true }, { disabled: true }];
+  const buttons = [
+    {
+      disabled: true,
+      dataset: {},
+      matches() { return false; },
+    },
+    {
+      disabled: true,
+      dataset: {},
+      matches() { return false; },
+    },
+  ];
   const document = {
     querySelector(selector) {
       if (selector === "#printAgentStatus") return badge;

@@ -320,11 +320,25 @@ test("aliases GET são redirects protegidos e não possuem controller mutável",
     ));
   }
   assert.match(source, /route\.use\('\/admin', csrfSameOriginProtection\)/);
-  const aliases = source.slice(
-    source.indexOf("const redirectAdminSection"),
-    source.indexOf("route.get(\n  '/admin/api/pedidos"),
-  );
-  assert.doesNotMatch(aliases, /\badmin\.[A-Za-z]/);
+  const aliasPaths = [
+    "/admin/catalogo",
+    "/admin/cardapio",
+    "/admin/mesas",
+    "/admin/funcionarios",
+    "/admin/estoque",
+    "/admin/relatorios",
+    "/admin/configuracoes",
+    "/admin/agente",
+  ];
+  for (const requestPath of aliasPaths) {
+    const escapedPath = requestPath.replaceAll("/", "\\/");
+    const aliasRoute = source.match(new RegExp(
+      `route\\.get\\(\\s*['"]${escapedPath}['"][^\\n]*\\);`,
+    ))?.[0];
+    assert.ok(aliasRoute, `alias GET ausente: ${requestPath}`);
+    assert.match(aliasRoute, /redirectAdminSection\(/);
+    assert.doesNotMatch(aliasRoute, /\badmin\.[A-Za-z]/);
+  }
   const categoryGet = source.slice(
     source.indexOf("route.get(\n  '/admin/categorias'"),
     source.indexOf("route.post(\n  '/admin/categorias'"),

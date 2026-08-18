@@ -35,7 +35,7 @@ test('configurações exige aceite da taxa antes do OAuth', () => {
   assert.match(view, /data-mercado-pago-connect/);
   assert.match(view, /platformFeeTermsCheckbox/);
   assert.match(view, /Continuar e conectar/);
-  assert.match(view, /taxa de serviço de 1,5%/i);
+  assert.match(view, /taxa de serviço de 0,5%/i);
   assert.match(view, /disabled>Continuar e conectar/);
 });
 

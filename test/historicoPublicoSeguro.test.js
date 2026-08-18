@@ -8,6 +8,7 @@ const {
   Avaliacao,
   Configuracao,
   Pedido,
+  PedidoSequencia,
   Produto,
 } = require("../src/models/painelModels");
 const { registroModel } = require("../src/models/registroModel");
@@ -67,8 +68,11 @@ test("criação persiste somente hash e entrega token puro fora do documento", a
   const originais = {
     startSession: Pedido.startSession,
     create: Pedido.create,
+    updateOne: Pedido.updateOne,
     findOne: Pedido.findOne,
     configuracao: Configuracao.findOne,
+    pedidoSequenciaFindById: PedidoSequencia.findById,
+    pedidoSequenciaFindOneAndUpdate: PedidoSequencia.findOneAndUpdate,
     registro: registroModel.findById,
   };
   let persistido;
@@ -80,18 +84,27 @@ test("criação persiste somente hash e entrega token puro fora do documento", a
     persistido = dados;
     return [{ ...dados, _id: "507f1f77bcf86cd799439012" }];
   };
+  // A criação automática agora marca no próprio Pedido que o evento de
+  // impressão automática já foi processado. Este teste não usa Mongo real,
+  // então a atualização também precisa ser simulada.
+  Pedido.updateOne = async () => ({ acknowledged: true, matchedCount: 1, modifiedCount: 1 });
   Pedido.findOne = filtro => ({
     async select() {
       return { _id: filtro._id, estabelecimentoId: filtro.estabelecimentoId };
     },
   });
   Configuracao.findOne = () => queryLean({ impressoras: [] });
+  PedidoSequencia.findById = () => queryLean({ _id: `${LOJA_ID}:2026-01-01` });
+  PedidoSequencia.findOneAndUpdate = () => queryLean({ ultimoNumero: 1 });
   registroModel.findById = () => queryLean({});
   t.after(() => {
     Pedido.startSession = originais.startSession;
     Pedido.create = originais.create;
+    Pedido.updateOne = originais.updateOne;
     Pedido.findOne = originais.findOne;
     Configuracao.findOne = originais.configuracao;
+    PedidoSequencia.findById = originais.pedidoSequenciaFindById;
+    PedidoSequencia.findOneAndUpdate = originais.pedidoSequenciaFindOneAndUpdate;
     registroModel.findById = originais.registro;
   });
 
@@ -190,7 +203,7 @@ test("serialização pública aplica lista permitida e remove campos internos", 
     historicoFinanceiro: [{ segredo: true }],
   });
   assert.deepEqual(Object.keys(publico), [
-    "codigoPublico", "data", "status", "pagamentoStatus", "formaEntrega",
+    "numeroPedido", "codigoPublico", "data", "status", "pagamentoStatus", "formaEntrega",
     "itens", "subtotalProdutos", "taxaEntregaCentavos", "total", "previsao", "mensagem",
   ]);
   assert.equal(publico.subtotalProdutos, 20);

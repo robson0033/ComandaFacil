@@ -147,7 +147,7 @@ test("Pix combinado cobra somente sua parte e aguarda o recebimento do restante"
   assert.match(controller, /transaction_amount:\s*valorPix/);
   assert.match(controller, /tipo:\s*"pix_parcial_aprovado"/);
   assert.match(controller, /aguardandoPagamentoRestante:/);
-  assert.match(controller, /pagamentoStatus:\s*"pendente"/);
+  assert.match(controller, /statusNovo:\s*"pendente"/);
   assert.match(print, /String\(pedido\.formaPagamento \|\| ""\) === "combinado"/);
 });
 

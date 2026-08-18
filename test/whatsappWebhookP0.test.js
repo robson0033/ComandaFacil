@@ -7,6 +7,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const whatsapp = require("../src/controllers/whatsappController");
+const { WhatsAppWebhookEvent } = require("../src/models/painelModels");
 
 const APP_SECRET = "app-secret-de-teste-comprido";
 
@@ -98,10 +99,29 @@ test("GET de verificação devolve exatamente o hub.challenge quando o token con
   assert.equal(headers["Cache-Control"], "no-store");
 });
 
-test("POST rejeita assinatura inválida e aceita assinatura Meta válida", t => {
+test("POST rejeita assinatura inválida e aceita assinatura Meta válida", async t => {
   const previous = process.env.WHATSAPP_APP_SECRET;
+  const originalFindOneAndUpdate = WhatsAppWebhookEvent.findOneAndUpdate;
   process.env.WHATSAPP_APP_SECRET = APP_SECRET;
+
+  let persistenceCalls = 0;
+  WhatsAppWebhookEvent.findOneAndUpdate = async () => {
+    persistenceCalls += 1;
+    if (persistenceCalls === 1) {
+      return {
+        _id: "64b000000000000000000099",
+        eventKey: "evento-webhook-teste",
+        payload: body,
+        status: "pending",
+        attempts: 0,
+      };
+    }
+    // O processamento assíncrono pós-ACK não faz parte deste teste de HTTP.
+    return null;
+  };
+
   t.after(() => {
+    WhatsAppWebhookEvent.findOneAndUpdate = originalFindOneAndUpdate;
     if (previous === undefined) delete process.env.WHATSAPP_APP_SECRET;
     else process.env.WHATSAPP_APP_SECRET = previous;
   });
@@ -119,7 +139,7 @@ test("POST rejeita assinatura inválida e aceita assinatura Meta válida", t => 
   };
 
   const invalidRes = makeRes();
-  whatsapp.receberWebhook({
+  await whatsapp.receberWebhook({
     body,
     rawBody,
     correlationId: "TEST-WA-POST-BAD",
@@ -128,7 +148,7 @@ test("POST rejeita assinatura inválida e aceita assinatura Meta válida", t => 
   assert.equal(invalidRes.state.statusCode, 401);
 
   const validRes = makeRes();
-  whatsapp.receberWebhook({
+  await whatsapp.receberWebhook({
     body,
     rawBody,
     correlationId: "TEST-WA-POST-OK",
@@ -136,4 +156,5 @@ test("POST rejeita assinatura inválida e aceita assinatura Meta válida", t => 
   }, validRes);
   assert.equal(validRes.state.statusCode, 200);
   assert.deepEqual(validRes.state.body, { ok: true });
+  assert.equal(persistenceCalls >= 1, true);
 });

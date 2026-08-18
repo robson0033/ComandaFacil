@@ -13095,25 +13095,8 @@ async function verificarNovosPedidos() {
           pedido.pagamentoStatus === 'pendente' &&
           pedido.status !== 'cancelado';
 
-        const canceladoPorTrocaComComandaAindaAberta =
-          pedido.canal === 'mesa' &&
-          Boolean(pedido.mesaId) &&
-          pedido.remocaoSolicitacaoStatus === 'aprovada' &&
-          (
-            pedido.status === 'cancelado' ||
-            pedido.pagamentoStatus === 'cancelado'
-          ) &&
-          Boolean(document.querySelector(
-            `[data-mesa-open-card="${CSS.escape(String(pedido.mesaId))}"]`
-          ));
-
         if (novoPedidoMesaAberto) {
           if (pedido.mesaId) mesasParaAtualizar.add(String(pedido.mesaId));
-        } else if (canceladoPorTrocaComComandaAindaAberta) {
-          // O item cancelado por troca já saiu da comanda aberta.
-          // Não crie um segundo card "cancelado" enquanto a mesa ainda
-          // possuir outros pedidos pendentes.
-          mesasParaAtualizar.add(String(pedido.mesaId));
         } else {
           if (ordersEmptyState) {
             ordersEmptyState.remove();

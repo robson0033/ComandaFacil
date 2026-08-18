@@ -112,9 +112,10 @@ test("Cloud API usa botões até 3 opções e lista acima disso", async t => {
 test("painel possui aba WhatsApp API e rotas administrativas protegidas", () => {
   const route = fs.readFileSync(path.join(__dirname, "../route.js"), "utf8");
   const view = fs.readFileSync(path.join(__dirname, "../src/views/admin-real.ejs"), "utf8");
-  assert.match(route, /\/admin\/whatsapp\/configuracao/);
-  assert.match(route, /admin\.salvarWhatsAppConfiguracao/);
-  assert.match(route, /permissao\('configuracoes'\)/);
+  assert.match(
+    route,
+    /route\.post\(\s*['"]\/admin\/configuracoes['"][\s\S]*?permissao\('configuracoes'\)[\s\S]*?admin\.salvarConfiguracao/,
+  );
   assert.match(view, /data-page="whatsapp"/);
   assert.match(view, /id="page-whatsapp"/);
   assert.match(view, /Ver status do pedido/);

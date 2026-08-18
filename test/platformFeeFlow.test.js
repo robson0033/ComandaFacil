@@ -51,8 +51,8 @@ test("taxa aparece dentro da página de relatórios e não no modal de estoque",
 test("relatório considera somente Pix online e adicionais aparecem nos cards", () => {
   const controller = read("src/controllers/adminRealController.js");
   const view = read("src/views/admin-real.ejs");
-  assert.match(controller, /const possuiPixOnline = String\(pedido\.formaPagamento \|\| ""\) === "pix_online"/);
-  assert.match(controller, /pedido\.pagamentos\.some/);
+  assert.match(controller, /\{ formaPagamento: "pix_online" \}/);
+  assert.match(controller, /pagamentos:\s*\{\s*\$elemMatch:\s*\{[\s\S]{0,160}formaPagamento:\s*"pix_online"/);
   assert.match(view, /Array\.isArray\(item\.adicionais\)/);
   assert.match(view, /order-item-addons/);
   assert.match(view, /adicional\.nome/);
@@ -77,15 +77,19 @@ test("taxa pode ser desativada com segurança enquanto Split Payments não está
 
 test("taxa volta a ser calculada quando Split Payments for habilitado", () => {
   const { buildPlatformFeeSnapshot } = require("../src/services/platformFeeService");
-  const previous = process.env.PLATFORM_PIX_FEE_ENABLED;
+  const previousEnabled = process.env.PLATFORM_PIX_FEE_ENABLED;
+  const previousPercent = process.env.PLATFORM_PIX_FEE_PERCENT;
   process.env.PLATFORM_PIX_FEE_ENABLED = "true";
+  process.env.PLATFORM_PIX_FEE_PERCENT = "0.5";
   try {
     const snapshot = buildPlatformFeeSnapshot(30);
-    assert.equal(snapshot.platformFeeCents, 45);
+    assert.equal(snapshot.platformFeeCents, 15);
     assert.equal(snapshot.platformFeeStatus, "requested");
-    assert.equal(snapshot.merchantAmountBeforeMpFeesCents, 2955);
+    assert.equal(snapshot.merchantAmountBeforeMpFeesCents, 2985);
   } finally {
-    if (previous === undefined) delete process.env.PLATFORM_PIX_FEE_ENABLED;
-    else process.env.PLATFORM_PIX_FEE_ENABLED = previous;
+    if (previousEnabled === undefined) delete process.env.PLATFORM_PIX_FEE_ENABLED;
+    else process.env.PLATFORM_PIX_FEE_ENABLED = previousEnabled;
+    if (previousPercent === undefined) delete process.env.PLATFORM_PIX_FEE_PERCENT;
+    else process.env.PLATFORM_PIX_FEE_PERCENT = previousPercent;
   }
 });

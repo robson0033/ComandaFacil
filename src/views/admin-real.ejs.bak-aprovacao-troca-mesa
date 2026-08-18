@@ -4661,8 +4661,7 @@
     'funcionarios',
     'configuracoes',
     'configurar_impressoras',
-    'arquivar_pedidos',
-    'autorizar_troca_mesa'
+    'arquivar_pedidos'
   ];
 
   const podeDelegarPermissao = permissao =>
@@ -5399,9 +5398,7 @@
                         <option value="pronto" <%= subpedido.status === 'pronto' ? 'selected' : '' %>>Pronto</option>
                         <option value="entregue" <%= subpedido.status === 'entregue' ? 'selected' : '' %>>Entregue</option>
                         <option value="finalizado" <%= subpedido.status === 'finalizado' ? 'selected' : '' %>>Finalizado</option>
-                        <% if (pode('autorizar_troca_mesa')) { %>
-                          <option value="cancelado" <%= subpedido.status === 'cancelado' ? 'selected' : '' %>>Cancelado</option>
-                        <% } %>
+                        <option value="cancelado" <%= subpedido.status === 'cancelado' ? 'selected' : '' %>>Cancelado</option>
                       </select>
                       <button type="submit" class="mini-button edit">Atualizar</button>
                     </form>
@@ -5445,21 +5442,6 @@
 
                 <% if (subpedido.observacao) { %>
                   <div class="order-observation"><strong>Observação deste pedido:</strong> <%= subpedido.observacao %></div>
-                <% } %>
-
-                <% if (String(subpedido.remocaoSolicitacaoStatus || '') === 'pendente') { %>
-                  <div class="order-observation" data-removal-request-box style="border-color:#f1b45d;background:#fff8e8;">
-                    <strong>⚠ Cliente solicitou troca/remoção deste pedido.</strong>
-                    <div style="margin-top:6px;">O pedido continua ativo até um responsável autorizar.</div>
-                    <% if (pode('autorizar_troca_mesa')) { %>
-                      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
-                        <button type="button" class="mini-button edit" data-removal-decision="aprovar" data-removal-order-id="<%= subpedido._id %>" data-removal-mesa-id="<%= comanda.mesaId %>">Aprovar troca</button>
-                        <button type="button" class="mini-button" data-removal-decision="recusar" data-removal-order-id="<%= subpedido._id %>" data-removal-mesa-id="<%= comanda.mesaId %>">Recusar</button>
-                      </div>
-                    <% } else { %>
-                      <small style="display:block;margin-top:8px;">Aguardando funcionário com permissão para autorizar troca de mesa.</small>
-                    <% } %>
-                  </div>
                 <% } %>
 
                 <div class="table-tab-note">Subtotal deste pedido: <strong><%= formatarMoeda(subpedido.total || 0) %></strong></div>
@@ -9780,8 +9762,7 @@
             'configuracoes',
             'imprimir_pedidos',
             'configurar_impressoras',
-            'arquivar_pedidos',
-            'autorizar_troca_mesa'
+            'arquivar_pedidos'
           ].filter(podeDelegarPermissao).forEach(permissao => { %>
             <label>
               <input
@@ -9802,8 +9783,7 @@
                 configuracoes: 'Configurações',
                 imprimir_pedidos: 'Imprimir pedidos',
                 configurar_impressoras: 'Configurar impressoras',
-                arquivar_pedidos: 'Arquivar pedidos',
-                autorizar_troca_mesa: 'Autorizar troca/remoção de pedido da mesa'
+                arquivar_pedidos: 'Arquivar pedidos'
               }[permissao] || permissao;
               %>
 
@@ -10022,8 +10002,7 @@
             'configuracoes',
             'imprimir_pedidos',
             'configurar_impressoras',
-            'arquivar_pedidos',
-            'autorizar_troca_mesa'
+            'arquivar_pedidos'
           ].filter(podeDelegarPermissao).forEach(permissao => { %>
             <label>
               <input
@@ -10044,8 +10023,7 @@
                 configuracoes: 'Configurações',
                 imprimir_pedidos: 'Imprimir pedidos',
                 configurar_impressoras: 'Configurar impressoras',
-                arquivar_pedidos: 'Arquivar pedidos',
-                autorizar_troca_mesa: 'Autorizar troca/remoção de pedido da mesa'
+                arquivar_pedidos: 'Arquivar pedidos'
               }[permissao] || permissao;
               %>
 
@@ -11210,9 +11188,6 @@ const podeImprimirPedidos =
 
 const podeArquivarPedidos =
   <%- safeJsonForHtml(pode('arquivar_pedidos')); %>;
-
-const podeAutorizarTrocaMesa =
-  <%- safeJsonForHtml(pode('autorizar_troca_mesa')); %>;
 
 const impressorasConfiguradas =
   <%- safeJsonForHtml(config.impressoras || []); %>;
@@ -12934,83 +12909,6 @@ async function atualizarComandaMesaSemReload(mesaId) {
   return promise;
 }
 
-function mostrarFeedbackTrocaMesa(message) {
-  const container = document.querySelector('#orderToastContainer');
-  if (!container) return;
-
-  const toast = document.createElement('div');
-  toast.className = 'order-toast';
-
-  const icon = document.createElement('div');
-  icon.className = 'order-toast-icon';
-  icon.textContent = '✓';
-
-  const text = document.createElement('div');
-  text.className = 'order-toast-text';
-
-  const title = document.createElement('strong');
-  title.textContent = 'Solicitação atualizada';
-
-  const detail = document.createElement('span');
-  detail.textContent = String(message || 'Solicitação analisada.');
-
-  text.append(title, detail);
-  toast.append(icon, text);
-  container.appendChild(toast);
-  window.setTimeout(() => toast.remove(), 4500);
-}
-
-document.addEventListener('click', async event => {
-  const button = event.target.closest('[data-removal-decision]');
-  if (!button || button.dataset.busy === 'true' || !podeAutorizarTrocaMesa) return;
-
-  const decisao = String(button.dataset.removalDecision || '');
-  const pedidoId = String(button.dataset.removalOrderId || '');
-  const mesaId = String(button.dataset.removalMesaId || '');
-  if (!['aprovar', 'recusar'].includes(decisao) || !pedidoId || !mesaId) return;
-
-  if (decisao === 'aprovar') {
-    const confirmou = window.confirm(
-      'Aprovar a troca e cancelar este pedido?\n\nSe ele já tiver sido impresso ou estiver em preparo, confirme com a cozinha antes de continuar.'
-    );
-    if (!confirmou) return;
-  }
-
-  const botoes = Array.from(document.querySelectorAll(
-    `[data-removal-order-id="${CSS.escape(pedidoId)}"]`
-  ));
-  botoes.forEach(item => {
-    item.dataset.busy = 'true';
-    item.disabled = true;
-  });
-
-  try {
-    const response = await adminFetch(
-      `/admin/pedidos/${encodeURIComponent(pedidoId)}/solicitacao-remocao/${decisao}`,
-      {
-        method: 'POST',
-        skipAdminLoading: true,
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: '{}',
-      }
-    );
-    const result = await response.json();
-    if (!response.ok || !result.success) {
-      throw new Error(result.message || 'Não foi possível analisar a solicitação.');
-    }
-    await atualizarComandaMesaSemReload(mesaId);
-    mostrarFeedbackTrocaMesa(result.message || 'Solicitação analisada.');
-  } catch (error) {
-    alert(error.message || 'Não foi possível analisar a solicitação.');
-    await atualizarComandaMesaSemReload(mesaId);
-  } finally {
-    botoes.forEach(item => {
-      item.dataset.busy = '';
-      item.disabled = false;
-    });
-  }
-});
-
 async function verificarNovosPedidos() {
   if (!pollingPedidosAtivo || sessionRedirectInProgress || verificandoPedidos) {
     return;
@@ -13064,7 +12962,7 @@ async function verificarNovosPedidos() {
             pedido.pagamentoStatus !== 'pendente' ||
             pedido.status === 'cancelado';
 
-          if (estaDentroDeComanda && pedido.canal === 'mesa') {
+          if (estaDentroDeComanda && deixouDeEstarAberto) {
             const cardMesa = existing.closest('[data-mesa-open-card]');
             const mesaId = pedido.mesaId || cardMesa?.dataset?.mesaOpenCard || '';
             if (mesaId) mesasParaAtualizar.add(String(mesaId));
@@ -13095,25 +12993,8 @@ async function verificarNovosPedidos() {
           pedido.pagamentoStatus === 'pendente' &&
           pedido.status !== 'cancelado';
 
-        const canceladoPorTrocaComComandaAindaAberta =
-          pedido.canal === 'mesa' &&
-          Boolean(pedido.mesaId) &&
-          pedido.remocaoSolicitacaoStatus === 'aprovada' &&
-          (
-            pedido.status === 'cancelado' ||
-            pedido.pagamentoStatus === 'cancelado'
-          ) &&
-          Boolean(document.querySelector(
-            `[data-mesa-open-card="${CSS.escape(String(pedido.mesaId))}"]`
-          ));
-
         if (novoPedidoMesaAberto) {
           if (pedido.mesaId) mesasParaAtualizar.add(String(pedido.mesaId));
-        } else if (canceladoPorTrocaComComandaAindaAberta) {
-          // O item cancelado por troca já saiu da comanda aberta.
-          // Não crie um segundo card "cancelado" enquanto a mesa ainda
-          // possuir outros pedidos pendentes.
-          mesasParaAtualizar.add(String(pedido.mesaId));
         } else {
           if (ordersEmptyState) {
             ordersEmptyState.remove();

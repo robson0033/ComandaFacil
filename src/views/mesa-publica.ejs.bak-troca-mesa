@@ -1348,33 +1348,6 @@
       color: var(--muted);
     }
 
-    .pending-order-actions {
-      display: grid;
-      justify-items: end;
-      gap: 8px;
-      min-width: 112px;
-    }
-
-    .remove-pending-order {
-      min-height: 34px;
-      padding: 7px 11px;
-      border: 1px solid #efb7a2;
-      border-radius: 10px;
-      background: #fff3ee;
-      color: #b72e18;
-      font-size: 11px;
-      font-weight: 900;
-    }
-
-    .remove-pending-order:hover {
-      background: #ffe8df;
-    }
-
-    .remove-pending-order:disabled {
-      opacity: .55;
-      cursor: wait;
-    }
-
     .addon-options {
       display: grid;
       gap: 9px;
@@ -1424,15 +1397,7 @@
       }
 
       .pending-order-item > strong {
-        grid-column: auto;
-      }
-
-      .pending-order-actions {
         grid-column: 2;
-        grid-template-columns: 1fr auto;
-        align-items: center;
-        justify-items: end;
-        width: 100%;
       }
     }
 
@@ -2016,7 +1981,7 @@
         <% } %>
 
         <% itensPendentesMesa.forEach(item => { %>
-          <div class="pending-order-item" data-pedido-id="<%= item.pedidoId %>">
+          <div class="pending-order-item">
             <strong><%= item.quantidade %>x</strong>
 
             <div>
@@ -2055,37 +2020,15 @@
               </small>
             </div>
 
-            <div class="pending-order-actions">
-              <strong>
-                <%= Number(item.subtotal || 0).toLocaleString(
-                  'pt-BR',
-                  {
-                    style: 'currency',
-                    currency: 'BRL'
-                  }
-                ) %>
-              </strong>
-              <% if (String(item.remocaoSolicitacaoStatus || 'nenhuma') === 'pendente') { %>
-                <span data-removal-request-pending style="font-size:11px;font-weight:900;color:#a85b00;text-align:right;">Aguardando autorização</span>
-              <% } else if (String(item.remocaoSolicitacaoStatus || 'nenhuma') === 'recusada') { %>
-                <span style="font-size:11px;font-weight:900;color:#8a3b2f;text-align:right;">Solicitação recusada</span>
-                <button
-                  type="button"
-                  class="remove-pending-order"
-                  data-remove-mesa-order="<%= item.pedidoId %>"
-                >
-                  Solicitar novamente
-                </button>
-              <% } else { %>
-                <button
-                  type="button"
-                  class="remove-pending-order"
-                  data-remove-mesa-order="<%= item.pedidoId %>"
-                >
-                  Solicitar troca/remover
-                </button>
-              <% } %>
-            </div>
+            <strong>
+              <%= Number(item.subtotal || 0).toLocaleString(
+                'pt-BR',
+                {
+                  style: 'currency',
+                  currency: 'BRL'
+                }
+              ) %>
+            </strong>
           </div>
         <% }) %>
       </div>
@@ -3393,100 +3336,6 @@
     }
 
     const csrfTokenPublico = <%- safeJsonForHtml(csrfToken) %>;
-
-    async function atualizarPedidosMesaSemReload() {
-      try {
-        const response = await fetch(window.location.href, {
-          method: 'GET',
-          cache: 'no-store',
-          headers: { Accept: 'text/html' },
-        });
-        if (!response.ok) return false;
-
-        const html = await response.text();
-        const pagina = new DOMParser().parseFromString(html, 'text/html');
-
-        for (const selector of ['.pending-orders', '.account-card']) {
-          const atual = document.querySelector(selector);
-          const novo = pagina.querySelector(selector);
-          if (atual && novo) {
-            atual.replaceWith(document.importNode(novo, true));
-          }
-        }
-        return true;
-      } catch (error) {
-        console.error('Não foi possível atualizar os pedidos da mesa:', error);
-        return false;
-      }
-    }
-
-    let mesaRemovalApprovalTimer = null;
-
-    function agendarAtualizacaoSolicitacaoMesa() {
-      if (mesaRemovalApprovalTimer || !document.querySelector('[data-removal-request-pending]')) return;
-      mesaRemovalApprovalTimer = window.setInterval(async () => {
-        if (document.hidden || !document.querySelector('[data-removal-request-pending]')) return;
-        const atualizou = await atualizarPedidosMesaSemReload();
-        if (atualizou && !document.querySelector('[data-removal-request-pending]')) {
-          window.clearInterval(mesaRemovalApprovalTimer);
-          mesaRemovalApprovalTimer = null;
-        }
-      }, 4000);
-    }
-
-    agendarAtualizacaoSolicitacaoMesa();
-
-    document.addEventListener('click', async event => {
-      const button = event.target.closest('[data-remove-mesa-order]');
-      if (!button || button.dataset.busy === 'true') return;
-
-      const pedidoId = String(button.dataset.removeMesaOrder || '').trim();
-      if (!pedidoId) return;
-
-      const confirmado = window.confirm(
-        'Solicitar a troca/remoção deste pedido?\n\nO pedido não será apagado agora. Um funcionário autorizado precisará aprovar. Se este envio tiver mais de um item, todos os itens enviados juntos fazem parte da mesma solicitação.'
-      );
-      if (!confirmado) return;
-
-      const botoesDoPedido = Array.from(document.querySelectorAll('[data-remove-mesa-order]'))
-        .filter(item => String(item.dataset.removeMesaOrder || '') === pedidoId);
-      botoesDoPedido.forEach(item => {
-        item.dataset.busy = 'true';
-        item.disabled = true;
-        item.textContent = 'Enviando...';
-      });
-
-      try {
-        const response = await fetch(
-          `/mesa/<%= mesa.token %>/pedidos/${encodeURIComponent(pedidoId)}/remover`,
-          {
-            method: 'POST',
-            headers: {
-              'Accept': 'application/json',
-              'Content-Type': 'application/json',
-              'X-CSRF-Token': csrfTokenPublico,
-            },
-            body: '{}',
-          },
-        );
-
-        const result = await response.json();
-        if (!response.ok) {
-          throw new Error(result.message || 'Não foi possível enviar a solicitação.');
-        }
-
-        await atualizarPedidosMesaSemReload();
-        agendarAtualizacaoSolicitacaoMesa();
-        showToast(result.message || 'Solicitação enviada.');
-      } catch (error) {
-        alert(error.message || 'Não foi possível enviar a solicitação.');
-        botoesDoPedido.forEach(item => {
-          item.dataset.busy = '';
-          item.disabled = false;
-          item.textContent = 'Solicitar troca/remover';
-        });
-      }
-    });
     let pedidoIdempotencyKeyAtual = null;
     let pedidoEnvioEmAndamento = false;
 
@@ -3569,7 +3418,6 @@
             cart.splice(0, cart.length);
             renderCart();
             closeCart();
-            await atualizarPedidosMesaSemReload();
             showToast(result.message);
             openRating(result);
           } catch (error) {

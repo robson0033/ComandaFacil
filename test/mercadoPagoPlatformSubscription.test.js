@@ -142,14 +142,14 @@ test("builder Pix envia somente campos aceitos e ignora valor e moeda do navegad
     description: "Plano mensal ComandaFácil",
     external_reference: "assinatura-tentativa:uuid:estabelecimento:id",
     notification_url: "https://comandafacil.example/webhook/mercado-pago",
-    date_of_expiration: "2026-08-01T17:02:00.000Z",
+    date_of_expiration: "2026-08-01T17:30:00.000Z",
     payer: { email: "cliente@example.com" },
   });
   assert.equal(typeof payload.transaction_amount, "number");
   assert.equal(payload.currency_id, undefined);
   assert.equal(new URL(payload.notification_url).protocol, "https:");
-  assert.equal(new Date(payload.date_of_expiration).getTime() - now, 120_000);
-  assert.equal(pagamento._testing.SUBSCRIPTION_PIX_EXPIRATION_MINUTES, 2);
+  assert.equal(new Date(payload.date_of_expiration).getTime() - now, 30 * 60_000);
+  assert.equal(pagamento._testing.SUBSCRIPTION_PIX_EXPIRATION_MINUTES, 30);
 });
 
 test("builder preapproval preserva contrato recorrente e currency_id dentro de auto_recurring", () => {

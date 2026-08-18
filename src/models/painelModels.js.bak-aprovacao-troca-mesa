@@ -426,7 +426,6 @@ const funcionarioSchema = new mongoose.Schema(
             'imprimir_pedidos',
             'configurar_impressoras',
             'arquivar_pedidos',
-            'autorizar_troca_mesa',
           ],
         },
       ],
@@ -1101,18 +1100,6 @@ const Pedido = mongoose.model(
         type: String,
         enum: ["pendente", "pago", "cancelado", "expiracao_pendente", "expirado"],
         default: "pendente",
-      },
-
-      remocaoSolicitacaoStatus: {
-        type: String,
-        enum: ["nenhuma", "pendente", "aprovada", "recusada"],
-        default: "nenhuma",
-      },
-      remocaoSolicitadaEm: { type: Date, default: null },
-      remocaoDecididaEm: { type: Date, default: null },
-      remocaoDecididaPor: {
-        type: mongoose.Schema.Types.ObjectId,
-        default: null,
       },
 
       formaPagamento: {

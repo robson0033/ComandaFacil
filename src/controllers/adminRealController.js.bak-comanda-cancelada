@@ -3132,32 +3132,13 @@ exports.admin = async (req, res) => {
     const idsPedidosAgrupadosMesa = new Set(
       comandasMesaAbertasPainel.flatMap(comanda => comanda.pedidoIds || []),
     );
-    const mesasComComandaAberta = new Set(
-      comandasMesaAbertasPainel.map(comanda => String(comanda.mesaId || "")),
-    );
 
     // Pedidos de uma mesa com conta aberta deixam de virar vários cards.
-    // Se uma troca/remoção foi aprovada e ainda restam pedidos na mesma comanda,
-    // o item cancelado simplesmente sai da comanda e não vira um card separado.
-    // Se ele era o último pedido aberto da mesa, o cancelado continua visível
-    // como histórico operacional.
-    const listaPedidosPainel = listaPedidos.filter(pedido => {
-      if (idsPedidosAgrupadosMesa.has(String(pedido._id))) return false;
-
-      const mesaIdPedido = pedido?.mesaId?._id
-        ? String(pedido.mesaId._id)
-        : String(pedido?.mesaId || "");
-      const canceladoPorTrocaComMesaAindaAberta =
-        String(pedido?.canal || "") === "mesa"
-        && String(pedido?.remocaoSolicitacaoStatus || "") === "aprovada"
-        && (
-          String(pedido?.status || "") === "cancelado"
-          || String(pedido?.pagamentoStatus || "") === "cancelado"
-        )
-        && mesasComComandaAberta.has(mesaIdPedido);
-
-      return !canceladoPorTrocaComMesaAindaAberta;
-    });
+    // Eles continuam existindo individualmente no banco e aparecem dentro do
+    // único card da comanda da mesa. Pedidos já pagos/fechados seguem históricos.
+    const listaPedidosPainel = listaPedidos.filter(
+      pedido => !idsPedidosAgrupadosMesa.has(String(pedido._id)),
+    );
 
     const filtrosPedidos = {
       periodoAtual: pedidoPeriodo.filtro,
