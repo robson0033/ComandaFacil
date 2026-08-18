@@ -16,6 +16,9 @@ test("Pix da mesa possui tentativa própria e unicidade ativa por loja/mesa", ()
   assert.match(source, /partialFilterExpression:\s*\{ ativa: true \}/);
   assert.match(source, /const MesaPaymentAttempt = mongoose\.model\("MesaPaymentAttempt"/);
   assert.match(source, /mesaPaymentAttemptId/);
+  assert.match(source, /expectedTableAmount/);
+  assert.match(source, /paymentMode/);
+  assert.match(source, /paymentPlan/);
   assert.match(source, /"pix_mesa"/);
 });
 
@@ -53,14 +56,20 @@ test("cobrança usa token OAuth da loja, valor do servidor, application_fee e id
   assert.match(source, /accessTokenCriptografado/);
   assert.match(source, /X-Idempotency-Key/);
   assert.match(source, /application_fee:\s*centsToDecimal\(attempt\.platformFeeCents\)/);
+  assert.match(source, /prepararPlanoPixMesa/);
+  assert.match(source, /const amount = plano\.pixCentavos \/ 100/);
   assert.match(source, /transaction_amount:\s*amount/);
   assert.match(source, /pedidoIds/);
   assert.match(source, /expectedAmount/);
+  assert.match(source, /expectedTableAmount/);
+  assert.match(source, /paymentPlan:\s*plano\.pagamentos/);
 });
 
 test("mesa só é liberada por payment approved e cancelamento incerto exige conciliação", () => {
   const source = read("src/services/mesaPixPaymentService.js");
   assert.match(source, /remoteStatus !== "approved"/);
+  assert.match(source, /distribuirPagamentosPorPedidos/);
+  assert.match(source, /planoPersistidoDaTentativa/);
   assert.match(source, /status: "livre"/);
   assert.match(source, /cancellation_not_confirmed/);
   assert.match(source, /reconciliation_required/);
@@ -87,7 +96,27 @@ test("painel abre modal, acompanha impressão/pagamento e permite cancelamento s
   assert.match(source, /\/pix\/status/);
   assert.match(source, /\/pix\/cancelar/);
   assert.match(source, /data-forma-pagamento-mesa/);
-  assert.match(source, /String\(modo\?\.value \|\| ''\) !== 'pix'/);
+  assert.match(source, /function montarPayloadPixMesa\(form\)/);
+  assert.match(source, /paymentPayload\.formaPagamento === 'combinado'/);
+  assert.match(source, /Confirme que a parte em/);
+  assert.match(source, /JSON\.stringify\(paymentPayload\)/);
+});
+
+test("Pix combinado da mesa cobra apenas a parte Pix e finaliza o plano completo após approved", () => {
+  const service = read("src/services/mesaPixPaymentService.js");
+  const controller = read("src/controllers/mesaPixController.js");
+  const view = read("src/views/admin-real.ejs");
+
+  assert.match(controller, /paymentBody:\s*req\.body \|\| \{\}/);
+  assert.match(service, /pixCentavos/);
+  assert.match(service, /expectedTableAmount:\s*totalConta/);
+  assert.match(service, /paymentMode:\s*plano\.paymentMode/);
+  assert.match(service, /paymentPlan:\s*plano\.pagamentos/);
+  assert.match(service, /totalEsperadoTentativaCentavos\(attempt\)/);
+  assert.match(service, /pedido\.pagamentos = distribuicao\.pagamentos/);
+  assert.match(service, /pagamento_mesa_pix_combinado/);
+  assert.match(view, /Valor do Pix:/);
+  assert.match(view, /Quando o Mercado Pago aprovar o Pix, a mesa será liberada automaticamente/);
 });
 
 test("webhook classifica e processa pagamento Pix da mesa antes de assinatura", () => {

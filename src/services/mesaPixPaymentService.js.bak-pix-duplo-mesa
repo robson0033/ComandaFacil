@@ -24,10 +24,6 @@ const {
 const { validatePaymentIdentity } = require("./mercadoPagoService");
 const { extractMercadoPagoProviderDetails } = require("../middleware/mercadoPagoSecurity");
 const { operationalAlerts } = require("./operationalAlertService");
-const {
-  distribuirPagamentosPorPedidos,
-  montarPlanoPagamentoMesa,
-} = require("./mesaPagamentoService");
 
 const MP_API = "https://api.mercadopago.com";
 const REQUEST_TIMEOUT_MS = 12_000;
@@ -289,72 +285,6 @@ function totalPedidos(pedidos) {
   return pedidos.reduce((total, pedido) => total + Math.max(0, Math.round(Number(pedido.total || 0) * 100)), 0);
 }
 
-function normalizarMetodoPlanoMesa(value) {
-  const method = String(value || "").trim().toLowerCase();
-  return method === "pix" ? "pix_online" : method;
-}
-
-function prepararPlanoPixMesa(body, totalCentavos) {
-  const input = body && typeof body === "object" ? body : {};
-  const formaPagamento = String(input.formaPagamento || "pix").trim().toLowerCase() || "pix";
-  const plano = montarPlanoPagamentoMesa(
-    { ...input, formaPagamento },
-    totalCentavos,
-  );
-  const pagamentos = plano.pagamentos.map(item => ({
-    formaPagamento: normalizarMetodoPlanoMesa(item.formaPagamento),
-    valorCentavos: Number(item.valorCentavos),
-  }));
-  const pixCentavos = pagamentos.reduce(
-    (total, item) => item.formaPagamento === "pix_online"
-      ? total + Number(item.valorCentavos || 0)
-      : total,
-    0,
-  );
-  if (!Number.isSafeInteger(pixCentavos) || pixCentavos <= 0) {
-    const error = new Error("O pagamento selecionado não possui uma parte em Pix.");
-    error.code = "MESA_PIX_NOT_PLANNED";
-    error.httpStatus = 422;
-    throw error;
-  }
-  return {
-    paymentMode: plano.formaPagamento === "combinado" ? "combinado" : "pix",
-    pagamentos,
-    pixCentavos,
-    totalCentavos,
-  };
-}
-
-function planoPersistidoDaTentativa(attempt) {
-  const pagamentos = Array.isArray(attempt?.paymentPlan)
-    ? attempt.paymentPlan.map(item => ({
-      formaPagamento: normalizarMetodoPlanoMesa(item?.formaPagamento),
-      valorCentavos: Number(item?.valorCentavos || 0),
-    })).filter(item => item.valorCentavos > 0)
-    : [];
-  if (pagamentos.length) return pagamentos;
-  return [{
-    formaPagamento: "pix_online",
-    valorCentavos: Math.max(0, Math.round(Number(attempt?.expectedAmount || 0) * 100)),
-  }];
-}
-
-function totalEsperadoTentativaCentavos(attempt) {
-  const explicit = Number(attempt?.expectedTableAmount);
-  if (Number.isFinite(explicit) && explicit > 0) return Math.round(explicit * 100);
-  return planoPersistidoDaTentativa(attempt).reduce(
-    (total, item) => total + Number(item.valorCentavos || 0),
-    0,
-  );
-}
-
-function planosIguais(left = [], right = []) {
-  if (left.length !== right.length) return false;
-  return left.every((item, index) =>
-    normalizarMetodoPlanoMesa(item?.formaPagamento) === normalizarMetodoPlanoMesa(right[index]?.formaPagamento)
-    && Number(item?.valorCentavos || 0) === Number(right[index]?.valorCentavos || 0));
-}
-
 function exigirEstoqueConcluido(resultado) {
   if (resultado?.success && ["concluido", "ja_concluido"].includes(String(resultado.status || ""))) {
     return;
@@ -445,21 +375,9 @@ async function finalizarMesaAprovada(attempt, payment, { source = "status" } = {
     && !["cancelado", "finalizado"].includes(String(pedido.status || "")));
   const currentIds = aindaPendentes.map(pedido => String(pedido._id));
   const snapshotIds = (attempt.pedidoIds || []).map(String);
-  const amountNowCentavos = totalPedidos(aindaPendentes);
-  const expectedTableCentavos = totalEsperadoTentativaCentavos(attempt);
-  if (!idsIguais(currentIds, snapshotIds) || amountNowCentavos !== expectedTableCentavos) {
+  const amountNow = totalPedidos(aindaPendentes) / 100;
+  if (!idsIguais(currentIds, snapshotIds) || Math.abs(amountNow - Number(attempt.expectedAmount)) > 0.001) {
     await marcarConciliacao(attempt, payment, "table_orders_changed_after_pix_creation");
-    return { approved: true, reconciliationRequired: true, mesaLiberada: false };
-  }
-
-  let distribuicoes;
-  try {
-    distribuicoes = distribuirPagamentosPorPedidos(
-      aindaPendentes,
-      planoPersistidoDaTentativa(attempt),
-    );
-  } catch (error) {
-    await marcarConciliacao(attempt, payment, `payment_plan_invalid:${String(error?.code || "unknown")}`);
     return { approved: true, reconciliationRequired: true, mesaLiberada: false };
   }
 
@@ -474,14 +392,11 @@ async function finalizarMesaAprovada(attempt, payment, { source = "status" } = {
     return { approved: true, reconciliationRequired: true, mesaLiberada: false };
   }
 
-  const pagamentoCombinado = String(attempt.paymentMode || "pix") === "combinado";
-  for (const distribuicao of distribuicoes) {
-    const pedido = distribuicao.pedido;
-    const possuiPix = distribuicao.pagamentos.some(item =>
-      normalizarMetodoPlanoMesa(item?.formaPagamento) === "pix_online");
+  for (const pedido of aindaPendentes) {
+    const centavos = Math.max(0, Math.round(Number(pedido.total || 0) * 100));
     pedido.pagamentoStatus = "pago";
-    pedido.formaPagamento = distribuicao.formaPagamento;
-    pedido.pagamentos = distribuicao.pagamentos;
+    pedido.formaPagamento = "pix_online";
+    pedido.pagamentos = [{ formaPagamento: "pix_online", valorCentavos: centavos }];
     pedido.pagoEm = pedido.pagoEm || new Date();
     pedido.status = "finalizado";
     pedido.pagamentoInformadoEm = pedido.pagamentoInformadoEm || new Date();
@@ -489,17 +404,15 @@ async function finalizarMesaAprovada(attempt, payment, { source = "status" } = {
     const operationKey = `mesa_pix:${String(attempt.attemptId)}:${String(pedido._id)}`;
     if (!pedido.historicoFinanceiro.some(item => String(item?.operationKey || "") === operationKey)) {
       pedido.historicoFinanceiro.push({
-        paymentId: possuiPix ? String(payment.id || "") : "",
+        paymentId: String(payment.id || ""),
         status: "pago",
-        tipo: pagamentoCombinado ? "pagamento_mesa_pix_combinado" : "pagamento_mesa_pix",
+        tipo: "pagamento_mesa_pix",
         statusAnterior: "pendente",
         statusNovo: "pago",
-        formaPagamento: pedido.formaPagamento,
-        pagamentos: pedido.pagamentos,
+        formaPagamento: "pix_online",
+        pagamentos: [{ formaPagamento: "pix_online", valorCentavos: centavos }],
         valor: Number(pedido.total || 0),
-        motivo: pagamentoCombinado
-          ? `Pagamento combinado da mesa confirmado após aprovação da parte Pix via ${source}.`
-          : `Pagamento Pix da mesa confirmado via ${source}.`,
+        motivo: `Pagamento Pix da mesa confirmado via ${source}.`,
         operationKey,
         registradoEm: new Date(),
       });
@@ -552,7 +465,7 @@ async function aplicarStatusRemoto(attempt, payment, context = {}) {
   return { approved: false, terminal: false, status: attempt.status };
 }
 
-async function gerarPixMesa({ req, estabelecimentoId, mesaId, usuarioId, paymentBody = {} }) {
+async function gerarPixMesa({ req, estabelecimentoId, mesaId, usuarioId }) {
   const mesa = await Mesa.findOne({ _id: mesaId, estabelecimentoId });
   if (!mesa) {
     const error = new Error("Mesa não encontrada.");
@@ -574,9 +487,7 @@ async function gerarPixMesa({ req, estabelecimentoId, mesaId, usuarioId, payment
     error.httpStatus = 422;
     throw error;
   }
-  const plano = prepararPlanoPixMesa(paymentBody, totalCentavos);
-  const amount = plano.pixCentavos / 100;
-  const totalConta = totalCentavos / 100;
+  const amount = totalCentavos / 100;
   const pedidoIds = pedidos.map(pedido => pedido._id);
   const existing = await MesaPaymentAttempt.findOne({
     estabelecimentoId,
@@ -584,12 +495,9 @@ async function gerarPixMesa({ req, estabelecimentoId, mesaId, usuarioId, payment
     ativa: true,
   }).sort({ createdAt: -1 });
   if (existing) {
-    const existingPlan = planoPersistidoDaTentativa(existing);
     if (!idsIguais(existing.pedidoIds || [], pedidoIds)
-      || totalEsperadoTentativaCentavos(existing) !== totalCentavos
-      || Math.round(Number(existing.expectedAmount || 0) * 100) !== plano.pixCentavos
-      || !planosIguais(existingPlan, plano.pagamentos)) {
-      const error = new Error("A conta ou a divisão do pagamento mudou enquanto existe um Pix ativo. Cancele ou concilie o Pix atual antes de continuar.");
+      || Math.abs(Number(existing.expectedAmount || 0) - amount) > 0.001) {
+      const error = new Error("A conta da mesa mudou enquanto existe um Pix ativo. Cancele ou concilie o Pix atual antes de continuar.");
       error.code = "MESA_PIX_CONTA_ALTERADA";
       error.httpStatus = 409;
       throw error;
@@ -611,9 +519,6 @@ async function gerarPixMesa({ req, estabelecimentoId, mesaId, usuarioId, payment
       pedidoIds,
       expectedCollectorId: sellerUserId,
       expectedAmount: amount,
-      expectedTableAmount: totalConta,
-      paymentMode: plano.paymentMode,
-      paymentPlan: plano.pagamentos,
       currency: "BRL",
       status: "creating",
       ativa: true,
@@ -641,7 +546,7 @@ async function gerarPixMesa({ req, estabelecimentoId, mesaId, usuarioId, payment
         ...(feeConfig.enabled && Number(attempt.platformFeeCents || 0) > 0
           ? { application_fee: centsToDecimal(attempt.platformFeeCents) }
           : {}),
-        description: `${plano.paymentMode === "combinado" ? "Pix parcial" : "Conta"} Mesa ${mesa.numero} - ${String(cfg.nomeEstabelecimento || "ComandaFacil").slice(0, 80)}`,
+        description: `Conta Mesa ${mesa.numero} - ${String(cfg.nomeEstabelecimento || "ComandaFacil").slice(0, 80)}`,
         payment_method_id: "pix",
         external_reference: attempt.externalReference,
         notification_url: marketplaceWebhookUrl(req),
@@ -877,9 +782,6 @@ function publicStatus(data) {
     ativa: Boolean(attempt.ativa),
     expiraEm: attempt.expiresAt || null,
     valor: Number(attempt.expectedAmount || 0),
-    valorPix: Number(attempt.expectedAmount || 0),
-    valorTotal: Number(attempt.expectedTableAmount || attempt.expectedAmount || 0),
-    pagamentoCombinado: String(attempt.paymentMode || "pix") === "combinado",
     printStatus: String(printJob?.status || (attempt.printError ? "falhou" : "pendente")),
     printError: String(printJob?.erro || attempt.printError || ""),
     printJobId: String(printJob?.jobId || ""),

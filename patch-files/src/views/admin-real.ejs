@@ -10773,7 +10773,15 @@
       if (!ui.modal) return;
       const paymentStatus = String(data.paymentStatus || '').toLowerCase();
       const printStatus = String(data.printStatus || '').toLowerCase();
-      ui.valor.textContent = data.valor ? `Valor da conta: ${formatarValorPixMesa(data.valor)}` : '';
+      if (data.valorPix || data.valor) {
+        const valorPix = Number(data.valorPix || data.valor || 0);
+        const valorTotal = Number(data.valorTotal || data.valor || 0);
+        ui.valor.textContent = data.pagamentoCombinado
+          ? `Valor do Pix: ${formatarValorPixMesa(valorPix)} • Total da conta: ${formatarValorPixMesa(valorTotal)}`
+          : `Valor da conta: ${formatarValorPixMesa(valorPix)}`;
+      } else {
+        ui.valor.textContent = '';
+      }
       ui.erro.textContent = String(data.printError || '');
       ui.cancelar.disabled = pixMesaUi.busy || paymentStatus === 'approved' || Boolean(data.mesaLiberada);
 
@@ -10784,8 +10792,12 @@
         return;
       }
       if (data.mesaLiberada || paymentStatus === 'approved') {
-        ui.status.textContent = 'Pagamento aprovado. Mesa liberada.';
-        ui.detalhe.textContent = 'A confirmação financeira foi recebida do Mercado Pago.';
+        ui.status.textContent = data.pagamentoCombinado
+          ? 'Pagamento combinado confirmado. Mesa liberada.'
+          : 'Pagamento aprovado. Mesa liberada.';
+        ui.detalhe.textContent = data.pagamentoCombinado
+          ? 'A parte Pix foi aprovada pelo Mercado Pago e os dois meios informados foram registrados.'
+          : 'A confirmação financeira foi recebida do Mercado Pago.';
         ui.erro.textContent = '';
         ui.cancelar.disabled = true;
         return;
@@ -10797,7 +10809,9 @@
       }
       if (printStatus === 'concluido') {
         ui.status.textContent = 'QR Code impresso. Aguardando o pagamento...';
-        ui.detalhe.textContent = 'A mesa só será liberada depois que o Mercado Pago confirmar o Pix como aprovado.';
+        ui.detalhe.textContent = data.pagamentoCombinado
+          ? 'Quando a parte Pix for aprovada, o sistema registrará os dois meios e liberará a mesa.'
+          : 'A mesa só será liberada depois que o Mercado Pago confirmar o Pix como aprovado.';
         ui.erro.textContent = '';
         return;
       }
@@ -10839,7 +10853,45 @@
       pixMesaUi.timer = window.setTimeout(consultarPixMesa, 2000);
     }
 
-    async function iniciarPixMesa(form) {
+    function montarPayloadPixMesa(form) {
+      const modo = form?.querySelector('[data-forma-pagamento-mesa]');
+      const mode = String(modo?.value || '').trim().toLowerCase();
+      if (mode === 'pix') return { formaPagamento: 'pix' };
+      if (mode !== 'combinado') return null;
+
+      const forma1 = form.querySelector('[data-forma-pagamento-1]');
+      const forma2 = form.querySelector('[data-forma-pagamento-2]');
+      const valor1 = form.querySelector('[data-valor-pagamento-1]');
+      const valor2 = form.querySelector('[data-valor-pagamento-2]');
+      const metodo1 = String(forma1?.value || '').trim().toLowerCase();
+      const metodo2 = String(forma2?.value || '').trim().toLowerCase();
+      if (metodo1 !== 'pix' && metodo2 !== 'pix') return null;
+      if (!metodo1 || !metodo2 || metodo1 === metodo2) {
+        throw new Error('Escolha dois meios de pagamento diferentes.');
+      }
+
+      const totalCentavos = Math.max(0, Number(form.dataset.totalCentavos || 0));
+      const primeiroCentavos = centavosDeEntradaMonetaria(valor1?.value);
+      const segundoCentavos = centavosDeEntradaMonetaria(valor2?.value);
+      if (!Number.isSafeInteger(primeiroCentavos)
+        || !Number.isSafeInteger(segundoCentavos)
+        || primeiroCentavos <= 0
+        || segundoCentavos <= 0
+        || primeiroCentavos + segundoCentavos !== totalCentavos) {
+        valor1?.focus();
+        throw new Error('Confira os dois meios e os valores. A soma precisa ser igual ao total da conta.');
+      }
+
+      return {
+        formaPagamento: 'combinado',
+        formaPagamento1: metodo1,
+        valorPagamento1: String(valor1?.value || ''),
+        formaPagamento2: metodo2,
+        valorPagamento2: String(valor2?.value || ''),
+      };
+    }
+
+    async function iniciarPixMesa(form, paymentPayload = { formaPagamento: 'pix' }) {
       if (pixMesaUi.busy) return;
       const mesaId = mesaIdDoFormularioPagamento(form);
       if (!mesaId) return window.alert('Não foi possível identificar a mesa.');
@@ -10851,7 +10903,9 @@
       pararPollingPixMesa();
       ui.modal?.classList.add('ativo');
       ui.status.textContent = 'Gerando pagamento Pix...';
-      ui.detalhe.textContent = 'Aguarde enquanto o QR Code é criado e enviado para a impressora.';
+      ui.detalhe.textContent = paymentPayload.formaPagamento === 'combinado'
+        ? 'O QR Code será gerado somente para a parte Pix. Após a aprovação, os dois meios serão registrados e a mesa será liberada.'
+        : 'Aguarde enquanto o QR Code é criado e enviado para a impressora.';
       ui.valor.textContent = '';
       ui.erro.textContent = '';
       ui.cancelar.disabled = true;
@@ -10864,7 +10918,7 @@
             method: 'POST',
             skipAdminLoading: true,
             headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: '{}',
+            body: JSON.stringify(paymentPayload),
           }
         );
         const data = await response.json();
@@ -10898,11 +10952,37 @@
     document.addEventListener('submit', event => {
       const form = event.target.closest?.('.pagamento-form');
       if (!form) return;
-      const modo = form.querySelector('[data-forma-pagamento-mesa]');
-      if (String(modo?.value || '') !== 'pix') return;
+      let payload;
+      try {
+        payload = montarPayloadPixMesa(form);
+      } catch (error) {
+        event.preventDefault();
+        event.stopPropagation();
+        window.alert(String(error?.message || 'Confira os dados do pagamento.'));
+        return;
+      }
+      if (!payload) return;
       event.preventDefault();
       event.stopPropagation();
-      void iniciarPixMesa(form);
+
+      if (payload.formaPagamento === 'combinado') {
+        const forma1 = form.querySelector('[data-forma-pagamento-1]');
+        const forma2 = form.querySelector('[data-forma-pagamento-2]');
+        const valor1 = form.querySelector('[data-valor-pagamento-1]');
+        const valor2 = form.querySelector('[data-valor-pagamento-2]');
+        const pixPrimeiro = String(forma1?.value || '') === 'pix';
+        const valorPixTexto = pixPrimeiro ? valor1?.value : valor2?.value;
+        const outroMeio = pixPrimeiro ? forma2?.value : forma1?.value;
+        const nomes = { dinheiro: 'Dinheiro', cartao: 'Cartão' };
+        const confirmado = window.confirm(
+          `Confirme que a parte em ${nomes[outroMeio] || outroMeio} já foi recebida. `
+          + `Será gerado um Pix de R$ ${String(valorPixTexto || '0,00')}. `
+          + 'Quando o Mercado Pago aprovar o Pix, a mesa será liberada automaticamente.'
+        );
+        if (!confirmado) return;
+      }
+
+      void iniciarPixMesa(form, payload);
     }, true);
 
     function fecharAcompanhamentoPixMesa() {

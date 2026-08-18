@@ -10,7 +10,7 @@ function parseBooleanEnv(value, fallback = false) {
 }
 
 function getCurrentPlatformFeeConfig(env = process.env) {
-  const enabled = parseBooleanEnv(env.PLATFORM_PIX_FEE_ENABLED, false);
+  const enabled = parseBooleanEnv(env.PLATFORM_PIX_FEE_ENABLED, true);
   const percentage = Number(env.PLATFORM_PIX_FEE_PERCENT || 0.5);
   const termsVersion = String(env.PLATFORM_PIX_TERMS_VERSION || "1.0").trim();
   if (!Number.isFinite(percentage) || percentage <= 0 || percentage >= 100) {

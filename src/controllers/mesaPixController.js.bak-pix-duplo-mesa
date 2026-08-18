@@ -26,7 +26,6 @@ exports.gerar = async (req, res) => {
       estabelecimentoId: estabelecimentoId(req),
       mesaId: req.params.id,
       usuarioId: req.session.user.id,
-      paymentBody: req.body || {},
     });
     const data = await mesaPix.consultarTentativa({
       estabelecimentoId: estabelecimentoId(req),

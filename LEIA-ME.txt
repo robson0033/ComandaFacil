@@ -1,37 +1,50 @@
-CORREÇÃO - PIX DA MESA + TROCA/REMOÇÃO POR ITEM
+COMANDAFACIL - PIX EM 2 MEIOS DE PAGAMENTO NA MESA
 
-1) Copie/extraia esta pasta dentro da raiz do projeto ComandaFacil.
-2) Na raiz do projeto, execute:
+Objetivo
+--------
+Permitir Pix dentro de "Combinar 2 pagamentos" no painel de Mesas.
 
-   node aplicar-correcao-item-pix.js
+Exemplo
+-------
+Conta: R$ 10,00
+1º meio: Dinheiro = R$ 4,00
+2º meio: Pix = R$ 6,00
 
-3) Rode os testes:
+O sistema gera QR Code de R$ 6,00. Quando o Mercado Pago aprovar esse Pix,
+o sistema registra R$ 4,00 em Dinheiro + R$ 6,00 em Pix e libera a mesa.
 
-   NODE_ENV=test node --test test/mesaPedidoTrocaP0.test.js test/mesaPixPagamentoP0.test.js
+Também funciona com Pix como 1º meio:
+1º meio: Pix = R$ 3,00
+2º meio: Cartão = R$ 7,00
 
-Esperado: fail 0.
+IMPORTANTE
+----------
+Ao iniciar um pagamento combinado com Pix, o painel pede confirmação de que
+a parte em Dinheiro/Cartão já foi recebida. A parte não-Pix é uma confirmação
+manual do operador; somente a parte Pix é confirmada automaticamente pelo
+Mercado Pago.
 
-4) Depois rode sua suíte completa:
+A taxa PLATFORM_PIX_FEE_PERCENT é aplicada somente sobre a parte Pix.
 
-   NODE_ENV=test node --test
+Como aplicar
+------------
+1. Extraia este ZIP na raiz do projeto ComandaFacil.
+2. Entre na raiz do projeto no terminal.
+3. Rode:
 
-ALTERAÇÕES
-- Modal de Pix: botão X e botão Fechar. Fechar NÃO cancela o Pix.
-- Troca/remoção: cada linha/item tem sua própria solicitação.
-- Aprovar uma solicitação remove apenas o item escolhido.
-- Total, subtotal e custo do pedido são recalculados.
-- Se era o único item do pedido, o pedido é cancelado normalmente.
-- Jobs de impressão ainda pendentes com snapshot antigo são cancelados para não imprimir item removido.
+   node aplicar-pix-duplo-mesa.js
 
-ERRO PRINTER_NOT_FOUND
-Esse erro significa que o agente recebeu o job, mas a impressora configurada no painel não corresponde a uma impressora disponível no computador do agente. Em Configurações > Impressoras, atualize a lista, escolha a impressora encontrada pelo agente, salve e teste a impressão. O patch não inventa/faz fallback para outra impressora, porque isso poderia mandar o QR Code para a impressora errada.
+4. Rode os testes:
 
-MERCADO PAGO NÃO CONECTADO
-A mensagem "Conecte a conta Mercado Pago do estabelecimento antes de cobrar por Pix" é esperada quando a loja ainda não conectou a própria conta em Configurações > Recebimentos pelo Mercado Pago.
+   NODE_ENV=test node --test test/mesaPagamentoDivididoP0.test.js test/mesaPixPagamentoP0.test.js
 
-REVERTER
-Se necessário:
+5. Se os testes passarem, suba o código e faça o deploy.
 
-   node reverter-correcao-item-pix.js
+Não há novo índice MongoDB para aplicar neste patch.
 
-Os backups usam .bak-correcao-item-pix.
+Como reverter
+-------------
+node reverter-pix-duplo-mesa.js
+
+Os backups possuem o sufixo:
+.bak-pix-duplo-mesa

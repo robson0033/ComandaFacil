@@ -1799,7 +1799,25 @@ const mesaPaymentAttemptSchema = new mongoose.Schema({
   pedidoIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Pedido", required: true }],
   paymentId: { type: String, default: "", trim: true },
   expectedCollectorId: { type: String, required: true, immutable: true },
+  // expectedAmount representa somente o valor cobrado no Pix. Em pagamento
+  // combinado, expectedTableAmount preserva o total integral da conta para
+  // detectar qualquer alteração enquanto o QR estiver ativo.
   expectedAmount: { type: Number, required: true, min: 0 },
+  expectedTableAmount: { type: Number, default: null, min: 0 },
+  paymentMode: {
+    type: String,
+    enum: ["pix", "combinado"],
+    default: "pix",
+  },
+  paymentPlan: [{
+    _id: false,
+    formaPagamento: {
+      type: String,
+      enum: ["dinheiro", "pix_online", "cartao"],
+      required: true,
+    },
+    valorCentavos: { type: Number, required: true, min: 1 },
+  }],
   currency: { type: String, enum: ["BRL"], default: "BRL" },
   status: { type: String, default: "creating", index: true },
   ativa: { type: Boolean, default: true, index: true },
