@@ -1,50 +1,30 @@
-COMANDAFACIL - PIX EM 2 MEIOS DE PAGAMENTO NA MESA
+COMANDAFACIL - CATÁLOGO: NOME E INGREDIENTES SEM CORTAR
 
-Objetivo
---------
-Permitir Pix dentro de "Combinar 2 pagamentos" no painel de Mesas.
+Esta correção altera SOMENTE:
+  src/views/catalogo-publico.ejs
 
-Exemplo
--------
-Conta: R$ 10,00
-1º meio: Dinheiro = R$ 4,00
-2º meio: Pix = R$ 6,00
+O que muda no catálogo público mobile:
+- mantém 2 cards por linha;
+- nome do produto pode ocupar quantas linhas forem necessárias;
+- descrição/ingredientes podem ocupar quantas linhas forem necessárias;
+- remove reticências e limite de 2 linhas desses dois campos;
+- o card cresce verticalmente conforme o texto.
 
-O sistema gera QR Code de R$ 6,00. Quando o Mercado Pago aprovar esse Pix,
-o sistema registra R$ 4,00 em Dinheiro + R$ 6,00 em Pix e libera a mesa.
+NÃO altera:
+- painel administrativo;
+- mesas;
+- PIX;
+- pagamentos;
+- pedidos;
+- backend;
+- banco de dados.
 
-Também funciona com Pix como 1º meio:
-1º meio: Pix = R$ 3,00
-2º meio: Cartão = R$ 7,00
+APLICAR
+Na raiz do projeto:
+  node aplicar-catalogo-texto-completo.js
 
-IMPORTANTE
-----------
-Ao iniciar um pagamento combinado com Pix, o painel pede confirmação de que
-a parte em Dinheiro/Cartão já foi recebida. A parte não-Pix é uma confirmação
-manual do operador; somente a parte Pix é confirmada automaticamente pelo
-Mercado Pago.
+REVERTER
+  node reverter-catalogo-texto-completo.js
 
-A taxa PLATFORM_PIX_FEE_PERCENT é aplicada somente sobre a parte Pix.
-
-Como aplicar
-------------
-1. Extraia este ZIP na raiz do projeto ComandaFacil.
-2. Entre na raiz do projeto no terminal.
-3. Rode:
-
-   node aplicar-pix-duplo-mesa.js
-
-4. Rode os testes:
-
-   NODE_ENV=test node --test test/mesaPagamentoDivididoP0.test.js test/mesaPixPagamentoP0.test.js
-
-5. Se os testes passarem, suba o código e faça o deploy.
-
-Não há novo índice MongoDB para aplicar neste patch.
-
-Como reverter
--------------
-node reverter-pix-duplo-mesa.js
-
-Os backups possuem o sufixo:
-.bak-pix-duplo-mesa
+Backup criado:
+  src/views/catalogo-publico.ejs.bak-catalogo-texto-completo
