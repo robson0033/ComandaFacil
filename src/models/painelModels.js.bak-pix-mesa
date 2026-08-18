@@ -1579,12 +1579,6 @@ const printJobSchema = new mongoose.Schema({
     required: true,
     index: true,
   },
-  mesaPaymentAttemptId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "MesaPaymentAttempt",
-    default: null,
-    index: true,
-  },
   tipo: {
     type: String,
     enum: ["automatica", "manual"],
@@ -1593,7 +1587,7 @@ const printJobSchema = new mongoose.Schema({
   },
   motivo: {
     type: String,
-    enum: ["order_created", "payment_approved", "manual", "pix_mesa"],
+    enum: ["order_created", "payment_approved", "manual"],
     default: "order_created",
   },
   paymentIdSuffix: { type: String, default: "", maxlength: 16 },
@@ -1776,65 +1770,6 @@ orderPaymentAttemptSchema.index({ idempotencyKey: 1 }, { unique: true, name: "or
 orderPaymentAttemptSchema.index({ estabelecimentoId: 1, pedidoId: 1, createdAt: -1 }, { name: "order_attempt_tenant_order" });
 orderPaymentAttemptSchema.index({ estabelecimentoId: 1, status: 1 }, { name: "order_attempt_tenant_status" });
 const OrderPaymentAttempt = mongoose.model("OrderPaymentAttempt", orderPaymentAttemptSchema);
-
-const mesaPaymentAttemptSchema = new mongoose.Schema({
-  attemptId: { type: String, required: true, immutable: true },
-  externalReference: { type: String, required: true, immutable: true },
-  estabelecimentoId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
-  mesaId: { type: mongoose.Schema.Types.ObjectId, ref: "Mesa", required: true, index: true },
-  pedidoIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Pedido", required: true }],
-  paymentId: { type: String, default: "", trim: true },
-  expectedCollectorId: { type: String, required: true, immutable: true },
-  expectedAmount: { type: Number, required: true, min: 0 },
-  currency: { type: String, enum: ["BRL"], default: "BRL" },
-  status: { type: String, default: "creating", index: true },
-  ativa: { type: Boolean, default: true, index: true },
-  idempotencyKey: { type: String, required: true, immutable: true },
-  expiresAt: { type: Date, required: true },
-  lastCheckedAt: { type: Date, default: null },
-  processedAt: { type: Date, default: null },
-  cancelRequestedAt: { type: Date, default: null },
-  cancelledAt: { type: Date, default: null },
-  cancelledBy: { type: mongoose.Schema.Types.ObjectId, default: null },
-  createdBy: { type: mongoose.Schema.Types.ObjectId, default: null },
-  remoteCancellationStatus: { type: String, default: "", maxlength: 60 },
-  reconciliationStatus: { type: String, default: "pending" },
-  reconciliationReason: { type: String, default: "", maxlength: 200 },
-  pixCopiaCola: { type: String, default: "", maxlength: 5000 },
-  pixQrCodeBase64: { type: String, default: "", maxlength: 100000 },
-  printError: { type: String, default: "", maxlength: 500 },
-  platformFeePercent: { type: Number, default: null },
-  platformFeeCents: { type: Number, default: 0, min: 0 },
-  platformFeeStatus: {
-    type: String,
-    enum: ["requested", "applied", "not_applied", "reversed", "partially_reversed", "reconciliation_required"],
-    default: "not_applied",
-  },
-  platformFeeTermsVersion: { type: String, default: "" },
-  platformFeeCalculatedAt: { type: Date, default: null },
-  grossAmountCents: { type: Number, default: 0, min: 0 },
-  merchantAmountBeforeMpFeesCents: { type: Number, default: 0, min: 0 },
-  platformFeeReversedCents: { type: Number, default: 0, min: 0 },
-  platformFeeNetCents: { type: Number, default: 0, min: 0 },
-}, opts);
-mesaPaymentAttemptSchema.index({ attemptId: 1 }, { unique: true, name: "mesa_payment_attempt_id_unique" });
-mesaPaymentAttemptSchema.index({ externalReference: 1 }, { unique: true, name: "mesa_payment_external_reference_unique" });
-mesaPaymentAttemptSchema.index({ paymentId: 1 }, {
-  unique: true,
-  partialFilterExpression: { paymentId: { $type: "string", $gt: "" } },
-  name: "mesa_payment_payment_id_unique",
-});
-mesaPaymentAttemptSchema.index({ idempotencyKey: 1 }, { unique: true, name: "mesa_payment_idempotency_unique" });
-mesaPaymentAttemptSchema.index(
-  { estabelecimentoId: 1, mesaId: 1 },
-  {
-    unique: true,
-    partialFilterExpression: { ativa: true },
-    name: "mesa_payment_active_unique",
-  },
-);
-mesaPaymentAttemptSchema.index({ estabelecimentoId: 1, mesaId: 1, createdAt: -1 }, { name: "mesa_payment_tenant_table" });
-const MesaPaymentAttempt = mongoose.model("MesaPaymentAttempt", mesaPaymentAttemptSchema);
 
 const platformFeeTermsAcceptanceSchema = new mongoose.Schema({
   estabelecimentoId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
@@ -2073,7 +2008,6 @@ for (const model of [
   AuditoriaEvento,
   OrderLookupVerification,
   OrderPaymentAttempt,
-  MesaPaymentAttempt,
   PlatformFeeTermsAcceptance,
 ]) {
   model.schema.set("autoIndex", false);
@@ -2132,7 +2066,6 @@ module.exports = {
   AuditoriaEvento,
   OrderLookupVerification,
   OrderPaymentAttempt,
-  MesaPaymentAttempt,
   PlatformFeeTermsAcceptance,
   WhatsAppConfiguracao,
   WhatsAppConversa,

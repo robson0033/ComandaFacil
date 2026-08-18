@@ -31,6 +31,10 @@ const pagamento = require(
   './src/controllers/pagamentoController'
 );
 
+const mesaPix = require(
+  './src/controllers/mesaPixController'
+);
+
 const whatsapp = require(
   './src/controllers/whatsappController'
 );
@@ -629,6 +633,33 @@ route.post(
   assinaturaRequired,
   permissaoQualquer('mesas', 'pedidos'),
   admin.pagarContaMesa
+);
+
+route.post(
+  '/admin/mesas/:id/pix',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissaoQualquer('mesas', 'pedidos'),
+  mesaPix.gerar
+);
+
+route.get(
+  '/admin/mesas/:id/pix/status',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissaoQualquer('mesas', 'pedidos'),
+  mesaPix.status
+);
+
+route.post(
+  '/admin/mesas/:id/pix/cancelar',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissaoQualquer('mesas', 'pedidos'),
+  mesaPix.cancelar
 );
 
 /*

@@ -18,7 +18,6 @@ const {
   Configuracao,
   CidadeEntrega,
   Pedido,
-  MesaPaymentAttempt,
   Avaliacao,
   PrintAgent,
   PrintJob,
@@ -4949,38 +4948,6 @@ exports.pagarContaMesa = async (
       );
     }
 
-    // PIX_MESA_P0: nenhum Pix pode cair na confirmação manual antiga.
-    // O fluxo combinado com Pix fica bloqueado até possuir uma tentativa financeira própria.
-    const formasPixMesaSolicitadas = [
-      req.body?.formaPagamento,
-      req.body?.formaPagamento1,
-      req.body?.formaPagamento2,
-    ].map(value => String(value || "").trim().toLowerCase());
-    if (formasPixMesaSolicitadas.includes("pix")) {
-      return erroERedirecionar(
-        req,
-        res,
-        secaoRetorno,
-        String(req.body?.formaPagamento || "") === "pix"
-          ? "O Pix da mesa precisa ser confirmado pelo Mercado Pago. Use o fluxo Pix do painel."
-          : "Pagamento combinado com Pix ainda não pode ser confirmado manualmente. Escolha Dinheiro/Cartão ou use Pix integral.",
-      );
-    }
-
-    const pixMesaAtivo = await MesaPaymentAttempt.exists({
-      estabelecimentoId: idEstabelecimento,
-      mesaId: mesa._id,
-      ativa: true,
-    });
-    if (pixMesaAtivo) {
-      return erroERedirecionar(
-        req,
-        res,
-        secaoRetorno,
-        "Existe um Pix ativo para esta mesa. Cancele ou aguarde a confirmação antes de escolher outra forma de pagamento.",
-      );
-    }
-
     const pedidosPendentes = await Pedido.find({
       estabelecimentoId: idEstabelecimento,
       mesaId: mesa._id,
@@ -7779,18 +7746,6 @@ exports.criarPedidoMesa = async (
           "Mesa não encontrada.",
       });
     }
-    const pixMesaAtivo = await MesaPaymentAttempt.exists({
-      estabelecimentoId: mesa.estabelecimentoId,
-      mesaId: mesa._id,
-      ativa: true,
-    });
-    if (pixMesaAtivo) {
-      return res.status(409).json({
-        success: false,
-        code: "MESA_PIX_PAYMENT_ACTIVE",
-        message: "Esta mesa está aguardando a confirmação do Pix. Não é possível adicionar novos pedidos agora.",
-      });
-    }
     const configuracao = await Configuracao.findOne({
       estabelecimentoId: mesa.estabelecimentoId,
     }).lean();
@@ -8181,19 +8136,6 @@ exports.solicitarRemocaoPedidoMesa = async (req, res) => {
         success: false,
         code: "MESA_NAO_ENCONTRADA",
         message: "Mesa não encontrada.",
-      });
-    }
-
-    const pixMesaAtivo = await MesaPaymentAttempt.exists({
-      estabelecimentoId: mesa.estabelecimentoId,
-      mesaId: mesa._id,
-      ativa: true,
-    });
-    if (pixMesaAtivo) {
-      return res.status(409).json({
-        success: false,
-        code: "MESA_PIX_PAYMENT_ACTIVE",
-        message: "Esta mesa está aguardando a confirmação do Pix. Cancele o Pix antes de solicitar troca ou remoção.",
       });
     }
 

@@ -13,7 +13,6 @@ const {
   PaymentEvent,
   Pedido,
   OrderPaymentAttempt,
-  MesaPaymentAttempt,
   PrintAgent,
   PrintJob,
   PlatformFeeTermsAcceptance,
@@ -24,50 +23,6 @@ const {
 const { registroModel } = require("../src/models/registroModel");
 
 const definitions = [
-  {
-    model: MesaPaymentAttempt,
-    key: { attemptId: 1 },
-    options: { unique: true, name: "mesa_payment_attempt_id_unique" },
-    expectedType: "string",
-  },
-  {
-    model: MesaPaymentAttempt,
-    key: { externalReference: 1 },
-    options: { unique: true, name: "mesa_payment_external_reference_unique" },
-    expectedType: "string",
-  },
-  {
-    model: MesaPaymentAttempt,
-    key: { paymentId: 1 },
-    options: {
-      unique: true,
-      partialFilterExpression: { paymentId: { $type: "string", $gt: "" } },
-      name: "mesa_payment_payment_id_unique",
-    },
-    expectedType: "string",
-  },
-  {
-    model: MesaPaymentAttempt,
-    key: { idempotencyKey: 1 },
-    options: { unique: true, name: "mesa_payment_idempotency_unique" },
-    expectedType: "string",
-  },
-  {
-    model: MesaPaymentAttempt,
-    key: { estabelecimentoId: 1, mesaId: 1 },
-    options: {
-      unique: true,
-      partialFilterExpression: { ativa: true },
-      name: "mesa_payment_active_unique",
-    },
-    expectedType: "objectId",
-  },
-  {
-    model: MesaPaymentAttempt,
-    key: { estabelecimentoId: 1, mesaId: 1, createdAt: -1 },
-    options: { name: "mesa_payment_tenant_table" },
-    expectedType: "objectId",
-  },
   {
     model: OrderPaymentAttempt,
     key: { publicReference: 1 },
@@ -410,12 +365,6 @@ const definitions = [
 ];
 
 const purposes = {
-  mesa_payment_attempt_id_unique: "identidade única da tentativa Pix da mesa",
-  mesa_payment_external_reference_unique: "correlação única da conta da mesa enviada ao Mercado Pago",
-  mesa_payment_payment_id_unique: "impedir reutilização do mesmo pagamento Pix em contas de mesa",
-  mesa_payment_idempotency_unique: "deduplicar a criação da tentativa Pix da mesa",
-  mesa_payment_active_unique: "permitir no máximo um Pix ativo por loja e mesa",
-  mesa_payment_tenant_table: "consultar histórico Pix da mesa por loja e data",
   order_attempt_public_reference_unique: "identidade pública única da tentativa de pagamento do pedido",
   order_attempt_external_reference_unique: "correlação única enviada ao provedor",
   order_attempt_payment_id_unique: "impedir reutilização do pagamento confirmado pelo provedor",

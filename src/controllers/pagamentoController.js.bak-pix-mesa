@@ -29,7 +29,6 @@ const {
 } = require("../services/pedidoPublicoTokenService");
 const { baixarEstoqueDoPedido, restaurarEstoqueDoPedido } = require("../services/estoqueService");
 const printQueueService = require("../services/printQueueService");
-const mesaPixPaymentService = require("../services/mesaPixPaymentService");
 const {
   pedidoTemPixOnline,
   valorPixOnlinePedidoCentavos,
@@ -3632,9 +3631,6 @@ async function loadWebhookResource(data) {
       }),
     };
   }
-  const mesaPayment = await mesaPixPaymentService.loadWebhookPayment(data.resourceId);
-  if (mesaPayment) return mesaPayment;
-
   const attempt = await OrderPaymentAttempt.findOne({ paymentId: data.resourceId });
   if (attempt) {
     const pedido = await Pedido.findOne({
@@ -3726,9 +3722,6 @@ async function loadWebhookResource(data) {
     },
   );
 
-  const recoveredMesa = await mesaPixPaymentService.recoverWebhookByExternalReference(platformPayment);
-  if (recoveredMesa) return recoveredMesa;
-
   const recoveredOrder = await recoverOrderWebhookByExternalReference(data, platformPayment);
   if (recoveredOrder) return recoveredOrder;
 
@@ -3744,10 +3737,6 @@ async function processWebhookEvent(event, loaded) {
     if (loaded.kind === "preapproval") {
       stage = "webhook_preapproval_processing";
       return await processPreapproval(event, loaded.resource);
-    }
-    if (loaded.kind === "mesa_payment") {
-      stage = "webhook_mesa_payment_processing";
-      return await mesaPixPaymentService.processWebhookPayment(event, loaded.resource, loaded.attempt);
     }
     if (loaded.kind === "order") {
       stage = "webhook_order_processing";

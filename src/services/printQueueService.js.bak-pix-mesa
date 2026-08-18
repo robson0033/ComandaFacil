@@ -9,7 +9,6 @@ const {
   PROTOCOL_VERSION,
   UUID_PATTERN,
   buildJobEnvelope,
-  compareVersions,
   validateAgentStatus,
 } = require("./printAgentProtocol");
 const {
@@ -20,7 +19,6 @@ const {
   Configuracao,
   Mesa,
   Pedido,
-  PrintAgent,
   PrintJob,
 } = require("../models/painelModels");
 const { registroModel } = require("../models/registroModel");
@@ -563,123 +561,6 @@ async function criarJobManual({
     ? (await PrintJob.create([documento], { session }))[0]
     : await PrintJob.create(documento);
   notifyStore(pedido.estabelecimentoId);
-  return job;
-}
-
-async function criarJobPixMesa({
-  attempt,
-  mesa,
-  pedidos,
-  configuracao = null,
-  dono = null,
-}) {
-  assertAcceptingWork();
-  if (!attempt?._id || !mesa?._id || !Array.isArray(pedidos) || !pedidos.length) {
-    const error = new Error("Dados insuficientes para imprimir o Pix da mesa.");
-    error.code = "MESA_PIX_PRINT_DATA_INVALID";
-    throw error;
-  }
-  if (!isPrintProtocolV2EnabledFor(attempt.estabelecimentoId)) {
-    const error = new Error("O protocolo de impressão atual não está habilitado para este estabelecimento.");
-    error.code = "PRINT_PROTOCOL_NOT_ENABLED";
-    throw error;
-  }
-  const agent = await PrintAgent.findOne({ estabelecimentoId: attempt.estabelecimentoId })
-    .select("agentVersion protocolVersion protocolCompativel ativo")
-    .lean();
-  const versionComparison = compareVersions(agent?.agentVersion, "1.4.0");
-  if (!agent?.ativo || !agent?.protocolCompativel || Number(agent?.protocolVersion) !== PROTOCOL_VERSION
-    || versionComparison === null || versionComparison < 0) {
-    const error = new Error("Atualize o agente de impressão para a versão 1.4.0 ou superior antes de imprimir o QR Code Pix da mesa.");
-    error.code = "MESA_PIX_AGENT_UPDATE_REQUIRED";
-    error.httpStatus = 409;
-    throw error;
-  }
-
-  const pedidoBase = pedidos[0];
-  const context = await contextoDoPedido(pedidoBase, { configuracao, dono });
-  const impressora = (context.configuracao?.impressoras || []).find(item =>
-    ["manual", "manual_automatica"].includes(String(item?.modo || ""))
-    && impressoraAceitaPedido(item, { canal: "mesa" }));
-  if (!impressora) {
-    const error = new Error("Configure uma impressora de Mesa no modo Manual ou Manual + Automática para imprimir o QR Code Pix.");
-    error.code = "MESA_PIX_PRINTER_NOT_CONFIGURED";
-    error.httpStatus = 409;
-    throw error;
-  }
-
-  const existing = await PrintJob.findOne({
-    mesaPaymentAttemptId: attempt._id,
-    status: { $nin: ["cancelado"] },
-  }).sort({ createdAt: -1 });
-  if (existing) return existing;
-
-  const snapshot = await montarSnapshotValidado({
-    pedido: pedidoBase,
-    configuracao: context.configuracao,
-    dono: context.dono,
-    impressora,
-  });
-  const totalCentavos = Math.max(0, Math.round(Number(attempt.expectedAmount || 0) * 100));
-  snapshot.pedido = {
-    ...snapshot.pedido,
-    id: `mesa-pix:${String(attempt.attemptId)}`,
-    numero: `MESA-${String(mesa.numero || "")}`,
-    origem: `Mesa ${String(mesa.numero || "")}`.trim(),
-    canal: "mesa",
-    mesaNumero: Number(mesa.numero || 0) || null,
-    cliente: `Mesa ${String(mesa.numero || "")}`.trim(),
-    observacao: "Pagamento Pix da conta da mesa.",
-    subtotalProdutos: Number(attempt.expectedAmount || 0),
-    taxaEntregaCentavos: 0,
-    taxaEntrega: 0,
-    total: Number(attempt.expectedAmount || 0),
-    status: "novo",
-    pagamentoStatus: "pendente",
-    formaPagamento: "pix_online",
-    pagamentos: [{ formaPagamento: "pix_online", valorCentavos: totalCentavos }],
-    pagamentoInformadoEm: new Date().toISOString(),
-    pagoEm: "",
-    precisaTroco: false,
-    trocoPara: null,
-    valorTroco: null,
-    createdAt: new Date(attempt.createdAt || Date.now()).toISOString(),
-    itens: [{
-      nome: "Pagamento Pix da mesa",
-      quantidade: 1,
-      preco: Number(attempt.expectedAmount || 0),
-      subtotal: Number(attempt.expectedAmount || 0),
-      observacao: "",
-      pizzaMeioAMeio: false,
-      regraPrecoPizza: "",
-      precoBasePizza: null,
-      tamanhoPizzaId: "",
-      tamanhoPizzaNome: "",
-      saboresPizza: [],
-      adicionais: [],
-    }],
-    pixPagamento: {
-      copiaCola: text(attempt.pixCopiaCola, 5_000),
-      expiraEm: new Date(attempt.expiresAt).toISOString(),
-      valor: Number(attempt.expectedAmount || 0),
-      mesaNumero: Number(mesa.numero || 0),
-    },
-  };
-
-  const job = await PrintJob.create({
-    jobId: crypto.randomUUID(),
-    estabelecimentoId: attempt.estabelecimentoId,
-    pedidoId: pedidoBase._id,
-    mesaPaymentAttemptId: attempt._id,
-    tipo: "manual",
-    motivo: "pix_mesa",
-    paymentIdSuffix: String(attempt.paymentId || "").slice(-8),
-    impressoraChave: calcularImpressoraChave(impressora),
-    ...snapshot,
-    status: "pendente",
-    nextAttemptAt: new Date(),
-  });
-  notifyStore(attempt.estabelecimentoId);
   return job;
 }
 
@@ -1429,7 +1310,6 @@ module.exports = {
   impressoraPodeAtenderJob,
   normalizarOrigemPedidosImpressora,
   criarJobManual,
-  criarJobPixMesa,
   criarJobsAutomaticos,
   criarPedidoComJobsAutomaticos,
   isOrderEligibleForAutomaticPrint,
