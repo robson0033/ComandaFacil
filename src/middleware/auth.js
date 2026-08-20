@@ -1,6 +1,7 @@
 "use strict";
 
 const { logger: appLogger } = require("../utils/logger");
+const adminServerTiming = require("../utils/adminServerTiming");
 
 const { Funcionario } = require("../models/painelModels");
 const {
@@ -185,12 +186,15 @@ function negarPermissao(req, res, message) {
 }
 
 exports.loginRequired = async (req, res, next) => {
+  adminServerTiming.beginStage(req, "auth");
   try {
     const usuario = await carregarIdentidadeAtual(req);
     if (!usuario) return negarAutenticacao(req, res);
     return next();
   } catch (error) {
     return next(error);
+  } finally {
+    adminServerTiming.endStage(req, "auth");
   }
 };
 

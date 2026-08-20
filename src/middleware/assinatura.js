@@ -1,4 +1,5 @@
 const { Assinatura, Configuracao } = require("../models/painelModels");
+const adminServerTiming = require("../utils/adminServerTiming");
 const {
   safeFlash,
   saveSessionOrRun,
@@ -26,10 +27,43 @@ function planoPagoValido(assinatura, agora = new Date()) {
 }
 
 exports.carregarAssinatura = async (req, res, next) => {
+  adminServerTiming.beginStage(req, "assinatura");
   try {
     if (!req.session.user) return next();
 
-    let assinatura = await Assinatura.findOne({ estabelecimentoId: id(req) });
+    // ETAPA 11: assinatura e configuração operacional são independentes.
+    // No GET /admin aproveitamos a mesma leitura também para os campos leves
+    // usados pelo painel. Assim o controller não precisa fazer outra viagem ao
+    // Mongo só para nome/slug/impressoras. APIs continuam buscando apenas os
+    // campos operacionais mínimos.
+    const caminhoRequisicao = String(req.originalUrl || req.url || req.path || "")
+      .split("?")[0]
+      .replace(/\/$/, "") || "/";
+    const carregarCamposPainel = req.method === "GET" && caminhoRequisicao === "/admin";
+    const camposConfiguracao = carregarCamposPainel
+      ? [
+          "ativo",
+          "bloqueado",
+          "vendasBloqueadas",
+          "nomeEstabelecimento",
+          "fotoPerfil",
+          "slug",
+          "timezone",
+          "impressoras",
+          "impressaoAutomatica",
+        ].join(" ")
+      : "ativo bloqueado vendasBloqueadas";
+
+    const [assinaturaEncontrada, estabelecimento] = await Promise.all([
+      Assinatura.findOne({ estabelecimentoId: id(req) }),
+      Configuracao.findOne({
+        estabelecimentoId: id(req),
+      })
+        .select(camposConfiguracao)
+        .lean(),
+    ]);
+
+    let assinatura = assinaturaEncontrada;
     if (!assinatura) {
       const inicio = new Date();
       assinatura = await Assinatura.create({
@@ -40,12 +74,6 @@ exports.carregarAssinatura = async (req, res, next) => {
         fimTeste: new Date(inicio.getTime() + 7 * 24 * 60 * 60 * 1000),
       });
     }
-
-    const estabelecimento = await Configuracao.findOne({
-      estabelecimentoId: id(req),
-    })
-      .select("ativo bloqueado vendasBloqueadas")
-      .lean();
     const agora = new Date();
     const testeDentroDaData = testeValido(assinatura, agora);
     const planoDentroDaData = planoPagoValido(assinatura, agora);
@@ -85,6 +113,8 @@ exports.carregarAssinatura = async (req, res, next) => {
     const planoAtivo = avaliacao.permitido && avaliacao.status === "ativa";
 
     req.assinatura = assinatura;
+    req.configuracaoOperacional = estabelecimento || null;
+    req.configuracaoPainel = carregarCamposPainel ? (estabelecimento || null) : null;
     req.assinaturaAvaliacao = avaliacao;
     req.assinaturaAcessoLiberado = avaliacao.permitido;
     res.locals.assinatura = assinatura.toObject();
@@ -97,6 +127,8 @@ exports.carregarAssinatura = async (req, res, next) => {
     return next();
   } catch (e) {
     return next(e);
+  } finally {
+    adminServerTiming.endStage(req, "assinatura");
   }
 };
 

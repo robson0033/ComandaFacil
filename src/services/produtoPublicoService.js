@@ -43,6 +43,9 @@ async function buscarProdutosPublicosDoEstabelecimento(
     estabelecimentoId,
     ativo: true,
   })
+    .select(
+      "nome descricao categoriaId preco imagem adicionais precosPizza precosVariacoes",
+    )
     .populate(
       "categoriaId",
       "nome tipo tipoProduto configuracaoPizza configuracaoVariacoes",

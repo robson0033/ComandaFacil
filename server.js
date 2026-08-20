@@ -19,6 +19,7 @@ const {
 } = require("./src/middleware/csrf");
 const { securityHeaders } = require("./src/middleware/securityHeaders");
 const { requestContext } = require("./src/middleware/requestContext");
+const adminServerTiming = require("./src/utils/adminServerTiming");
 const { stopRateLimiters } = require("./src/middleware/rateLimit");
 const { requestBodyErrorHandler } = require("./src/middleware/requestBodyErrors");
 const { createHttp5xxAlertMiddleware } = require("./src/middleware/http5xxAlert");
@@ -75,6 +76,8 @@ function configureApplication(app, {
   app.disable("x-powered-by");
   app.use(requestContext);
   app.use(securityHeaders);
+  // ETAPA 11: instrumentação somente-leitura do documento /admin.
+  app.use(adminServerTiming.beginRequest);
   app.use(express.urlencoded({
     extended: true,
     limit: "64kb",
@@ -99,7 +102,10 @@ function configureApplication(app, {
     next();
   });
   app.use(express.static(path.resolve(__dirname, "public")));
+  app.use(adminServerTiming.beforeSession);
   app.use(sessionMiddleware);
+  app.use(adminServerTiming.afterSession);
+  app.use(adminServerTiming.wrapAdminRender);
   const homologationRouter = homologation
     ? createRuntimeHomologacaoRouter({
         env,

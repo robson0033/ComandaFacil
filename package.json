@@ -13,6 +13,8 @@
     "test:production": "npm run test:syntax && npm test",
     "indexes:dry-run": "node scripts/create-mercado-pago-indexes.js --dry-run",
     "indexes:apply": "node scripts/create-mercado-pago-indexes.js --apply",
+    "indexes:performance:dry-run": "node scripts/create-performance-indexes.js --dry-run",
+    "indexes:performance:apply": "node scripts/create-performance-indexes.js --apply",
     "audit:production": "npm audit --omit=dev --audit-level=high",
     "audit:secrets": "node scripts/auditar-segredos.js",
     "audit:privacy": "node scripts/auditar-privacidade-retencao.js",

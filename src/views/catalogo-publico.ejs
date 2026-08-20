@@ -1760,6 +1760,8 @@
                     <img
                       src="<%= safePublicUrl(produto.imagem, { allowDataImage: true }) %>"
                       alt="<%= produto.nome %>"
+                      loading="lazy"
+                      decoding="async"
                     >
                   <% } else { %>
                     <div class="product-cover-placeholder">

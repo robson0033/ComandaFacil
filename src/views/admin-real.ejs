@@ -4486,6 +4486,11 @@
       ? cidadesEntrega
       : [];
 
+  const lazySectionsPainel =
+    typeof lazySectionsLoaded !== 'undefined' && lazySectionsLoaded
+      ? lazySectionsLoaded
+      : {};
+
   const whatsappConfigPainel =
     typeof whatsappConfiguracao !== 'undefined' && whatsappConfiguracao
       ? whatsappConfiguracao
@@ -4750,9 +4755,10 @@
       <nav class="menu">
         <% if (pode('dashboard')) { %>
           <a
-            href="#dashboard"
+            href="<%= lazySectionsPainel.dashboard ? '#dashboard' : '/admin?section=dashboard#dashboard' %>"
             class="menu-link"
             data-page="dashboard"
+            data-lazy-section="dashboard"
           >
             <svg viewBox="0 0 24 24">
               <path d="M3 13h8V3H3v10Zm0 8h8v-6H3v6Zm10 0h8V11h-8v10Zm0-18v6h8V3h-8Z"/>
@@ -4764,9 +4770,10 @@
 
         <% if (pode('pedidos')) { %>
   <a
-    href="#pedidos"
+    href="<%= lazySectionsPainel.pedidos ? '#pedidos' : '/admin?section=pedidos#pedidos' %>"
     class="menu-link"
     data-page="pedidos"
+    data-lazy-section="pedidos"
     id="menuPedidos"
   >
     <svg viewBox="0 0 24 24">
@@ -4787,9 +4794,10 @@
 
         <% if (pode('arquivar_pedidos')) { %>
           <a
-            href="#pedidos-arquivados"
+            href="<%= lazySectionsPainel['pedidos-arquivados'] ? '#pedidos-arquivados' : '/admin?section=pedidos-arquivados#pedidos-arquivados' %>"
             class="menu-link"
             data-page="pedidos-arquivados"
+            data-lazy-section="pedidos-arquivados"
           >
             <svg viewBox="0 0 24 24">
               <path d="M4 3h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-9a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm0 2v3h16V5H4Zm2 5v9h12v-9H6Zm3 2h6v2H9v-2Z"/>
@@ -4800,9 +4808,10 @@
 
         <% if (pode('relatorios')) { %>
           <a
-            href="#relatorios"
+            href="<%= lazySectionsPainel.relatorios ? '#relatorios' : '/admin?section=relatorios#relatorios' %>"
             class="menu-link"
             data-page="relatorios"
+            data-lazy-section="relatorios"
           >
             <svg viewBox="0 0 24 24">
               <path d="M5 21a2 2 0 0 1-2-2v-7a2 2 0 1 1 4 0v7a2 2 0 0 1-2 2Zm7 0a2 2 0 0 1-2-2V5a2 2 0 1 1 4 0v14a2 2 0 0 1-2 2Zm7 0a2 2 0 0 1-2-2V9a2 2 0 1 1 4 0v10a2 2 0 0 1-2 2Z"/>
@@ -4814,9 +4823,10 @@
 
         <% if (pode('estoque')) { %>
           <a
-            href="#estoque"
+            href="<%= lazySectionsPainel.estoque ? '#estoque' : '/admin?section=estoque#estoque' %>"
             class="menu-link"
             data-page="estoque"
+            data-lazy-section="estoque"
           >
             <svg viewBox="0 0 24 24">
               <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Zm0 2.3L18.7 8 12 11.7 5.3 8 12 4.3ZM5 9.7l6 3.3v6.3L5 16V9.7Zm8 9.6V13l6-3.3V16l-6 3.3Z"/>
@@ -4828,9 +4838,10 @@
 
         <% if (pode('catalogo')) { %>
           <a
-            href="#catalogo"
+            href="<%= lazySectionsPainel.catalogo ? '#catalogo' : '/admin?section=catalogo#catalogo' %>"
             class="menu-link"
             data-page="catalogo"
+            data-lazy-section="catalogo"
           >
             <svg viewBox="0 0 24 24">
               <path d="M4 3h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm1 4v10h14V7H5Zm2 2h4v4H7V9Zm6 0h4v2h-4V9Zm0 4h4v2h-4v-2Z"/>
@@ -4842,9 +4853,10 @@
 
         <% if (pode('mesas')) { %>
           <a
-            href="#mesas"
+            href="<%= lazySectionsPainel.mesas ? '#mesas' : '/admin?section=mesas#mesas' %>"
             class="menu-link"
             data-page="mesas"
+            data-lazy-section="mesas"
           >
             <svg viewBox="0 0 24 24">
               <path d="M4 4h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-1v9a1 1 0 1 1-2 0v-9H7v9a1 1 0 1 1-2 0v-9H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/>
@@ -4856,9 +4868,10 @@
 
         <% if (pode('funcionarios')) { %>
           <a
-            href="#funcionarios"
+            href="<%= lazySectionsPainel.funcionarios ? '#funcionarios' : '/admin?section=funcionarios#funcionarios' %>"
             class="menu-link"
             data-page="funcionarios"
+            data-lazy-section="funcionarios"
           >
             <svg viewBox="0 0 24 24">
               <path d="M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0 2c-4 0-7 2.1-7 5v1a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-1c0-2.9-3-5-7-5Zm8.5-2a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm0 2c-.6 0-1.2.1-1.8.2 1.5 1.1 2.3 2.7 2.3 4.8v1h3a1 1 0 0 0 1-1v-.7c0-2.5-1.9-4.3-4.5-4.3Z"/>
@@ -4883,9 +4896,10 @@
 
         <% if (pode('configuracoes') || pode('configurar_impressoras')) { %>
           <a
-            href="#configuracoes"
+            href="<%= lazySectionsPainel.configuracoes ? '#configuracoes' : '/admin?section=configuracoes#configuracoes' %>"
             class="menu-link"
             data-page="configuracoes"
+            data-lazy-section="configuracoes"
           >
             <svg viewBox="0 0 24 24">
               <path d="M19.4 13.5c.1-.5.1-1 .1-1.5s0-1-.1-1.5l2-1.5a1 1 0 0 0 .2-1.3l-1.9-3.2a1 1 0 0 0-1.2-.4l-2.4 1a8.1 8.1 0 0 0-2.6-1.5L13.2 1a1 1 0 0 0-1-.8h-4a1 1 0 0 0-1 .8L6.8 3.6c-.9.3-1.8.8-2.6 1.5l-2.4-1a1 1 0 0 0-1.2.4L.7 7.7A1 1 0 0 0 .9 9l2 1.5C2.8 11 2.8 11.5 2.8 12s0 1 .1 1.5L.9 15a1 1 0 0 0-.2 1.3l1.9 3.2a1 1 0 0 0 1.2.4l2.4-1c.8.7 1.7 1.2 2.6 1.5l.4 2.6a1 1 0 0 0 1 .8h4a1 1 0 0 0 1-.8l.4-2.6c.9-.3 1.8-.8 2.6-1.5l2.4 1a1 1 0 0 0 1.2-.4l1.9-3.2a1 1 0 0 0-.2-1.3l-2.1-1.5ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/>
@@ -5217,7 +5231,7 @@
       </section>
       <% } %>
 
-      <% if (pode('pedidos')) { %>
+      <% if (pode('pedidos') && lazySectionsPainel.pedidos) { %>
       <!-- PEDIDOS -->
 <section class="page" id="page-pedidos">
   <section class="panel">
@@ -5239,17 +5253,17 @@
 
       <div class="orders-quick-filters">
         <a
-          href="/admin?pedidoPeriodo=hoje&pedidoCanal=<%= painelFiltrosPedidos.canalAtual %>&pedidoStatus=<%= painelFiltrosPedidos.statusAtual %>#pedidos"
+          href="/admin?section=pedidos&pedidoPeriodo=hoje&pedidoCanal=<%= painelFiltrosPedidos.canalAtual %>&pedidoStatus=<%= painelFiltrosPedidos.statusAtual %>#pedidos"
           class="order-quick-filter <%= painelFiltrosPedidos.periodoAtual === 'hoje' ? 'active' : '' %>"
         >Hoje</a>
 
         <a
-          href="/admin?pedidoPeriodo=semana&pedidoCanal=<%= painelFiltrosPedidos.canalAtual %>&pedidoStatus=<%= painelFiltrosPedidos.statusAtual %>#pedidos"
+          href="/admin?section=pedidos&pedidoPeriodo=semana&pedidoCanal=<%= painelFiltrosPedidos.canalAtual %>&pedidoStatus=<%= painelFiltrosPedidos.statusAtual %>#pedidos"
           class="order-quick-filter <%= painelFiltrosPedidos.periodoAtual === 'semana' ? 'active' : '' %>"
         >Esta semana</a>
 
         <a
-          href="/admin?pedidoPeriodo=mes&pedidoCanal=<%= painelFiltrosPedidos.canalAtual %>&pedidoStatus=<%= painelFiltrosPedidos.statusAtual %>#pedidos"
+          href="/admin?section=pedidos&pedidoPeriodo=mes&pedidoCanal=<%= painelFiltrosPedidos.canalAtual %>&pedidoStatus=<%= painelFiltrosPedidos.statusAtual %>#pedidos"
           class="order-quick-filter <%= painelFiltrosPedidos.periodoAtual === 'mes' ? 'active' : '' %>"
         >Este mês</a>
 
@@ -5261,6 +5275,7 @@
       </div>
 
       <form class="orders-filter-form" method="GET" action="/admin#pedidos" id="ordersServerFilterForm">
+        <input type="hidden" name="section" value="pedidos">
         <input type="hidden" name="pedidoPeriodo" id="pedidoPeriodoInput" value="<%= painelFiltrosPedidos.periodoAtual %>">
 
         <div class="orders-filter-field custom-orders-date <%= painelFiltrosPedidos.periodoAtual === 'personalizado' ? '' : 'order-filter-hidden' %>">
@@ -5298,7 +5313,7 @@
 
         <div class="orders-filter-actions">
           <button type="submit" class="orders-filter-button">Filtrar</button>
-          <a href="/admin?pedidoPeriodo=hoje#pedidos" class="orders-clear-button">Limpar</a>
+          <a href="/admin?section=pedidos&pedidoPeriodo=hoje#pedidos" class="orders-clear-button">Limpar</a>
         </div>
       </form>
 
@@ -6490,7 +6505,7 @@
 </section>
       <% } %>
 
-      <% if (pode('estoque')) { %>
+      <% if (pode('estoque') && lazySectionsPainel.estoque) { %>
       <!-- ESTOQUE -->
       <section class="page" id="page-estoque">
         <section class="panel">
@@ -6702,7 +6717,7 @@
       </section>
       <% } %>
 
-      <% if (pode('catalogo')) { %>
+      <% if (pode('catalogo') && lazySectionsPainel.catalogo) { %>
       <!-- CATÁLOGO -->
       <section class="page" id="page-catalogo">
         <section class="panel">
@@ -7308,7 +7323,7 @@
       </section>
       <% } %>
 
-      <% if (pode('mesas')) { %>
+      <% if (pode('mesas') && lazySectionsPainel.mesas) { %>
       <!-- MESAS -->
       <section class="page" id="page-mesas">
         <section class="panel">
@@ -7379,13 +7394,26 @@
                     pedido(s) em aberto
                   </span>
                 </div>
+                <% if (mesa.qrCodeUrl) { %>
+                  <div class="mesa-qr-area" data-mesa-qr-area>
+                    <button
+                      type="button"
+                      class="mini-button mesa-qr-toggle"
+                      data-mesa-qr-url="<%= safePublicUrl(mesa.qrCodeUrl) %>"
+                      aria-expanded="false"
+                    >
+                      Mostrar QR Code
+                    </button>
 
-                <% if (mesa.qrCode) { %>
-                  <img
-                    class="qr"
-                    src="<%= safePublicUrl(mesa.qrCode, { allowDataImage: true }) %>"
-                    alt="QR Code da mesa <%= mesa.numero %>"
-                  >
+                    <img
+                      class="qr"
+                      data-mesa-qr-image
+                      alt="QR Code da mesa <%= mesa.numero %>"
+                      loading="eager"
+                      decoding="async"
+                      hidden
+                    >
+                  </div>
                 <% } %>
 
                 <% if (mesa.link) { %>
@@ -7636,7 +7664,7 @@
       </section>
       <% } %>
 
-      <% if (pode('funcionarios')) { %>
+      <% if (pode('funcionarios') && lazySectionsPainel.funcionarios) { %>
       <!-- FUNCIONÁRIOS -->
       <section class="page" id="page-funcionarios">
   <section class="panel">
@@ -8044,7 +8072,7 @@
       </section>
       <% } %>
 
-      <% if (pode('configuracoes') || pode('configurar_impressoras')) { %>
+      <% if ((pode('configuracoes') || pode('configurar_impressoras')) && lazySectionsPainel.configuracoes) { %>
       <!-- CONFIGURAÇÕES -->
       <section class="page" id="page-configuracoes">
         <div class="settings-grid">
@@ -8952,7 +8980,7 @@
     </main>
   </div>
 
-  <% if (pode('estoque')) { %>
+  <% if (pode('estoque') && lazySectionsPainel.estoque) { %>
   <!-- MODAL ESTOQUE -->
   <div class="modal" id="modalEstoque">
     <div class="modal-card">
@@ -9086,7 +9114,7 @@
   </div>
   <% } %>
 
-  <% if (pode('catalogo')) { %>
+  <% if (pode('catalogo') && lazySectionsPainel.catalogo) { %>
   <!-- MODAL PRODUTO -->
   <div class="modal" id="modalProduto">
     <div class="modal-card">
@@ -9602,7 +9630,7 @@
   </div>
   <% } %>
 
-  <% if (pode('funcionarios')) { %>
+  <% if (pode('funcionarios') && lazySectionsPainel.funcionarios) { %>
   <!-- MODAL FUNCIONÁRIO -->
   <div class="modal" id="modalFuncionario">
   <div class="modal-card">
@@ -10141,9 +10169,26 @@
       'funcionarios',
       'configuracoes',
     ]);
+    const secoesSobDemandaCarregadas =
+      <%- safeJsonForHtml(lazySectionsPainel); %>;
+
+    function secaoSobDemandaPrecisaCarregar(pageName) {
+      return Object.prototype.hasOwnProperty.call(
+        secoesSobDemandaCarregadas,
+        pageName,
+      ) && !secoesSobDemandaCarregadas[pageName];
+    }
+
+    function urlSecaoSobDemanda(pageName) {
+      const url = new URL('/admin', window.location.origin);
+      url.searchParams.set('section', pageName);
+      url.hash = pageName;
+      return `${url.pathname}${url.search}${url.hash}`;
+    }
     let sessionRedirectInProgress = false;
     let pollingPedidosAtivo = true;
     let pedidosPollAbortController = null;
+    let pedidosFallbackTimer = null;
     let pedidosStream = null;
     let printAgentStatusStream = null;
 
@@ -10170,6 +10215,10 @@
       pollingPedidosAtivo = false;
       pedidosPollAbortController?.abort();
       pedidosPollAbortController = null;
+      if (pedidosFallbackTimer) {
+        window.clearInterval(pedidosFallbackTimer);
+        pedidosFallbackTimer = null;
+      }
     }
 
     function fecharSse() {
@@ -10527,10 +10576,15 @@
 
     links.forEach(link => {
       link.addEventListener('click', event => {
-        event.preventDefault();
-
         const pageName = link.dataset.page;
 
+        if (secaoSobDemandaPrecisaCarregar(pageName)) {
+          event.preventDefault();
+          window.location.assign(urlSecaoSobDemanda(pageName));
+          return;
+        }
+
+        event.preventDefault();
         showPage(pageName);
 
         history.replaceState(
@@ -10543,12 +10597,17 @@
 
     const initialPage =
       window.location.hash.slice(1) ||
+      new URLSearchParams(window.location.search).get('section') ||
       document.querySelector(
         '.menu-link'
       )?.dataset.page ||
       'dashboard';
 
-    showPage(initialPage);
+    if (secaoSobDemandaPrecisaCarregar(initialPage)) {
+      window.location.replace(urlSecaoSobDemanda(initialPage));
+    } else {
+      showPage(initialPage);
+    }
 
     document
       .querySelectorAll('.open-modal')
@@ -13529,13 +13588,37 @@ if (podeReceberNotificacoes) {
   );
   pedidosStream.addEventListener(
     'novos-pedidos',
-    verificarNovosPedidos
+    async event => {
+      let evento = {};
+      try {
+        evento = JSON.parse(String(event?.data || '{}'));
+      } catch {
+        evento = {};
+      }
+
+      await verificarNovosPedidos();
+
+      if (
+        String(evento?.mesaId || '') &&
+        typeof atualizarResumoMesas === 'function' &&
+        typeof paginaMesasAtiva === 'function' &&
+        paginaMesasAtiva()
+      ) {
+        void atualizarResumoMesas({ force: true });
+      }
+    }
   );
   pedidosStream.addEventListener('error', () => {
-    if (!sessionRedirectInProgress) {
+    if (!sessionRedirectInProgress && !document.hidden) {
       void verificarNovosPedidos();
     }
   });
+
+  pedidosFallbackTimer = window.setInterval(() => {
+    if (!document.hidden) {
+      void verificarNovosPedidos();
+    }
+  }, 60_000);
 }
   
     const itensEstoqueFicha = <%- safeJsonForHtml((estoque || []).map(item => ({
@@ -14740,6 +14823,62 @@ if (podeReceberNotificacoes) {
       }
     }
 
+    async function alternarQrCodeMesa(button) {
+      const area = button?.closest('[data-mesa-qr-area]');
+      const image = area?.querySelector('[data-mesa-qr-image]');
+      const url = String(button?.dataset?.mesaQrUrl || '').trim();
+
+      if (!image || !url) return;
+
+      const aberto = !image.hidden;
+      if (aberto) {
+        image.hidden = true;
+        button.setAttribute('aria-expanded', 'false');
+        button.textContent = 'Mostrar QR Code';
+        return;
+      }
+
+      if (!image.getAttribute('src')) {
+        button.disabled = true;
+        button.textContent = 'Gerando QR Code...';
+
+        try {
+          await new Promise((resolve, reject) => {
+            const handleQrLoad = () => { cleanup(); resolve(); };
+            const handleQrError = () => { cleanup(); reject(new Error('QR_CODE_LOAD_FAILED')); };
+            const cleanup = () => {
+              image.removeEventListener('load', handleQrLoad);
+              image.removeEventListener('error', handleQrError);
+            };
+            image.addEventListener('load', handleQrLoad, { once: true });
+            image.addEventListener('error', handleQrError, { once: true });
+            image.src = url;
+          });
+        } catch (error) {
+          image.removeAttribute('src');
+          window.alert('Não foi possível gerar o QR Code desta mesa.');
+          button.disabled = false;
+          button.textContent = 'Mostrar QR Code';
+          return;
+        }
+
+        button.disabled = false;
+      }
+
+      image.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      button.textContent = 'Ocultar QR Code';
+    }
+
+    document.addEventListener(
+      'click',
+      event => {
+        const button = event.target.closest('[data-mesa-qr-url]');
+        if (!button) return;
+        void alternarQrCodeMesa(button);
+      }
+    );
+
     document.addEventListener(
       'click',
       event => {
@@ -14790,11 +14929,12 @@ if (podeReceberNotificacoes) {
       }
     );
 
+    // Eventos reais atualizam imediatamente; 60s é apenas rede de segurança.
     window.setInterval(
       () => {
         void atualizarResumoMesas();
       },
-      4000
+      60_000
     );
 
     if (paginaMesasAtiva()) {

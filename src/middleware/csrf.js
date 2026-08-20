@@ -8,8 +8,27 @@ const { safeFlash } = require("../utils/safeFlash");
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+function isPublicAnonymousCsrfBypassPath(req) {
+  const requestPath = String(req.originalUrl || req.path || req.url || "")
+    .split("?")[0];
+  return requestPath === "/catalogo"
+    || requestPath.startsWith("/catalogo/")
+    || requestPath === "/mesa"
+    || requestPath.startsWith("/mesa/");
+}
+
 function ensureCsrfToken(req, res, next) {
   res.locals ||= {};
+
+  // Catálogo e mesa usam proteção anônima de mesma origem + rate limit nas
+  // operações mutáveis. Não crie um token CSRF nessas rotas, porque isso
+  // transformaria cada visitante anônimo em uma sessão persistida no Mongo.
+  // Uma sessão já existente continua disponível e não perde seu estado.
+  if (isPublicAnonymousCsrfBypassPath(req)) {
+    res.locals.csrfToken = String(req.session?.csrfToken || "");
+    return next();
+  }
+
   if (!req.session) {
     res.locals.csrfToken = "";
     return next();
@@ -314,6 +333,7 @@ module.exports = {
   createAnonymousSameOriginProtection,
   createCsrfSameOriginProtection,
   ensureCsrfToken,
+  isPublicAnonymousCsrfBypassPath,
   isMutatingMethod,
   isSafeHttpMethod,
   isLocalOrigin,

@@ -1,4 +1,5 @@
 const { logger: appLogger } = require("../utils/logger");
+const adminServerTiming = require("../utils/adminServerTiming");
 
 const QRCode = require("qrcode");
 const bcrypt = require("bcryptjs");
@@ -93,6 +94,7 @@ const {
 const { processImage, UploadError } = require("../uploads/imageProcessor");
 const storageService = require("../services/storageService");
 const appState = require("../runtime/appState");
+const adminRealtimeService = require("../services/adminRealtimeService");
 const {
   ALL_PERMISSIONS,
   CRITICAL_PERMISSIONS,
@@ -137,6 +139,45 @@ const {
   phoneNumberIdHash,
 } = require("../services/whatsappAutomationService");
 const whatsappCloudApi = require("../services/whatsappCloudApiService");
+
+const CAMPOS_PEDIDO_PAINEL = [
+  "_id",
+  "numeroPedido",
+  "numeroPedidoData",
+  "codigoPublico",
+  "cliente",
+  "telefoneCliente",
+  "canal",
+  "mesaId",
+  "itens",
+  "observacao",
+  "subtotalProdutos",
+  "taxaEntregaCentavos",
+  "total",
+  "status",
+  "pagamentoStatus",
+  "formaPagamento",
+  "pagamentos",
+  "pagoEm",
+  "pagamentoInformadoEm",
+  "precisaTroco",
+  "trocoPara",
+  "valorTroco",
+  "enderecoEntrega",
+  "ruaEntrega",
+  "numeroEntrega",
+  "bairroEntrega",
+  "referenciaEntrega",
+  "cidadeEntregaNome",
+  "cidadeEntregaUf",
+  "mercadoPagoPaymentId",
+  "mercadoPagoStatus",
+  "remocaoSolicitacaoStatus",
+  "remocaoSolicitadaEm",
+  "excluido",
+  "createdAt",
+  "updatedAt",
+].join(" ");
 
 function exigirMovimentacaoEstoqueConcluida(resultado) {
   if (resultado?.success
@@ -2374,6 +2415,7 @@ async function agregarDashboard({
 */
 
 exports.admin = async (req, res) => {
+  adminServerTiming.beginStage(req, "controller");
   try {
     const idEstabelecimento =
       estabelecimentoId(req);
@@ -2399,7 +2441,74 @@ exports.admin = async (req, res) => {
       podeArquivarPedidos,
     } = acessoPainel;
 
+    // ETAPA 5: blocos administrativos pesados são carregados somente quando
+    // a própria seção é solicitada. O hash não chega ao servidor, então a view
+    // faz um único reload com ?section=... ao abrir essas áreas pela primeira vez.
+    const secaoSolicitada = String(req.query.section || "").trim().toLowerCase();
+    const temQuery = (nome) => Object.prototype.hasOwnProperty.call(req.query, nome);
+    const carregarDashboardPainel =
+      podeDashboard && (
+        !secaoSolicitada ||
+        secaoSolicitada === "dashboard"
+      );
+    const carregarPedidosArquivados =
+      podeArquivarPedidos && secaoSolicitada === "pedidos-arquivados";
+    const carregarRelatorios =
+      podeRelatorios && (
+        secaoSolicitada === "relatorios" ||
+        (
+          !secaoSolicitada && (
+            temQuery("filtro") ||
+            temQuery("dataInicio") ||
+            temQuery("dataFim") ||
+            temQuery("canal")
+          )
+        )
+      );
+    const carregarWhatsAppPainel =
+      podeConfiguracoes && secaoSolicitada === "whatsapp";
+
+    // ETAPA 6: estoque e catálogo administrativo também são carregados sob demanda.
+    // O catálogo precisa dos itens ativos do estoque para montar a ficha técnica
+    // quando o usuário também possui permissão de estoque.
+    const carregarEstoquePainel =
+      podeEstoque && (secaoSolicitada === "estoque" || secaoSolicitada === "catalogo");
+    const carregarCatalogoPainel =
+      podeCatalogo && secaoSolicitada === "catalogo";
+
+    // ETAPA 7: funcionários e configurações administrativas deixam de
+    // carregar no acesso inicial. Dados sensíveis/pesados dessas áreas só
+    // são consultados quando a própria seção é aberta.
+    const carregarFuncionariosPainel =
+      podeFuncionarios && secaoSolicitada === "funcionarios";
+    const carregarConfiguracoesPainel =
+      (podeConfiguracoes || podeConfigurarImpressoras)
+      && secaoSolicitada === "configuracoes";
+
+    // ETAPA 8: Pedidos e Mesas também deixam de carregar listas completas
+    // no acesso inicial ao Dashboard. Eventos realtime continuam ativos;
+    // a lista operacional completa só é buscada ao abrir a própria seção.
+    const carregarPedidosPainel =
+      podePedidos && (
+        secaoSolicitada === "pedidos" ||
+        (
+          !secaoSolicitada && (
+            temQuery("pedidoPeriodo") ||
+            temQuery("pedidoDataInicio") ||
+            temQuery("pedidoDataFim") ||
+            temQuery("pedidoCanal") ||
+            temQuery("pedidoStatus")
+          )
+        )
+      );
+    const carregarMesasPainel =
+      podeMesas && secaoSolicitada === "mesas";
+
+    // ETAPA 10: carregarAssinatura já validou e anexou a assinatura a req.
+    // Reutilize o mesmo documento para evitar uma segunda leitura Mongo no /admin.
+    // O fallback mantém o controller seguro em chamadas isoladas/testes.
     const assinatura =
+      req.assinatura ||
       await obterAssinatura(
         idEstabelecimento,
       );
@@ -2409,17 +2518,25 @@ exports.admin = async (req, res) => {
         assinatura,
       );
 
+    const precisaConfiguracaoCompleta =
+      podeConfiguracoes && carregarConfiguracoesPainel;
+    const configuracaoPainelDoMiddleware =
+      !precisaConfiguracaoCompleta ? req.configuracaoPainel : null;
+
     const configuracaoDocumento =
-      await obterOuCriarConfiguracao(
+      await adminServerTiming.measureAsync(
         req,
-        idEstabelecimento,
-        {
-          completa:
-            podeConfiguracoes,
-          incluirImpressoras:
-            podeImprimirPedidos ||
-            podeConfigurarImpressoras,
-        },
+        "config",
+        () => configuracaoPainelDoMiddleware || obterOuCriarConfiguracao(
+          req,
+          idEstabelecimento,
+          {
+            completa: precisaConfiguracaoCompleta,
+            incluirImpressoras:
+              podeImprimirPedidos ||
+              podeConfigurarImpressoras,
+          },
+        ),
       );
     const timezoneEstabelecimento = getEstablishmentTimezone(configuracaoDocumento);
 
@@ -2457,22 +2574,38 @@ exports.admin = async (req, res) => {
       timezoneEstabelecimento,
     );
 
-    const periodosConsulta = [pedidoPeriodo, dashboardPeriodoConsulta, relatorioPeriodoConsulta];
-    const consultaSemLimiteDeData = periodosConsulta.some(periodoConsulta => !periodoConsulta.inicio || !periodoConsulta.fim);
+    // A lista operacional de Pedidos usa apenas o período da própria seção.
+    // Dashboard e Relatórios têm consultas dedicadas e não ampliam mais essa busca.
     const filtroDataPedidos = {};
-
-    if (!consultaSemLimiteDeData) {
-      const inicios = periodosConsulta.map(periodoConsulta => periodoConsulta.inicio.getTime());
-      const fins = periodosConsulta.map(periodoConsulta => periodoConsulta.fim.getTime());
-      const intervaloCarregamento = {
-        $gte: new Date(Math.min(...inicios)),
-        $lte: new Date(Math.max(...fins)),
+    if (pedidoPeriodo.inicio && pedidoPeriodo.fim) {
+      filtroDataPedidos.createdAt = {
+        $gte: pedidoPeriodo.inicio,
+        $lte: pedidoPeriodo.fim,
       };
-      filtroDataPedidos.$or = [
-        { createdAt: intervaloCarregamento },
-        { pagoEm: intervaloCarregamento },
-      ];
     }
+
+    const filtroDashboardLista = {
+      estabelecimentoId: idEstabelecimento,
+      excluido: { $ne: true },
+      status: { $ne: "cancelado" },
+    };
+    if (dashboardPeriodoConsulta.inicio && dashboardPeriodoConsulta.fim) {
+      filtroDashboardLista.createdAt = {
+        $gte: dashboardPeriodoConsulta.inicio,
+        $lte: dashboardPeriodoConsulta.fim,
+      };
+    }
+
+    // A tela de Pedidos precisa enxergar a conta aberta inteira da mesa,
+    // mesmo quando algum pedido da mesma comanda ficou fora do filtro de data.
+    const filtroPedidosMesaAbertos = {
+      estabelecimentoId: idEstabelecimento,
+      canal: "mesa",
+      mesaId: { $ne: null },
+      excluido: { $ne: true },
+      pagamentoStatus: "pendente",
+      status: { $ne: "cancelado" },
+    };
 
     const [
       categorias,
@@ -2483,17 +2616,25 @@ exports.admin = async (req, res) => {
       cidadesEntrega,
       pedidos,
       pedidosArquivados,
-    ] = await Promise.all([
-      podeEstoque || podeCatalogo
+      pedidosDashboardLista,
+      totalMesasDashboard,
+      mesasOcupadasDashboard,
+      pedidosMesaAbertosPainel,
+      pedidosMesaAbertosContas,
+    ] = await adminServerTiming.measureAsync(
+      req,
+      "reads",
+      () => Promise.all([
+      carregarEstoquePainel || carregarCatalogoPainel
         ? Categoria.find({
             estabelecimentoId:
               idEstabelecimento,
             tipo: {
               $in: [
-                ...(podeEstoque
+                ...(secaoSolicitada === "estoque" && podeEstoque
                   ? ["estoque"]
                   : []),
-                ...(podeCatalogo
+                ...(carregarCatalogoPainel
                   ? ["catalogo"]
                   : []),
               ],
@@ -2503,7 +2644,7 @@ exports.admin = async (req, res) => {
             .lean()
         : Promise.resolve([]),
 
-      podeEstoque
+      carregarEstoquePainel
         ? Estoque.find({
             estabelecimentoId:
               idEstabelecimento,
@@ -2517,7 +2658,7 @@ exports.admin = async (req, res) => {
             .lean()
         : Promise.resolve([]),
 
-      podeCatalogo
+      carregarCatalogoPainel
         ? Produto.find({
             estabelecimentoId:
               idEstabelecimento,
@@ -2530,7 +2671,7 @@ exports.admin = async (req, res) => {
             .lean()
         : Promise.resolve([]),
 
-      podeMesas || podeDashboard
+      carregarMesasPainel
         ? Mesa.find({
             estabelecimentoId:
               idEstabelecimento,
@@ -2539,7 +2680,7 @@ exports.admin = async (req, res) => {
             .lean()
         : Promise.resolve([]),
 
-      podeFuncionarios
+      carregarFuncionariosPainel
         ? Funcionario.find({
             estabelecimentoId:
               idEstabelecimento,
@@ -2549,7 +2690,7 @@ exports.admin = async (req, res) => {
             .lean()
         : Promise.resolve([]),
 
-      podeConfiguracoes
+      podeConfiguracoes && carregarConfiguracoesPainel
         ? CidadeEntrega.find({
             estabelecimentoId:
               idEstabelecimento,
@@ -2558,18 +2699,14 @@ exports.admin = async (req, res) => {
             .lean()
         : Promise.resolve([]),
 
-      (
-        podeDashboard ||
-        podePedidos ||
-        podeRelatorios ||
-        podeMesas
-      )
+      carregarPedidosPainel
         ? Pedido.find({
             estabelecimentoId:
               idEstabelecimento,
             excluido: { $ne: true },
             ...filtroDataPedidos,
           })
+            .select(CAMPOS_PEDIDO_PAINEL)
             .populate(
               "mesaId",
               "numero setor status",
@@ -2579,7 +2716,7 @@ exports.admin = async (req, res) => {
             .lean()
         : Promise.resolve([]),
 
-      podeArquivarPedidos
+      carregarPedidosArquivados
         ? Pedido.find({
             estabelecimentoId: idEstabelecimento,
             excluido: true,
@@ -2593,9 +2730,50 @@ exports.admin = async (req, res) => {
             .limit(200)
             .lean()
         : Promise.resolve([]),
-    ]);
 
-    if (podeArquivarPedidos && pedidosArquivados.length) {
+      carregarDashboardPainel
+        ? Pedido.find(filtroDashboardLista)
+            .select(
+              "_id numeroPedido numeroPedidoData codigoPublico cliente canal total status "
+              + "pagamentos formaPagamento pagamentoStatus createdAt mesaId",
+            )
+            .populate("mesaId", "numero setor status")
+            .sort({ createdAt: -1 })
+            .limit(100)
+            .lean()
+        : Promise.resolve([]),
+
+      carregarDashboardPainel
+        ? Mesa.countDocuments({ estabelecimentoId: idEstabelecimento })
+        : Promise.resolve(0),
+
+      carregarDashboardPainel
+        ? Mesa.countDocuments({
+            estabelecimentoId: idEstabelecimento,
+            status: { $in: ["ocupada", "aguardando_pagamento"] },
+          })
+        : Promise.resolve(0),
+
+      carregarPedidosPainel
+        ? Pedido.find(filtroPedidosMesaAbertos)
+            .select(CAMPOS_PEDIDO_PAINEL)
+            .populate("mesaId", "numero setor status")
+            .sort({ createdAt: 1 })
+            .limit(1000)
+            .lean()
+        : Promise.resolve([]),
+
+      carregarMesasPainel
+        ? Pedido.find(filtroPedidosMesaAbertos)
+            .select("mesaId total pagamentoStatus status")
+            .sort({ createdAt: 1 })
+            .limit(1000)
+            .lean()
+        : Promise.resolve([]),
+      ]),
+    );
+
+    if (carregarPedidosArquivados && pedidosArquivados.length) {
       const idsFuncionarios = pedidosArquivados
         .filter(item => item.excluidoPorTipo === "funcionario" && item.excluidoPor)
         .map(item => item.excluidoPor);
@@ -2620,24 +2798,8 @@ exports.admin = async (req, res) => {
       });
     }
 
-    // A tela de Pedidos precisa enxergar a conta aberta inteira da mesa,
-    // mesmo quando algum pedido da mesma comanda ficou fora do filtro de data.
-    // Os documentos continuam separados no banco (auditoria, estoque e impressão
-    // automática permanecem intactos); somente a visualização operacional é agrupada.
-    const pedidosMesaAbertosPainel = podePedidos
-      ? await Pedido.find({
-          estabelecimentoId: idEstabelecimento,
-          canal: "mesa",
-          mesaId: { $ne: null },
-          excluido: { $ne: true },
-          pagamentoStatus: "pendente",
-          status: { $ne: "cancelado" },
-        })
-          .populate("mesaId", "numero setor status")
-          .sort({ createdAt: 1 })
-          .limit(1000)
-          .lean()
-      : [];
+    // Pedidos de mesas abertas já vieram no mesmo Promise.all das demais
+    // leituras da seção, evitando um round-trip sequencial adicional.
 
     const idsDesativadosReferenciados =
       idsDeIngredientesDesativadosReferenciados(estoque, produtos);
@@ -2690,7 +2852,7 @@ exports.admin = async (req, res) => {
         };
 
     const categoriasEstoque =
-      podeEstoque
+      carregarEstoquePainel && secaoSolicitada === "estoque"
         ? categorias.filter(
         (categoria) =>
           categoria.tipo ===
@@ -2699,7 +2861,7 @@ exports.admin = async (req, res) => {
         : [];
 
     const categoriasCatalogo =
-      podeCatalogo
+      carregarCatalogoPainel
         ? categorias.filter(
         (categoria) =>
           categoria.tipo ===
@@ -2729,7 +2891,7 @@ exports.admin = async (req, res) => {
 
     const contasPorMesa = new Map();
 
-    pedidos
+    pedidosMesaAbertosContas
       .filter((pedido) => {
         return (
           pedido.mesaId &&
@@ -2761,46 +2923,25 @@ exports.admin = async (req, res) => {
         );
       });
 
-    const mesasComConta =
-      await Promise.all(
-        mesas.map(async (mesa) => {
-          const caminhoPublico = `/mesa/${encodeURIComponent(String(mesa.token || ""))}`;
-          const link = `${baseUrl}${caminhoPublico}`;
+    const mesasComConta = mesas.map((mesa) => {
+      const caminhoPublico = `/mesa/${encodeURIComponent(String(mesa.token || ""))}`;
+      const link = `${baseUrl}${caminhoPublico}`;
 
-          const conta =
-            contasPorMesa.get(
-              String(mesa._id),
-            ) || {
-              quantidadePedidos: 0,
-              totalConta: 0,
-            };
+      const conta =
+        contasPorMesa.get(String(mesa._id)) || {
+          quantidadePedidos: 0,
+          totalConta: 0,
+        };
 
-          let qrCode = "";
-
-          try {
-            qrCode =
-              await QRCode.toDataURL(
-                link,
-              );
-          } catch (erroQrCode) {
-            appLogger.error(
-              `Erro ao gerar QR Code da mesa ${mesa.numero}:`,
-              erroQrCode,
-            );
-          }
-
-          return {
-            ...mesa,
-            link,
-            caminhoPublico,
-            qrCode,
-            quantidadePedidos:
-              conta.quantidadePedidos,
-            totalConta:
-              conta.totalConta,
-          };
-        }),
-      );
+      return {
+        ...mesa,
+        link,
+        caminhoPublico,
+        qrCodeUrl: `/admin/api/mesas/${encodeURIComponent(String(mesa._id))}/qrcode`,
+        quantidadePedidos: conta.quantidadePedidos,
+        totalConta: conta.totalConta,
+      };
+    });
 
     /*
     |--------------------------------------------------------------------------
@@ -2841,39 +2982,17 @@ exports.admin = async (req, res) => {
         timezoneEstabelecimento,
       );
 
-    const pedidosDashboard =
-      pedidos.filter((pedido) => {
-        if (
-          !pedido.createdAt ||
-          pedido.status === "cancelado"
-        ) {
-          return false;
-        }
-
-        if (
-          !dashboardPeriodo.inicio ||
-          !dashboardPeriodo.fim
-        ) {
-          return true;
-        }
-
-        const data = new Date(
-          pedido.createdAt,
-        );
-
-        return (
-          data >= dashboardPeriodo.inicio &&
-          data <= dashboardPeriodo.fim
-        );
-      });
-
     const dashboardAgregado =
-      podeDashboard
-        ? await agregarDashboard({
-            idEstabelecimento,
-            periodo:
-              dashboardPeriodo,
-          })
+      carregarDashboardPainel
+        ? await adminServerTiming.measureAsync(
+            req,
+            "dashboard",
+            () => agregarDashboard({
+              idEstabelecimento,
+              periodo:
+                dashboardPeriodo,
+            }),
+          )
         : {
             vendas: 0,
             quantidadePaga: 0,
@@ -2905,16 +3024,10 @@ exports.admin = async (req, res) => {
         dashboardAgregado
           .quantidadePedidos,
       ticketMedio,
-      mesasOcupadas: mesas.filter(
-        (mesa) =>
-          [
-            "ocupada",
-            "aguardando_pagamento",
-          ].includes(mesa.status),
-      ).length,
-      totalMesas: mesas.length,
+      mesasOcupadas: Number(mesasOcupadasDashboard || 0),
+      totalMesas: Number(totalMesasDashboard || 0),
       pedidosLista:
-        pedidosDashboard.slice(0, 100),
+        pedidosDashboardLista,
       formasPagamento:
         dashboardAgregado
           .formasPagamento,
@@ -3003,7 +3116,7 @@ exports.admin = async (req, res) => {
       agregadoRelatorios,
       pedidosFiltrados,
       pagamentosPixComTaxa,
-    ] = podeRelatorios
+    ] = carregarRelatorios
       ? await Promise.all([
           agregarRelatorios({
             idEstabelecimento,
@@ -3169,7 +3282,7 @@ exports.admin = async (req, res) => {
     };
 
     const donoPainel =
-      podeConfiguracoes
+      podeConfiguracoes && carregarConfiguracoesPainel
         ? await registroModel
             .findOne({
               _id: idEstabelecimento,
@@ -3178,13 +3291,13 @@ exports.admin = async (req, res) => {
             .lean()
         : null;
 
-    const whatsappConfiguracao = podeConfiguracoes
+    const whatsappConfiguracao = carregarWhatsAppPainel
       ? await WhatsAppConfiguracao.findOne({
           estabelecimentoId: idEstabelecimento,
         }).lean()
       : null;
 
-    const whatsappConversas = podeConfiguracoes
+    const whatsappConversas = carregarWhatsAppPainel
       ? await WhatsAppConversa.find({
           estabelecimentoId: idEstabelecimento,
         })
@@ -3194,7 +3307,7 @@ exports.admin = async (req, res) => {
       : [];
 
     const dashboardSeguro =
-      podeDashboard
+      carregarDashboardPainel
         ? dashboard
         : {
             filtroAtual: "hoje",
@@ -3211,7 +3324,7 @@ exports.admin = async (req, res) => {
           };
 
     const relatoriosSeguros =
-      podeRelatorios
+      carregarRelatorios
         ? relatorios
         : {
             filtroAtual: "hoje",
@@ -3259,50 +3372,64 @@ exports.admin = async (req, res) => {
         categoriasCatalogo,
 
         estoque:
-          podeEstoque ? estoque : [],
+          carregarEstoquePainel ? estoque : [],
         itensEstoque:
-          podeEstoque ? estoque : [],
-        ingredientesDesativadosReferenciados,
+          carregarEstoquePainel ? estoque : [],
+        ingredientesDesativadosReferenciados:
+          carregarCatalogoPainel ? ingredientesDesativadosReferenciados : [],
 
         produtos:
-          podeCatalogo ? produtos : [],
+          carregarCatalogoPainel ? produtos : [],
 
         mesas:
-          podeMesas ? mesasComConta : [],
+          carregarMesasPainel ? mesasComConta : [],
 
         funcionarios:
-          podeFuncionarios
+          carregarFuncionariosPainel
             ? funcionarios
             : [],
         listaFuncionarios:
-          podeFuncionarios
+          carregarFuncionariosPainel
             ? funcionarios
             : [],
 
         cidadesEntrega:
-          podeConfiguracoes
+          podeConfiguracoes && carregarConfiguracoesPainel
             ? cidadesEntrega
             : [],
 
         whatsappConfiguracao:
-          podeConfiguracoes
+          carregarWhatsAppPainel
             ? whatsappConfiguracao
             : null,
         whatsappConversas:
-          podeConfiguracoes
+          carregarWhatsAppPainel
             ? whatsappConversas
             : [],
 
+        lazySectionsLoaded: {
+          dashboard: Boolean(carregarDashboardPainel),
+          "pedidos-arquivados": Boolean(carregarPedidosArquivados),
+          relatorios: Boolean(carregarRelatorios),
+          whatsapp: Boolean(carregarWhatsAppPainel),
+          estoque: Boolean(carregarEstoquePainel && secaoSolicitada === "estoque"),
+          catalogo: Boolean(carregarCatalogoPainel),
+          funcionarios: Boolean(carregarFuncionariosPainel),
+          configuracoes: Boolean(carregarConfiguracoesPainel),
+          pedidos: Boolean(carregarPedidosPainel),
+          mesas: Boolean(carregarMesasPainel),
+        },
+
         pedidos:
-          podePedidos ? pedidos : [],
+          carregarPedidosPainel ? pedidos : [],
         pedidosArquivados:
-          podeArquivarPedidos ? pedidosArquivados : [],
+          carregarPedidosArquivados ? pedidosArquivados : [],
         pedidosFiltradosPainel:
-          podePedidos
+          carregarPedidosPainel
             ? listaPedidosPainel
             : [],
         comandasMesaAbertasPainel:
-          podePedidos
+          carregarPedidosPainel
             ? comandasMesaAbertasPainel
             : [],
         filtrosPedidos,
@@ -5033,6 +5160,54 @@ exports.pagarContaMesa = async (
     );
   }
 
+};
+
+exports.qrCodeMesa = async (req, res) => {
+  try {
+    const idEstabelecimento = estabelecimentoId(req);
+
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(404).json({
+        success: false,
+        message: "Mesa não encontrada.",
+      });
+    }
+
+    const mesa = await Mesa.findOne({
+      _id: req.params.id,
+      estabelecimentoId: idEstabelecimento,
+    })
+      .select("_id numero token")
+      .lean();
+
+    if (!mesa || !mesa.token) {
+      return res.status(404).json({
+        success: false,
+        message: "Mesa não encontrada.",
+      });
+    }
+
+    const caminhoPublico = `/mesa/${encodeURIComponent(String(mesa.token))}`;
+    const link = `${obterBaseUrl(req)}${caminhoPublico}`;
+
+    const png = await QRCode.toBuffer(link, {
+      type: "png",
+      width: 320,
+      margin: 2,
+      errorCorrectionLevel: "M",
+    });
+
+    res.set("Content-Type", "image/png");
+    res.set("Cache-Control", "private, max-age=3600");
+    res.set("X-Content-Type-Options", "nosniff");
+    return res.send(png);
+  } catch (error) {
+    appLogger.error("Erro ao gerar QR Code da mesa sob demanda:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Não foi possível gerar o QR Code da mesa.",
+    });
+  }
 };
 
 exports.resumoMesas = async (
@@ -7163,6 +7338,7 @@ exports.arquivarPedido = async (req, res) => {
           $gt: dataInicial,
         },
       })
+        .select(CAMPOS_PEDIDO_PAINEL)
         .populate(
           'mesaId',
           'numero setor'
@@ -8278,6 +8454,12 @@ exports.solicitarRemocaoPedidoMesa = async (req, res) => {
       });
     }
 
+    adminRealtimeService.publish(mesa.estabelecimentoId, {
+      reason: "mesa_remocao_solicitada",
+      pedidoId: String(pedido._id),
+      mesaId: String(mesa._id),
+    });
+
     return res.json({
       success: true,
       pedidoId: String(pedido._id),
@@ -8813,58 +8995,92 @@ exports.streamNovosPedidos = (req, res) => {
 
   res.flushHeaders?.();
 
+  const idEstabelecimento = estabelecimentoId(req);
   let validando = false;
-  let primeiraValidacao = true;
-  let timer = null;
-  const enviarEvento = async () => {
-    if (res.writableEnded) return;
-    if (validando) return;
+  let encerrado = false;
+  let eventoPendente = null;
+  let heartbeatTimer = null;
+
+  const encerrar = () => {
+    if (encerrado) return;
+    encerrado = true;
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    unsubscribeRealtime();
+    unregisterSse();
+    if (!res.writableEnded) res.end();
+  };
+
+  const enviarEvento = async (evento = {}) => {
+    if (encerrado || res.writableEnded) return;
+
+    if (validando) {
+      eventoPendente = evento;
+      return;
+    }
+
     validando = true;
     try {
       const autorizado = await validarAcessoSse(
         req,
         res,
         "pedidos",
-        { forcar: !primeiraValidacao },
+        { forcar: true },
       );
-      primeiraValidacao = false;
       if (!autorizado) {
-        if (timer) clearInterval(timer);
+        encerrar();
         return;
       }
 
       res.write(
         `event: novos-pedidos\n` +
         `data: ${JSON.stringify({
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          reason: String(evento?.reason || "pedido_alterado").slice(0, 80),
+          pedidoId: String(evento?.pedidoId || "").slice(0, 80),
+          mesaId: String(evento?.mesaId || "").slice(0, 80),
         })}\n\n`
       );
     } catch {
-      if (!res.writableEnded) res.end();
+      encerrar();
+      return;
     } finally {
       validando = false;
     }
+
+    if (eventoPendente && !encerrado) {
+      const proximo = eventoPendente;
+      eventoPendente = null;
+      void enviarEvento(proximo);
+    }
   };
 
-  enviarEvento();
+  let unregisterSse = () => {};
+  let unsubscribeRealtime = () => {};
 
-  timer = setInterval(
-    enviarEvento,
-    5000
+  unregisterSse = appState.registerSse(res, encerrar, {
+    sessionId: req.sessionID,
+  });
+
+  unsubscribeRealtime = adminRealtimeService.subscribe(
+    idEstabelecimento,
+    evento => {
+      void enviarEvento(evento);
+    },
   );
 
-  timer.unref?.();
-
-  const unregisterSse = appState.registerSse(res, () => {
-    if (timer) clearInterval(timer);
-  }, { sessionId: req.sessionID });
-  req.on("close", () => {
-    unregisterSse();
-
-    if (!res.writableEnded) {
-      res.end();
+  heartbeatTimer = setInterval(() => {
+    if (encerrado || res.writableEnded) return;
+    try {
+      res.write(`: heartbeat ${Date.now()}\n\n`);
+    } catch {
+      encerrar();
     }
-  });
+  }, 25_000);
+  heartbeatTimer.unref?.();
+
+  void enviarEvento({ reason: "stream_connected" });
+
+  req.on("close", encerrar);
 };
 
 function estabelecimentoAberto(

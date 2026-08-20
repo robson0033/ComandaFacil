@@ -1,6 +1,7 @@
 "use strict";
 
 const { logger: appLogger } = require("../utils/logger");
+const adminRealtimeService = require("./adminRealtimeService");
 
 const crypto = require("crypto");
 const { normalizePrinterLayoutConfig } = require("./printerLayoutConfig");
@@ -713,6 +714,15 @@ async function buscarPedidoIdempotente(dados, token, payloadHash) {
   return anexarResultadoPublico(pedido, token, { replay: true });
 }
 
+function notificarPedidoCriadoNoPainel(pedido) {
+  if (!pedido) return;
+  adminRealtimeService.publish(pedido.estabelecimentoId, {
+    reason: "pedido_criado",
+    pedidoId: String(pedido._id || ""),
+    mesaId: String(pedido.mesaId || ""),
+  });
+}
+
 async function criarPedidoComJobsAutomaticos(
   dados,
   tentativaCodigo = 0,
@@ -753,6 +763,7 @@ async function criarPedidoComJobsAutomaticos(
       [pedido] = await Pedido.create([dadosComToken], { session });
       await criarJobsAutomaticos(pedido, { session });
     });
+    notificarPedidoCriadoNoPainel(pedido);
     return anexarResultadoPublico(pedido, tokenAcompanhamento.token);
   } catch (error) {
     const colisaoIdempotencia = Number(error?.code) === 11000
@@ -793,6 +804,7 @@ async function criarPedidoComJobsAutomaticos(
       throw fallbackError;
     }
     await criarJobsAutomaticos(pedido);
+    notificarPedidoCriadoNoPainel(pedido);
     return anexarResultadoPublico(pedido, tokenAcompanhamento.token);
   } finally {
     await session.endSession();

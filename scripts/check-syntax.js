@@ -4,7 +4,7 @@ const { spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-const ROOTS = ["server.js", "route.js", "downloadAgenteRoute.js", "src", "scripts", "test"];
+const ROOTS = ["server.js", "route.js", "src", "scripts", "test"];
 const ignored = new Set(["node_modules", ".git", "public", "downloads"]);
 
 function collect(target, result = []) {

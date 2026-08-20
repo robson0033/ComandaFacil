@@ -392,6 +392,15 @@ route.get(
   permissaoQualquer('mesas', 'pedidos'),
   admin.resumoMesas
 );
+route.get(
+  '/admin/api/mesas/:id/qrcode',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissaoQualquer('mesas', 'pedidos'),
+  admin.qrCodeMesa
+);
+
 route.get('/admin/funcionarios', loginRequired, carregarAssinatura, assinaturaRequired, permissao('funcionarios'), redirectAdminSection('funcionarios'));
 route.get('/admin/estoque', loginRequired, carregarAssinatura, assinaturaRequired, permissao('estoque'), redirectAdminSection('estoque'));
 route.get('/admin/relatorios', loginRequired, carregarAssinatura, assinaturaRequired, permissao('relatorios'), redirectAdminSection('relatorios'));
