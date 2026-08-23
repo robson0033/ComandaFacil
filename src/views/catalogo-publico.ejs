@@ -5105,9 +5105,11 @@
   .success-card p, .rating-card p { color:#74645d; line-height:1.5; }
   .success-code { display:inline-flex; margin:8px 0 4px; padding:12px 18px; border-radius:14px; background:#fff4eb; color:#b8420d; font-size:1.35rem; letter-spacing:1px; }
   .success-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:20px; }
-  .success-actions button, .rating-actions button { min-height:48px; border:0; border-radius:14px; font-weight:900; cursor:pointer; }
+  .success-actions button, .success-actions a, .rating-actions button { min-height:48px; border:0; border-radius:14px; font-weight:900; cursor:pointer; }
+  .success-actions a { display:flex; align-items:center; justify-content:center; text-decoration:none; padding:0 14px; box-sizing:border-box; }
   .success-actions .primary, .rating-actions .primary { background:linear-gradient(135deg,#f4511e,#f57c00); color:#fff; }
   .success-actions .secondary, .rating-actions .secondary { background:#f4ece7; color:#4a2b20; }
+  .success-actions .whatsapp { grid-column:1/-1; background:#25d366; color:#fff; }
   .success-actions .full { grid-column:1/-1; }
   .rating-stars { display:flex; justify-content:center; gap:8px; margin:18px 0; }
   .rating-star-button { width:48px; height:48px; border:0; border-radius:14px; background:#f5eee9; color:#c8b5aa; font-size:28px; cursor:pointer; transition:.18s ease; }
@@ -5313,6 +5315,16 @@
     <div class="success-actions">
       <button type="button" class="primary" id="copyOrderCode">Copiar número</button>
       <button type="button" class="secondary" id="trackCreatedOrder">Acompanhar pedido</button>
+      <% if (whatsappLoja) { %>
+        <a
+          class="whatsapp"
+          id="sendOrderWhatsApp"
+          href="#"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Avisar o estabelecimento sobre este pedido pelo WhatsApp"
+        >Avisar pedido no WhatsApp</a>
+      <% } %>
       <button type="button" class="secondary full" id="closeOrderSuccess">Fechar</button>
     </div>
   </div>
@@ -5583,6 +5595,9 @@
   });
 
   const successDialog = document.querySelector('#orderSuccessDialog');
+  const whatsappLojaNumero = <%- safeJsonForHtml(whatsappLoja) %>;
+  const nomeEstabelecimentoWhatsApp = <%- safeJsonForHtml(configuracao.nomeEstabelecimento || 'estabelecimento') %>;
+  const sendOrderWhatsApp = document.querySelector('#sendOrderWhatsApp');
   let ultimoCodigoPublico = '';
   window.mostrarSucessoPedido = (codigo, aviso) => {
     ultimoCodigoPublico = String(codigo || '').toUpperCase();
@@ -5590,6 +5605,15 @@
     const warning = document.querySelector('#orderSuccessWarning');
     warning.textContent = String(aviso || '');
     warning.hidden = !aviso;
+
+    if (sendOrderWhatsApp && whatsappLojaNumero) {
+      const mensagemWhatsApp =
+        `Olá! Acabei de realizar o pedido #${ultimoCodigoPublico} pelo cardápio digital de ${nomeEstabelecimentoWhatsApp}. ` +
+        'Estou entrando em contato para confirmar o recebimento do pedido.';
+      sendOrderWhatsApp.href =
+        `https://wa.me/${whatsappLojaNumero}?text=${encodeURIComponent(mensagemWhatsApp)}`;
+    }
+
     successDialog.showModal();
   };
   document.querySelector('#copyOrderCode').addEventListener('click', async event => {
