@@ -3777,7 +3777,7 @@ exports.webhook = async (req, res) => {
     const authenticity = validateMercadoPagoWebhookWithConfiguredSecrets({
       signatureHeader: req.get("x-signature"),
       requestId: req.get("x-request-id"),
-      resourceId: data.signatureResourceId || data.resourceId,
+      resourceId: data.signatureResourceId,
     });
     signatureValid = true;
     const loaded = await loadWebhookResource(data);
