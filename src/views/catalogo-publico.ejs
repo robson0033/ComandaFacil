@@ -2024,6 +2024,16 @@
           </select>
         </div>
 
+        <div class="form-field full hidden" id="mesaConsumoField">
+          <label for="mesaConsumoId">
+            Mesa disponível
+          </label>
+          <select id="mesaConsumoId" name="mesaId">
+            <option value="">Selecione a mesa</option>
+          </select>
+          <small id="mesaConsumoStatus">Somente mesas livres aparecem aqui.</small>
+        </div>
+
         <div class="form-field full delivery-address-field" id="cidadeEntregaField">
           <label for="cidadeEntregaId">Cidade atendida</label>
           <select
@@ -2507,6 +2517,14 @@
 
     const canalPedido =
       document.querySelector("#canalPedido");
+
+    const mesaConsumoField =
+      document.querySelector("#mesaConsumoField");
+    const mesaConsumoId =
+      document.querySelector("#mesaConsumoId");
+    const mesaConsumoStatus =
+      document.querySelector("#mesaConsumoStatus");
+    let mesasDisponiveisCarregando = false;
 
     const cidadeEntregaId =
       document.querySelector("#cidadeEntregaId");
@@ -4491,10 +4509,72 @@
       }
     });
 
+    async function carregarMesasDisponiveis({ preservarSelecao = true } = {}) {
+      if (!mesaConsumoId || mesasDisponiveisCarregando) return;
+
+      const selecionadaAntes = preservarSelecao ? String(mesaConsumoId.value || "") : "";
+      mesasDisponiveisCarregando = true;
+      mesaConsumoId.disabled = true;
+      if (mesaConsumoStatus) mesaConsumoStatus.textContent = "Consultando mesas disponíveis...";
+
+      try {
+        const response = await fetch(
+          `/catalogo/${encodeURIComponent(storeSlug)}/mesas-disponiveis`,
+          { headers: { Accept: "application/json" }, cache: "no-store" },
+        );
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || result.success !== true) {
+          throw new Error(result.message || "Não foi possível consultar as mesas disponíveis.");
+        }
+
+        const mesas = Array.isArray(result.mesas) ? result.mesas : [];
+        mesaConsumoId.replaceChildren();
+
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = mesas.length
+          ? "Selecione a mesa"
+          : "Nenhuma mesa disponível";
+        mesaConsumoId.appendChild(placeholder);
+
+        for (const mesa of mesas) {
+          const option = document.createElement("option");
+          option.value = String(mesa.id || "");
+          const setor = String(mesa.setor || "").trim();
+          const capacidade = Math.max(1, Number(mesa.capacidade || 1));
+          option.textContent = `Mesa ${mesa.numero}${setor ? ` · ${setor}` : ""} · até ${capacidade} ${capacidade === 1 ? "pessoa" : "pessoas"}`;
+          mesaConsumoId.appendChild(option);
+        }
+
+        if (selecionadaAntes && mesas.some(mesa => String(mesa.id) === selecionadaAntes)) {
+          mesaConsumoId.value = selecionadaAntes;
+        }
+
+        if (mesaConsumoStatus) {
+          mesaConsumoStatus.textContent = mesas.length
+            ? `${mesas.length} ${mesas.length === 1 ? "mesa disponível" : "mesas disponíveis"}. Mesas ocupadas não são exibidas.`
+            : "No momento não há mesas livres. Aguarde uma mesa ser liberada.";
+        }
+      } catch (error) {
+        mesaConsumoId.replaceChildren();
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "Não foi possível carregar as mesas";
+        mesaConsumoId.appendChild(option);
+        if (mesaConsumoStatus) {
+          mesaConsumoStatus.textContent = error.message || "Não foi possível consultar as mesas disponíveis.";
+        }
+      } finally {
+        mesasDisponiveisCarregando = false;
+        mesaConsumoId.disabled = canalPedido?.value !== "balcao";
+      }
+    }
+
     function atualizarEndereco() {
       let delivery =
         canalPedido.value ===
         "delivery";
+      const consumirNoLocal = canalPedido.value === "balcao";
 
       if (delivery && !cidadesEntregaDisponiveis) {
         canalPedido.value = "retirada";
@@ -4516,6 +4596,17 @@
         [cidadeEntregaId, ruaEntrega, numeroEntrega, bairroEntrega, referenciaEntrega].forEach(input => {
           if (input) input.value = "";
         });
+      }
+
+      if (mesaConsumoField) mesaConsumoField.classList.toggle("hidden", !consumirNoLocal);
+      if (mesaConsumoId) {
+        mesaConsumoId.required = consumirNoLocal;
+        mesaConsumoId.disabled = !consumirNoLocal;
+        if (!consumirNoLocal) {
+          mesaConsumoId.value = "";
+        } else {
+          void carregarMesasDisponiveis();
+        }
       }
 
       atualizarResumoFinanceiroPedido();
@@ -4706,6 +4797,16 @@
           if (response.status < 500) pedidoIdempotencyKeyAtual = null;
           if (result.code === "LOJA_INDISPONIVEL") {
             bloquearLojaPublica();
+          }
+          if (["MESA_INDISPONIVEL", "MESA_OBRIGATORIA"].includes(String(result.code || ""))) {
+            canalPedido.value = "balcao";
+            if (mesaConsumoField) mesaConsumoField.classList.remove("hidden");
+            if (mesaConsumoId) {
+              mesaConsumoId.required = true;
+              mesaConsumoId.disabled = false;
+              mesaConsumoId.value = "";
+            }
+            await carregarMesasDisponiveis({ preservarSelecao: false });
           }
           if (result.code === "PRODUTO_INDISPONIVEL") {
             const invalidos = new Set(
@@ -4941,11 +5042,22 @@
         atualizarResumoFinanceiroPedido();
         if (!validarRegraEntregaAntesDoEnvio()) return;
 
+        if (canalPedido.value === "balcao" && !String(mesaConsumoId?.value || "").trim()) {
+          await carregarMesasDisponiveis({ preservarSelecao: false });
+          if (!String(mesaConsumoId?.value || "").trim()) {
+            formMessage.className = "form-message error";
+            formMessage.textContent = "Selecione uma mesa disponível para consumir no local.";
+            mesaConsumoId?.focus();
+            return;
+          }
+        }
+
         const formData = new FormData(orderForm);
         const payload = {
           cliente: String(formData.get("cliente") || "").trim(),
           telefone: String(formData.get("telefone") || "").trim(),
           canal: String(formData.get("canal") || ""),
+          mesaId: String(formData.get("mesaId") || "").trim(),
           cidadeEntregaId: String(formData.get("cidadeEntregaId") || "").trim(),
           ruaEntrega: String(formData.get("ruaEntrega") || "").trim(),
           numeroEntrega: String(formData.get("numeroEntrega") || "").trim(),

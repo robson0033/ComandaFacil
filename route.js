@@ -792,6 +792,7 @@ route.get(
 );
 
 route.get('/catalogo/:slug/produtos-status', admin.statusProdutosCatalogo);
+route.get('/catalogo/:slug/mesas-disponiveis', admin.mesasDisponiveisCatalogo);
 route.post('/catalogo/:slug/pedidos', respostaPedidoSemCache, limitePedidoCatalogo, limitePedidoCatalogoHora, anonymousSameOriginProtection, admin.criarPedidoCatalogo);
 route.post('/catalogo/:slug/pedidos/consultar', respostaPedidoSemCache, limiteConsultaPedidoPublico, admin.consultarPedidoPublico);
 route.post(

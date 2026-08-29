@@ -7759,6 +7759,54 @@ exports.statusProdutosCatalogo = async (req, res) => {
   }
 };
 
+exports.mesasDisponiveisCatalogo = async (req, res) => {
+  try {
+    const configuracao = await Configuracao.findOne({
+      slug: req.params.slug,
+    }).select(
+      "estabelecimentoId ativo bloqueado vendasBloqueadas",
+    ).lean();
+
+    if (!configuracao) {
+      return res.status(404).json({
+        success: false,
+        message: "Estabelecimento não encontrado.",
+      });
+    }
+
+    const acessoVenda = await consultarAcessoVenda({
+      estabelecimentoId: configuracao.estabelecimentoId,
+      estabelecimento: configuracao,
+    });
+    if (!acessoVenda.permitido) return respostaLojaIndisponivel(res);
+
+    const mesas = await Mesa.find({
+      estabelecimentoId: configuracao.estabelecimentoId,
+      status: "livre",
+    })
+      .select("_id numero capacidade setor")
+      .sort({ setor: 1, numero: 1 })
+      .lean();
+
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+    return res.json({
+      success: true,
+      mesas: mesas.map(mesa => ({
+        id: String(mesa._id),
+        numero: Number(mesa.numero),
+        capacidade: Math.max(1, Number(mesa.capacidade || 1)),
+        setor: String(mesa.setor || "Salão principal"),
+      })),
+    });
+  } catch (error) {
+    appLogger.error("Erro ao listar mesas disponíveis no catálogo:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Não foi possível consultar as mesas disponíveis.",
+    });
+  }
+};
+
 /*
 |--------------------------------------------------------------------------
 | MESA PÚBLICA
@@ -9285,6 +9333,9 @@ exports.criarPedidoCatalogo =
         "balcao",
       ];
 
+      const mesaConsumoId = String(req.body.mesaId || "").trim();
+      let pedidoIdempotenteMesaExistente = null;
+
       if (
         !cliente ||
         !telefone
@@ -9314,6 +9365,46 @@ exports.criarPedidoCatalogo =
           message:
             "Tipo de pedido inválido.",
         });
+      }
+
+      if (canal === "balcao" && !mongoose.isValidObjectId(mesaConsumoId)) {
+        return res.status(400).json({
+          success: false,
+          code: "MESA_OBRIGATORIA",
+          message: "Selecione uma mesa disponível para consumir no local.",
+        });
+      }
+
+      if (canal === "balcao") {
+        pedidoIdempotenteMesaExistente = await Pedido.findOne({
+          estabelecimentoId: configuracao.estabelecimentoId,
+          canal: "mesa",
+          idempotencyKey: validacaoPedido.idempotencyKey,
+        }).select("_id mesaId").lean();
+
+        if (pedidoIdempotenteMesaExistente) {
+          if (String(pedidoIdempotenteMesaExistente.mesaId || "") !== mesaConsumoId) {
+            return res.status(409).json({
+              success: false,
+              code: "IDEMPOTENCY_CONFLICT",
+              message: "A tentativa atual já foi usada para outra mesa. Atualize a página e tente novamente.",
+            });
+          }
+        } else {
+          const mesaDisponivel = await Mesa.exists({
+            _id: mesaConsumoId,
+            estabelecimentoId: configuracao.estabelecimentoId,
+            status: "livre",
+          });
+
+          if (!mesaDisponivel) {
+            return res.status(409).json({
+              success: false,
+              code: "MESA_INDISPONIVEL",
+              message: "Esta mesa não está mais disponível. Escolha outra mesa.",
+            });
+          }
+        }
       }
 
       if (
@@ -9896,8 +9987,37 @@ exports.criarPedidoCatalogo =
         });
       }
 
-      const pedido =
-        await printQueueService.criarPedidoComJobsAutomaticos({
+      const consumoNoLocal = canal === "balcao";
+      const canalPersistido = consumoNoLocal ? "mesa" : canal;
+      const mesaIdPedido = consumoNoLocal ? mesaConsumoId : null;
+      let mesaReservadaNestaTentativa = false;
+
+      if (consumoNoLocal) {
+        if (!pedidoIdempotenteMesaExistente) {
+          const mesaReservada = await Mesa.findOneAndUpdate(
+            {
+              _id: mesaConsumoId,
+              estabelecimentoId: configuracao.estabelecimentoId,
+              status: "livre",
+            },
+            { $set: { status: "ocupada" } },
+            { returnDocument: "after" },
+          ).select("_id").lean();
+
+          if (!mesaReservada) {
+            return res.status(409).json({
+              success: false,
+              code: "MESA_INDISPONIVEL",
+              message: "Esta mesa acabou de ser ocupada. Escolha outra mesa disponível.",
+            });
+          }
+          mesaReservadaNestaTentativa = true;
+        }
+      }
+
+      let pedido;
+      try {
+        pedido = await printQueueService.criarPedidoComJobsAutomaticos({
           estabelecimentoId:
             configuracao.estabelecimentoId,
 
@@ -9906,7 +10026,8 @@ exports.criarPedidoCatalogo =
           telefoneCliente: telefone,
           telefoneNormalizado,
 
-          canal,
+          canal: canalPersistido,
+          mesaId: mesaIdPedido,
           idempotencyKey: validacaoPedido.idempotencyKey,
 
           enderecoEntrega: canal === "delivery" ? enderecoEntrega : "",
@@ -9959,6 +10080,31 @@ exports.criarPedidoCatalogo =
                 )
               : null,
         });
+      } catch (error) {
+        if (mesaReservadaNestaTentativa && mesaIdPedido) {
+          try {
+            const pedidoCriado = await Pedido.exists({
+              estabelecimentoId: configuracao.estabelecimentoId,
+              canal: "mesa",
+              mesaId: mesaIdPedido,
+              idempotencyKey: validacaoPedido.idempotencyKey,
+            });
+            if (!pedidoCriado) {
+              await Mesa.updateOne(
+                {
+                  _id: mesaIdPedido,
+                  estabelecimentoId: configuracao.estabelecimentoId,
+                  status: "ocupada",
+                },
+                { $set: { status: "livre" } },
+              );
+            }
+          } catch (rollbackError) {
+            appLogger.error("Erro ao liberar mesa após falha no pedido público:", rollbackError);
+          }
+        }
+        throw error;
+      }
 
       const emailAviso = "";
 
@@ -9980,6 +10126,7 @@ exports.criarPedidoCatalogo =
           pedido.acompanhamentoTokenExpiraEm,
 
         canal,
+        mesaId: consumoNoLocal ? String(mesaIdPedido) : null,
         subtotalProdutos: Number(pedido.subtotalProdutos ?? subtotalProdutos),
         taxaEntregaCentavos: Number(pedido.taxaEntregaCentavos ?? taxaEntregaCentavos),
         total: Number(pedido.total ?? total),
