@@ -107,6 +107,7 @@ const mercadoPagoWebhookUrl = req => {
 function mercadoPagoWebhookSecretCandidates() {
   const candidates = [
     { source: "default", value: process.env.MERCADO_PAGO_WEBHOOK_SECRET },
+    { source: "previous", value: process.env.MERCADO_PAGO_WEBHOOK_SECRET_PREVIOUS },
     { source: "subscription", value: process.env.MERCADO_PAGO_SUBSCRIPTION_WEBHOOK_SECRET },
   ];
   const unique = new Set();
