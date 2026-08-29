@@ -29,6 +29,7 @@ const {
 } = require("../services/pedidoPublicoTokenService");
 const { baixarEstoqueDoPedido, restaurarEstoqueDoPedido } = require("../services/estoqueService");
 const printQueueService = require("../services/printQueueService");
+const adminRealtimeService = require("../services/adminRealtimeService");
 const mesaPixPaymentService = require("../services/mesaPixPaymentService");
 const {
   pedidoTemPixOnline,
@@ -2819,6 +2820,11 @@ async function processApprovedOrderPayment({
           registradoEm: new Date(),
         },
       } });
+      adminRealtimeService.publish(transitioned.estabelecimentoId, {
+        reason: "pix_parcial_aprovado",
+        pedidoId: String(transitioned._id || ""),
+        mesaId: String(transitioned.mesaId || ""),
+      });
       jobs = await printQueueService.criarJobsAutomaticos(transitioned);
     }
 
@@ -2878,6 +2884,11 @@ async function processApprovedOrderPayment({
         registradoEm: new Date(),
       },
     } });
+    adminRealtimeService.publish(transitioned.estabelecimentoId, {
+      reason: "pix_pagamento_aprovado",
+      pedidoId: String(transitioned._id || ""),
+      mesaId: String(transitioned.mesaId || ""),
+    });
     jobs = await printQueueService.criarJobsAutomaticos(transitioned);
   }
   const current = transitioned || await Pedido.findOne({

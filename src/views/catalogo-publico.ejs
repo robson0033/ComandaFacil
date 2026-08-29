@@ -4420,9 +4420,11 @@
 
     function pixPollingDelay() {
       const elapsed = Date.now() - pixPollingStartedAt;
-      if (elapsed < 30_000) return 2_000;
-      if (elapsed < 120_000) return 5_000;
-      return 10_000;
+      // Polling adaptativo para confirmar o Pix sem sobrecarregar o servidor
+      // nem consultar o Mercado Pago em intervalos desnecessariamente curtos.
+      if (elapsed < 60_000) return 4_000;
+      if (elapsed < 180_000) return 8_000;
+      return 15_000;
     }
 
     function schedulePixPolling(delay = pixPollingDelay()) {
@@ -4459,13 +4461,17 @@
           return;
         }
         if (statusResult.pagamentoStatus === "pago") {
+          const codigoPedidoPago = String(pixPollingContext.codigoPublico || "").toUpperCase();
           document.querySelector("#pixPaymentStatus").textContent = "✅ Pagamento aprovado.";
           const card = document.querySelector(`[data-public-order-code="${CSS.escape(pixPollingContext.codigoPublico)}"]`);
           const badge = card?.querySelector(".payment-status");
           if (badge) { badge.className = "customer-order-badge payment-status paid"; badge.textContent = "Pagamento: Pago"; }
           formMessage.className = "form-message success";
           formMessage.textContent = "Pagamento confirmado! Seu pedido foi enviado para a loja.";
-          setTimeout(closePixModal, 700);
+          setTimeout(() => {
+            closePixModal();
+            window.mostrarSucessoPedido?.(codigoPedidoPago, "", { finalizado: true });
+          }, 700);
           return;
         }
         if (statusResult.pixExpiracaoPendente
@@ -5424,7 +5430,7 @@
   <div class="success-card">
     <div class="success-icon">✓</div>
     <h2 id="orderSuccessTitle">Pedido realizado!</h2>
-    <p>Seu pedido foi enviado para o estabelecimento.</p>
+    <p id="orderSuccessMessage">Seu pedido foi enviado para o estabelecimento.</p>
     <strong class="success-code" id="orderSuccessCode"></strong>
     <p>Guarde este número para acompanhar o andamento.</p>
     <p id="orderSuccessWarning" hidden></p>
@@ -5720,9 +5726,18 @@
   const nomeEstabelecimentoWhatsApp = <%- safeJsonForHtml(configuracao.nomeEstabelecimento || 'estabelecimento') %>;
   const sendOrderWhatsApp = document.querySelector('#sendOrderWhatsApp');
   let ultimoCodigoPublico = '';
-  window.mostrarSucessoPedido = (codigo, aviso) => {
+  window.mostrarSucessoPedido = (codigo, aviso, opcoes = {}) => {
     ultimoCodigoPublico = String(codigo || '').toUpperCase();
     document.querySelector('#orderSuccessCode').textContent = `#${ultimoCodigoPublico}`;
+    const successTitle = document.querySelector('#orderSuccessTitle');
+    const successMessage = document.querySelector('#orderSuccessMessage');
+    if (opcoes?.finalizado) {
+      successTitle.textContent = 'Pedido finalizado!';
+      successMessage.textContent = 'Pagamento Pix confirmado. Seu pedido foi enviado para o estabelecimento.';
+    } else {
+      successTitle.textContent = 'Pedido realizado!';
+      successMessage.textContent = 'Seu pedido foi enviado para o estabelecimento.';
+    }
     const warning = document.querySelector('#orderSuccessWarning');
     warning.textContent = String(aviso || '');
     warning.hidden = !aviso;
