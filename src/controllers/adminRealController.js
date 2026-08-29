@@ -6638,6 +6638,10 @@ exports.obterPedidoParaImpressao = async (
       origem = "Delivery";
     }
 
+    if (pedido.canal === "balcao") {
+      origem = "Consumir no local";
+    }
+
     if (
       pedido.canal === "mesa" &&
       pedido.mesaId?.numero
@@ -9278,6 +9282,7 @@ exports.criarPedidoCatalogo =
       const canaisPermitidos = [
         "delivery",
         "retirada",
+        "balcao",
       ];
 
       if (

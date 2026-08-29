@@ -5188,9 +5188,11 @@
                       <% if (pedido.mesaId?.numero) { %>
                         Mesa <%= pedido.mesaId.numero %>
                       <% } else { %>
-                        <%= pedido.canal === 'retirada' || pedido.canal === 'balcao'
-                          ? 'Retirada no local'
-                          : (pedido.canal || '-')
+                        <%= pedido.canal === 'balcao'
+                          ? 'Consumir no local'
+                          : pedido.canal === 'retirada'
+                            ? 'Retirada no local'
+                            : (pedido.canal || '-')
                         %>
                       <% } %>
                     </td>
@@ -5588,13 +5590,16 @@
             origemIcone = '🍽️';
           }
 
-          if (
-            pedido.canal === 'balcao' ||
-            pedido.canal === 'retirada'
-          ) {
+          if (pedido.canal === 'retirada') {
             origemTexto = 'Retirada no local';
             origemClasse = 'retirada';
             origemIcone = '🏪';
+          }
+
+          if (pedido.canal === 'balcao') {
+            origemTexto = 'Consumir no local';
+            origemClasse = 'retirada';
+            origemIcone = '🍽️';
           }
 
           const telefoneWhatsapp = String(pedido.telefoneCliente || '').replace(/\D/g, '');

@@ -2017,6 +2017,10 @@
             <option value="retirada">
               Retirada no local
             </option>
+
+            <option value="balcao">
+              Consumir no local
+            </option>
           </select>
         </div>
 
@@ -5479,8 +5483,13 @@
       );
       payment.textContent =
         `Pagamento: ${paymentText(order.pagamentoStatus)}`;
-      card.querySelector('.customer-order-delivery span').textContent =
-        String(order.formaEntrega || 'Não informada');
+      const formaEntregaTexto = ({
+        delivery: 'Delivery',
+        retirada: 'Retirada no local',
+        balcao: 'Consumir no local',
+        mesa: 'Mesa'
+      })[String(order.formaEntrega || '').toLowerCase()] || String(order.formaEntrega || 'Não informada');
+      card.querySelector('.customer-order-delivery span').textContent = formaEntregaTexto;
       card.querySelector('.customer-order-message').textContent =
         String(order.mensagem || '');
       card.querySelector('.customer-order-total').textContent =

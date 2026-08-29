@@ -142,7 +142,7 @@ function montarStatusPedido(pedido) {
   const codigo = String(pedido.codigoPublico || pedido.codigoPublicoFinal || pedido._id || "")
     .trim()
     .slice(-12);
-  const canal = ({ delivery: "Delivery", retirada: "Retirada", balcao: "Retirada", mesa: "Mesa" })[pedido.canal] || "Pedido";
+  const canal = ({ delivery: "Delivery", retirada: "Retirada", balcao: "Consumir no local", mesa: "Mesa" })[pedido.canal] || "Pedido";
   const linhas = [
     `🍽️ Pedido${numero || codigo ? ` #${numero || codigo}` : ""}`,
   ];
