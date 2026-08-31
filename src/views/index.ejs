@@ -612,6 +612,87 @@
     #formCadastro .campo-input input { height: 48px; font-size: 13px; }
     #formCadastro .mostrar-senha { height: 48px; }
 
+    .login-site-footer {
+      position: relative;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      min-height: 88px;
+      padding: 20px 56px;
+      border-top: 1px solid #eee7e1;
+      background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(253,250,247,.98));
+      color: #6f7276;
+      font-size: 12.5px;
+      line-height: 1.55;
+    }
+
+    .login-site-footer__legal {
+      min-width: 0;
+    }
+
+    .login-site-footer__legal strong {
+      color: #30343a;
+      font-weight: 800;
+    }
+
+    .login-site-footer__company {
+      display: block;
+    }
+
+    .login-site-footer__meta {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px 10px;
+      margin-top: 2px;
+      color: #8a8c90;
+    }
+
+    .login-site-footer__meta span + span::before {
+      content: "•";
+      margin-right: 10px;
+      color: #d7c8bd;
+    }
+
+    .login-site-footer__links {
+      display: flex;
+      align-items: center;
+      flex: 0 0 auto;
+    }
+
+    .login-site-footer__links a {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 38px;
+      padding: 0 14px;
+      border: 1px solid #eadfd7;
+      border-radius: 11px;
+      background: #fff;
+      color: #5d6065;
+      font-weight: 750;
+      transition: border-color .2s ease, color .2s ease, transform .2s ease, box-shadow .2s ease;
+    }
+
+    .login-site-footer__links a:hover {
+      color: var(--orange);
+      border-color: #ffc69f;
+      box-shadow: 0 7px 18px rgba(255, 90, 0, .08);
+      transform: translateY(-1px);
+    }
+
+    .login-site-footer__links svg {
+      width: 16px;
+      height: 16px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
     @media (max-width: 1260px) {
       .page-shell { width: min(1180px, calc(100% - 28px)); }
       .topbar { padding-inline: 34px; }
@@ -635,6 +716,7 @@
       .hero-reference-image { width: min(860px, 100%); object-position: center bottom; }
       .auth-wrap { padding-top: 22px; }
       .auth-card { width: min(590px, 100%); }
+      .login-site-footer { padding-inline: 30px; }
     }
 
     @media (max-width: 720px) {
@@ -655,6 +737,19 @@
       .auth-header h2 { font-size: 32px; letter-spacing: -1.2px; }
       .duas-colunas { grid-template-columns: 1fr; gap: 0; }
       .login-options { align-items: flex-start; }
+      .login-site-footer {
+        min-height: 0;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 14px;
+        padding: 22px 18px 26px;
+        font-size: 12px;
+      }
+      .login-site-footer__links { width: 100%; }
+      .login-site-footer__links a { justify-content: center; width: 100%; }
+      .login-site-footer__meta { display: block; }
+      .login-site-footer__meta span { display: block; }
+      .login-site-footer__meta span + span::before { display: none; }
     }
 
     @media (max-width: 420px) {
@@ -852,7 +947,7 @@
 
             <label class="termos">
               <input type="checkbox" id="aceitarTermos" name="aceitarTermos" value="on" <%= typeof formData !== 'undefined' && formData.aceitarTermos ? 'checked' : '' %> required>
-              <span>Concordo com os <a href="/termos" target="_blank">Termos de Uso</a> e com a <a href="/privacidade" target="_blank">Política de Privacidade</a>.</span>
+              <span>Li e concordo com a <a href="/privacidade" target="_blank">Política de Privacidade</a>.</span>
             </label>
 
             <button type="submit" class="btn-principal">Criar minha conta</button>
@@ -865,6 +960,28 @@
         </div>
       </section>
     </main>
+
+    <footer class="login-site-footer" aria-label="Informações legais do ComandaFácil">
+      <div class="login-site-footer__legal">
+        <span class="login-site-footer__company">
+          <strong>ComandaFácil</strong> é operado por 68.827.755 WALTER CARLOS OLIVEIRA RODRIGUES
+        </span>
+        <div class="login-site-footer__meta">
+          <span>CNPJ: 68.827.755/0001-06</span>
+          <span>Bela Vista do Maranhão - MA</span>
+        </div>
+      </div>
+
+      <nav class="login-site-footer__links" aria-label="Links legais">
+        <a href="/privacidade" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3 5 6v5c0 4.6 2.8 7.9 7 10 4.2-2.1 7-5.4 7-10V6l-7-3Z"></path>
+            <path d="M9.5 12.2 11.2 14l3.6-4"></path>
+          </svg>
+          Política de Privacidade
+        </a>
+      </nav>
+    </footer>
   </div>
 
   <script nonce="<%= cspNonce %>">
@@ -936,7 +1053,7 @@
       const aceitarTermos = document.querySelector('#aceitarTermos');
       if (!aceitarTermos.checked) {
         event.preventDefault();
-        alert('Para criar a conta, aceite os Termos de Uso e a Política de Privacidade.');
+        alert('Para criar a conta, aceite a Política de Privacidade.');
         aceitarTermos.focus();
         return;
       }
