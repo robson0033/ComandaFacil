@@ -2129,6 +2129,62 @@
       gap: 16px;
     }
 
+    .catalog-filters {
+      display: grid;
+      grid-template-columns: minmax(220px, 1.5fr) minmax(180px, 0.8fr) minmax(150px, 0.55fr);
+      gap: 12px;
+      margin-bottom: 16px;
+      padding: 14px;
+      border: 1px solid var(--borda);
+      border-radius: 14px;
+      background: var(--cinza-50);
+    }
+
+    .catalog-filter-field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .catalog-filter-field label {
+      color: var(--cinza-700);
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .catalog-filter-field input,
+    .catalog-filter-field select {
+      width: 100%;
+      min-height: 42px;
+      padding: 9px 11px;
+      border: 1px solid var(--cinza-300);
+      border-radius: 10px;
+      background: #fff;
+      color: var(--cinza-900);
+    }
+
+    .catalog-filter-result {
+      grid-column: 1 / -1;
+      margin: 0;
+      color: var(--cinza-500);
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .catalog-filter-empty {
+      margin-bottom: 16px;
+      padding: 18px;
+      border: 1px dashed var(--cinza-300);
+      border-radius: 12px;
+      color: var(--cinza-500);
+      text-align: center;
+    }
+
+    @media (max-width: 760px) {
+      .catalog-filters {
+        grid-template-columns: 1fr;
+      }
+    }
+
     .product-card {
       overflow: hidden;
       border: 1px solid var(--borda);
@@ -3514,6 +3570,11 @@
       color: #177544;
     }
 
+    .category-badge.disabled {
+      background: #fde2e2;
+      color: #a32121;
+    }
+
     .category-summary-rule {
       color: var(--cinza-500);
       font-size: 12px;
@@ -3544,6 +3605,7 @@
     .category-edit-layout {
       display: flex;
       align-items: end;
+      flex-wrap: wrap;
       gap: 10px;
     }
 
@@ -3591,7 +3653,8 @@
       padding: 0;
     }
 
-    .category-delete-form {
+    .category-delete-form,
+    .category-status-form {
       margin: 0;
       flex: 0 0 auto;
     }
@@ -3713,6 +3776,7 @@
       }
 
       .category-edit-form .mini-button,
+      .category-status-form .mini-button,
       .category-delete-form .mini-button {
         width: 100%;
       }
@@ -6901,6 +6965,7 @@
           <div class="category-config-list">
             <% listaCategoriasCatalogo.forEach(categoria => {
               const categoriaPizza = categoria.tipoProduto === 'pizza';
+              const categoriaAtiva = categoria.ativo !== false;
               const variacoesCategoria = !categoriaPizza
                 && categoria.configuracaoVariacoes?.habilitado === true;
               const permiteMeioAMeio = categoriaPizza
@@ -6924,6 +6989,10 @@
 
                     <span class="category-badge <%= categoriaPizza ? 'pizza' : '' %>">
                       <%= categoriaPizza ? 'Pizza' : 'Normal' %>
+                    </span>
+
+                    <span class="category-badge <%= categoriaAtiva ? 'enabled' : 'disabled' %>">
+                      <%= categoriaAtiva ? 'Ativa' : 'Desativada' %>
                     </span>
 
                     <% if (permiteMeioAMeio) { %>
@@ -7171,6 +7240,24 @@
                     </form>
 
                     <form
+                      action="/admin/categorias/<%= categoria._id %>/status"
+                      method="POST"
+                      class="category-status-form"
+                      data-category-status-form
+                      data-category-name="<%= categoria.nome %>"
+                      data-category-activate="<%= categoriaAtiva ? 'false' : 'true' %>"
+                    >
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <input type="hidden" name="ativo" value="<%= categoriaAtiva ? 'false' : 'true' %>">
+                      <button
+                        type="submit"
+                        class="mini-button <%= categoriaAtiva ? 'delete' : 'edit' %>"
+                      >
+                        <%= categoriaAtiva ? 'Desativar categoria' : 'Ativar categoria' %>
+                      </button>
+                    </form>
+
+                    <form
                       action="/admin/categorias/<%= categoria._id %>/excluir"
                       method="POST"
                       class="category-delete-form confirmar-exclusao"
@@ -7206,6 +7293,47 @@
             </button>
           </div>
 
+          <% if (listaProdutos.length) { %>
+            <div class="catalog-filters" data-catalog-filters>
+              <div class="catalog-filter-field">
+                <label for="catalogProductSearch">Pesquisar produto</label>
+                <input
+                  id="catalogProductSearch"
+                  type="search"
+                  placeholder="Digite o nome ou a descrição"
+                  autocomplete="off"
+                  data-catalog-product-search
+                >
+              </div>
+
+              <div class="catalog-filter-field">
+                <label for="catalogCategoryFilter">Categoria</label>
+                <select id="catalogCategoryFilter" data-catalog-category-filter>
+                  <option value="">Todas as categorias</option>
+                  <% listaCategoriasCatalogo.forEach(categoria => { %>
+                    <option value="<%= categoria._id %>">
+                      <%= categoria.nome %><%= categoria.ativo === false ? ' (desativada)' : '' %>
+                    </option>
+                  <% }) %>
+                </select>
+              </div>
+
+              <div class="catalog-filter-field">
+                <label for="catalogStatusFilter">Status</label>
+                <select id="catalogStatusFilter" data-catalog-status-filter>
+                  <option value="">Todos</option>
+                  <option value="ativo">Ativos</option>
+                  <option value="inativo">Inativos</option>
+                </select>
+              </div>
+
+              <p class="catalog-filter-result" aria-live="polite" data-catalog-filter-result></p>
+            </div>
+            <div class="catalog-filter-empty hidden" data-catalog-filter-empty>
+              Nenhum produto corresponde aos filtros selecionados.
+            </div>
+          <% } %>
+
           <div class="catalog-grid">
             <% if (!listaProdutos.length) { %>
               <div class="empty">
@@ -7217,6 +7345,9 @@
               <article
                 class="product-card"
                 data-product-card="<%= produto._id %>"
+                data-product-name="<%= `${produto.nome || ''} ${produto.descricao || ''}` %>"
+                data-product-category-id="<%= String(produto.categoriaId?._id || '') %>"
+                data-product-status="<%= produto.ativo ? 'ativo' : 'inativo' %>"
               >
                 <div class="product-cover">
                   <% if (produto.imagem) { %>
@@ -7263,7 +7394,9 @@
                     >
                       <%= produto.ativo
                         ? 'Ativo'
-                        : 'Inativo'
+                        : produto.desativadoPorCategoria
+                          ? 'Inativo pela categoria'
+                          : 'Inativo'
                       %>
                     </span>
                   </div>
@@ -9172,7 +9305,7 @@
 
             <% listaCategoriasCatalogo.forEach(categoria => { %>
               <option value="<%= categoria._id %>">
-                <%= categoria.nome %>
+                <%= categoria.nome %><%= categoria.ativo === false ? ' (desativada)' : '' %>
               </option>
             <% }) %>
           </select>
@@ -9350,7 +9483,7 @@
                     : ''
                   %>
                 >
-                  <%= categoria.nome %>
+                  <%= categoria.nome %><%= categoria.ativo === false ? ' (desativada)' : '' %>
                 </option>
               <% }) %>
             </select>
@@ -11213,6 +11346,71 @@
           }
         });
       });
+
+    document
+      .querySelectorAll('[data-category-status-form]')
+      .forEach(form => {
+        form.addEventListener('submit', event => {
+          const categoriaNome = String(form.dataset.categoryName || 'esta categoria');
+          const ativar = form.dataset.categoryActivate === 'true';
+          const mensagem = ativar
+            ? `Ativar a categoria “${categoriaNome}”? Os produtos desativados junto com ela voltarão a ficar ativos.`
+            : `Desativar a categoria “${categoriaNome}”? Todos os produtos ativos desta categoria ficarão inativos.`;
+
+          if (!window.confirm(mensagem)) {
+            event.preventDefault();
+          }
+        });
+      });
+
+    const catalogProductSearch = document.querySelector('[data-catalog-product-search]');
+    const catalogCategoryFilter = document.querySelector('[data-catalog-category-filter]');
+    const catalogStatusFilter = document.querySelector('[data-catalog-status-filter]');
+    const catalogFilterResult = document.querySelector('[data-catalog-filter-result]');
+    const catalogFilterEmpty = document.querySelector('[data-catalog-filter-empty]');
+
+    function normalizarBuscaCatalogo(value) {
+      return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase('pt-BR')
+        .trim();
+    }
+
+    function filtrarProdutosCatalogoAdmin() {
+      const cards = [...document.querySelectorAll('[data-product-card]')];
+      if (!cards.length) return;
+
+      const busca = normalizarBuscaCatalogo(catalogProductSearch?.value);
+      const categoriaId = String(catalogCategoryFilter?.value || '');
+      const status = String(catalogStatusFilter?.value || '');
+      let quantidadeVisivel = 0;
+
+      cards.forEach(card => {
+        const correspondeBusca = !busca
+          || normalizarBuscaCatalogo(card.dataset.productName).includes(busca);
+        const correspondeCategoria = !categoriaId
+          || card.dataset.productCategoryId === categoriaId;
+        const correspondeStatus = !status
+          || card.dataset.productStatus === status;
+        const visivel = correspondeBusca && correspondeCategoria && correspondeStatus;
+
+        card.hidden = !visivel;
+        if (visivel) quantidadeVisivel += 1;
+      });
+
+      if (catalogFilterResult) {
+        catalogFilterResult.textContent = quantidadeVisivel === 1
+          ? '1 produto encontrado'
+          : `${quantidadeVisivel} produtos encontrados`;
+      }
+      catalogFilterEmpty?.classList.toggle('hidden', quantidadeVisivel !== 0);
+    }
+
+    catalogProductSearch?.addEventListener('input', filtrarProdutosCatalogoAdmin);
+    catalogCategoryFilter?.addEventListener('change', filtrarProdutosCatalogoAdmin);
+    catalogStatusFilter?.addEventListener('change', filtrarProdutosCatalogoAdmin);
+    filtrarProdutosCatalogoAdmin();
 
     const funcionarioFuncao =
       document.querySelector('#funcionarioFuncao');
@@ -14090,6 +14288,7 @@ if (podeReceberNotificacoes) {
         document.querySelector(
           `[data-product-card="${CSS.escape(produtoId)}"]`
         )?.remove();
+        filtrarProdutosCatalogoAdmin();
         window.location.hash = '#catalogo';
         window.alert(payload.message || 'Produto excluído permanentemente.');
       } catch (error) {

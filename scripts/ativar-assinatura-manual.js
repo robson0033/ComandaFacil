@@ -5,6 +5,7 @@ require("dotenv").config();
 const crypto = require("crypto");
 const mongoose = require("mongoose");
 const { registroModel } = require("../src/models/registroModel");
+const { PLAN_CODES } = require("../src/config/plans");
 const {
   Assinatura,
   AssinaturaTentativa,
@@ -36,6 +37,7 @@ async function main() {
   const apply = process.argv.includes("--apply");
   const force = process.argv.includes("--force");
   const days = Number(argValue("--dias", "30"));
+  const planCode = String(argValue("--plano", PLAN_CODES.PROFISSIONAL)).trim().toLowerCase();
   const reason = String(argValue("--motivo", "ativacao_manual_admin")).trim().slice(0, 120);
 
   if (!email || !email.includes("@")) {
@@ -45,6 +47,9 @@ async function main() {
   }
   if (!Number.isInteger(days) || days < 1 || days > 365) {
     throw new Error("--dias deve ser um número inteiro entre 1 e 365.");
+  }
+  if (![PLAN_CODES.PROFISSIONAL, PLAN_CODES.GESTAO_COMPLETA].includes(planCode)) {
+    throw new Error("--plano deve ser profissional ou gestao_completa.");
   }
   if (!process.env.CONNECTIONSTRING) {
     throw new Error("CONNECTIONSTRING não está configurada no ambiente.");
@@ -66,6 +71,7 @@ async function main() {
   const current = subscription ? {
     status: subscription.status,
     metodo: subscription.metodo,
+    planoCodigo: subscription.planoCodigo || PLAN_CODES.PROFISSIONAL,
     planoInicio: iso(subscription.planoInicio),
     planoExpira: iso(subscription.planoExpira),
     ultimoPagamentoAprovadoId: subscription.ultimoPagamentoAprovadoId || "",
@@ -105,6 +111,7 @@ async function main() {
   console.log("\n=== ATIVAÇÃO PROPOSTA ===");
   console.log(JSON.stringify({
     status: "ativa",
+    planoCodigo: planCode,
     inicio: now.toISOString(),
     expira: expiresAt.toISOString(),
     dias: days,
@@ -152,6 +159,7 @@ async function main() {
   // Não afirma que o Mercado Pago aprovou um pagamento real. O prefixo
   // manual_admin deixa claro que é uma concessão administrativa interna.
   subscription.status = "ativa";
+  subscription.planoCodigo = planCode;
   subscription.planoInicio = currentNow;
   subscription.planoExpira = addDays(currentNow, days);
   subscription.proximaCobranca = null;
@@ -195,6 +203,7 @@ async function main() {
     email: user.email,
     estabelecimento: user.nomeEstabelecimento,
     status: finalSubscription.status,
+    planoCodigo: finalSubscription.planoCodigo || PLAN_CODES.PROFISSIONAL,
     planoInicio: iso(finalSubscription.planoInicio),
     planoExpira: iso(finalSubscription.planoExpira),
     marcadorManual: finalSubscription.ultimoPagamentoAprovadoId,

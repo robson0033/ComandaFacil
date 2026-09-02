@@ -3943,6 +3943,106 @@ exports.criarCategoria = async (
   }
 };
 
+exports.alterarStatusCategoria = async (
+  req,
+  res,
+) => {
+  try {
+    const idEstabelecimento = estabelecimentoId(req);
+    const categoriaId = String(req.params.id || "").trim();
+
+    if (!mongoose.isValidObjectId(categoriaId)) {
+      return erroERedirecionar(
+        req,
+        res,
+        "catalogo",
+        "Categoria inválida.",
+      );
+    }
+
+    const categoria = await Categoria.findOne({
+      _id: categoriaId,
+      estabelecimentoId: idEstabelecimento,
+      tipo: "catalogo",
+    });
+
+    if (!categoria) {
+      return erroERedirecionar(
+        req,
+        res,
+        "catalogo",
+        "Categoria não encontrada.",
+      );
+    }
+
+    const ativar = valorBooleanoFormulario(req.body.ativo);
+    const usuarioId = req.session?.user?.id || req.session?.user?._id || null;
+    let resultadoProdutos;
+
+    if (ativar) {
+      resultadoProdutos = await Produto.updateMany(
+        {
+          estabelecimentoId: idEstabelecimento,
+          categoriaId: categoria._id,
+          desativadoPorCategoria: true,
+        },
+        {
+          $set: {
+            ativo: true,
+            desativadoPorCategoria: false,
+          },
+        },
+      );
+
+      categoria.ativo = true;
+      categoria.desativadoEm = null;
+      categoria.desativadoPor = null;
+      await categoria.save();
+    } else {
+      resultadoProdutos = await Produto.updateMany(
+        {
+          estabelecimentoId: idEstabelecimento,
+          categoriaId: categoria._id,
+          ativo: true,
+        },
+        {
+          $set: {
+            ativo: false,
+            desativadoPorCategoria: true,
+          },
+        },
+      );
+
+      categoria.ativo = false;
+      categoria.desativadoEm = new Date();
+      categoria.desativadoPor = usuarioId;
+      await categoria.save();
+    }
+
+    const quantidadeProdutos = Number(resultadoProdutos?.modifiedCount || 0);
+    const acao = ativar ? "ativada" : "desativada";
+    const detalheProdutos = quantidadeProdutos === 1
+      ? "1 produto foi atualizado."
+      : `${quantidadeProdutos} produtos foram atualizados.`;
+
+    return salvarERedirecionar(
+      req,
+      res,
+      "catalogo",
+      `Categoria ${acao}. ${detalheProdutos}`,
+    );
+  } catch (error) {
+    appLogger.error(error);
+
+    return erroERedirecionar(
+      req,
+      res,
+      "catalogo",
+      "Não foi possível alterar o status da categoria.",
+    );
+  }
+};
+
 exports.excluirCategoria = async (
   req,
   res,
@@ -4372,6 +4472,9 @@ exports.criarProduto = async (
       idEstabelecimento,
       "produtos",
     );
+    const produtoSolicitadoAtivo = req.body.ativo === "on";
+    const categoriaAtiva = categoriaValida.ativo !== false;
+
     await Produto.create({
       estabelecimentoId:
         idEstabelecimento,
@@ -4392,8 +4495,8 @@ exports.criarProduto = async (
       fichaTecnica,
       adicionais:
         normalizarAdicionais(req.body),
-      ativo:
-        req.body.ativo === "on",
+      ativo: produtoSolicitadoAtivo && categoriaAtiva,
+      desativadoPorCategoria: produtoSolicitadoAtivo && !categoriaAtiva,
       imagem: novaImagem?.url || "",
       imagemArquivo: novaImagem,
     });
@@ -4525,8 +4628,10 @@ exports.editarProduto = async (
     produto.adicionais =
       normalizarAdicionais(req.body);
 
-    produto.ativo =
-      req.body.ativo === "on";
+    const produtoSolicitadoAtivo = req.body.ativo === "on";
+    const categoriaAtiva = categoriaValida.ativo !== false;
+    produto.ativo = produtoSolicitadoAtivo && categoriaAtiva;
+    produto.desativadoPorCategoria = produtoSolicitadoAtivo && !categoriaAtiva;
 
     if (req.file) {
       imagemAntiga = produto.imagemArquivo?.toObject?.()
@@ -8081,11 +8186,18 @@ exports.criarPedidoMesa = async (
       ? await Categoria.find({
           estabelecimentoId: mesa.estabelecimentoId,
           tipo: "catalogo",
+          ativo: { $ne: false },
         }).lean()
       : [];
     const categoriasMesaMap = new Map(
       categoriasMesa.map(categoria => [String(categoria._id), categoria]),
     );
+    for (const produto of produtos) {
+      const categoriaId = String(produto.categoriaId || "");
+      if (categoriaId && !categoriasMesaMap.has(categoriaId)) {
+        produtosMap.delete(String(produto._id));
+      }
+    }
     const idsCategoriasPrecoMesa = [
       ...new Set([
         ...idsCategoriasMesa,
@@ -9514,6 +9626,7 @@ exports.criarPedidoCatalogo =
         ? await Categoria.find({
             estabelecimentoId: configuracao.estabelecimentoId,
             tipo: "catalogo",
+            ativo: { $ne: false },
           }).lean()
         : [];
       const categoriasMap = new Map(
@@ -9582,7 +9695,11 @@ exports.criarPedidoCatalogo =
         new Map(
           produtos
             .filter(produto =>
-              !produtosComIngredienteIndisponivel.has(String(produto._id)),
+              !produtosComIngredienteIndisponivel.has(String(produto._id))
+              && (
+                !produto.categoriaId
+                || categoriasMap.has(String(produto.categoriaId))
+              ),
             )
             .map(
             (produto) => [

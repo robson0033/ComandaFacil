@@ -39,6 +39,12 @@ const Categoria = mongoose.model(
       ...base,
       nome: { type: String, required: true, trim: true },
       tipo: { type: String, enum: ["estoque", "catalogo"], required: true },
+      ativo: { type: Boolean, default: true, index: true },
+      desativadoEm: { type: Date, default: null },
+      desativadoPor: {
+        type: mongoose.Schema.Types.ObjectId,
+        default: null,
+      },
       tipoProduto: {
         type: String,
         enum: ["normal", "pizza"],
@@ -288,6 +294,7 @@ const Produto = mongoose.model(
       },
 
       ativo: { type: Boolean, default: true },
+      desativadoPorCategoria: { type: Boolean, default: false },
     },
     opts,
   ),

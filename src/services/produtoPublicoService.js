@@ -46,18 +46,22 @@ async function buscarProdutosPublicosDoEstabelecimento(
     .select(
       "nome descricao categoriaId preco imagem adicionais precosPizza precosVariacoes",
     )
-    .populate(
-      "categoriaId",
-      "nome tipo tipoProduto configuracaoPizza configuracaoVariacoes",
-    )
+    .populate({
+      path: "categoriaId",
+      match: { ativo: { $ne: false } },
+      select: "nome tipo tipoProduto configuracaoPizza configuracaoVariacoes",
+    })
     .sort({ nome: 1, _id: 1 })
     .lean();
 
-  return uniqueProductsById(products, {
-    estabelecimentoId,
-    source,
-    logger,
-  });
+  return uniqueProductsById(
+    products.filter(product => product.categoriaId),
+    {
+      estabelecimentoId,
+      source,
+      logger,
+    },
+  );
 }
 
 module.exports = {

@@ -522,6 +522,15 @@ route.post(
   admin.excluirCategoria
 );
 
+route.post(
+  '/admin/categorias/:id/status',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissaoCategoria,
+  admin.alterarStatusCategoria
+);
+
 /*
 |--------------------------------------------------------------------------
 | ESTOQUE

@@ -674,6 +674,35 @@
       margin-top: 7px;
     }
 
+    .cart-item-note-label {
+      display: grid;
+      gap: 6px;
+      margin-top: 10px;
+      color: #f1d2c3;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .cart-item-note {
+      width: 100%;
+      min-height: 42px;
+      padding: 10px 11px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 11px;
+      background: rgba(0, 0, 0, 0.18);
+      color: #fff;
+      outline: none;
+    }
+
+    .cart-item-note::placeholder {
+      color: #c8aaa0;
+    }
+
+    .cart-item-note:focus {
+      border-color: var(--orange);
+      box-shadow: 0 0 0 3px rgba(255, 115, 0, 0.16);
+    }
+
     .qty-box {
       display: inline-flex;
       align-items: center;
@@ -2431,6 +2460,7 @@
       maxTotalQuantity: 200,
       maxQuantityPerItem: 99,
       maxAdditionsPerItem: 20,
+      itemNote: 300,
     });
 
     const horarioAbertura =
@@ -3246,6 +3276,14 @@
         if (!Array.isArray(cart)) {
           cart = [];
         }
+
+        cart = cart.map(item => ({
+          ...item,
+          observacao: String(item?.observacao || '').slice(
+            0,
+            PUBLIC_ORDER_LIMITS.itemNote,
+          ),
+        }));
       } catch {
         cart = [];
       }
@@ -3444,7 +3482,7 @@
         element.className =
           "cart-item";
 
-        element.innerHTML = '<div class="cart-thumb"></div><div><h3 class="cart-name"></h3><div class="cart-price"></div><div class="cart-pizza-flavors"></div><div class="cart-addons"></div><div class="cart-actions"><div class="qty-box"><button type="button" class="qty-btn" data-action="decrease">−</button><span class="qty-number"></span><button type="button" class="qty-btn" data-action="increase">+</button></div><button type="button" class="remove-btn" data-action="remove" aria-label="Remover">×</button></div></div>';
+        element.innerHTML = '<div class="cart-thumb"></div><div><h3 class="cart-name"></h3><div class="cart-price"></div><div class="cart-pizza-flavors"></div><div class="cart-addons"></div><div class="cart-actions"><div class="qty-box"><button type="button" class="qty-btn" data-action="decrease">−</button><span class="qty-number"></span><button type="button" class="qty-btn" data-action="increase">+</button></div><button type="button" class="remove-btn" data-action="remove" aria-label="Remover">×</button></div><label class="cart-item-note-label"><span>Observação deste item</span><input type="text" class="cart-item-note" maxlength="300" placeholder="Ex.: sem cebola"></label></div>';
         const imageUrl = urlImagemSegura(item.image);
         const thumb = element.querySelector('.cart-thumb');
         if (imageUrl) {
@@ -3490,6 +3528,18 @@
           String(Number(item.quantity) || 0);
         element.querySelectorAll('[data-action]').forEach(button => {
           button.dataset.id = String(item.cartId || item.id || '');
+        });
+        const itemNote = element.querySelector('.cart-item-note');
+        itemNote.value = String(item.observacao || '').slice(
+          0,
+          PUBLIC_ORDER_LIMITS.itemNote,
+        );
+        itemNote.addEventListener('input', event => {
+          item.observacao = String(event.target.value || '').slice(
+            0,
+            PUBLIC_ORDER_LIMITS.itemNote,
+          );
+          saveCart();
         });
 
         cartList.appendChild(element);
@@ -3857,7 +3907,8 @@
           ...product,
           cartId,
           adicionais,
-          quantity: 1
+          quantity: 1,
+          observacao: ""
         });
       }
 
@@ -5093,7 +5144,10 @@
             adicionais: (item.adicionais || []).map(adicional => ({
               _id: adicional._id
             })),
-            observacao: String(item.observacao || "")
+            observacao: String(item.observacao || "").slice(
+              0,
+              PUBLIC_ORDER_LIMITS.itemNote,
+            )
           }))
         };
 
