@@ -5183,19 +5183,8 @@ exports.pagarContaMesa = async (
 
     // Pix informado na mesa é somente um registro manual da forma de pagamento.
     // Não cria cobrança, QR Code nem pagamento no Mercado Pago.
-    const pixMesaAtivo = await MesaPaymentAttempt.exists({
-      estabelecimentoId: idEstabelecimento,
-      mesaId: mesa._id,
-      ativa: true,
-    });
-    if (pixMesaAtivo) {
-      return erroERedirecionar(
-        req,
-        res,
-        secaoRetorno,
-        "Existe um Pix ativo para esta mesa. Cancele ou aguarde a confirmação antes de escolher outra forma de pagamento.",
-      );
-    }
+    // Tentativas antigas do fluxo Pix da mesa não podem mais bloquear o
+    // fechamento manual da conta depois que esse recurso foi desativado.
 
     const pedidosPendentes = await Pedido.find({
       estabelecimentoId: idEstabelecimento,
@@ -5227,8 +5216,61 @@ exports.pagarContaMesa = async (
       });
     }
 
+    // Libera a mesa imediatamente depois que todos os pedidos foram marcados
+    // como pagos. A limpeza de tentativas antigas não pode impedir a liberação.
     mesa.status = "livre";
     await mesa.save();
+
+    // Limpa somente tentativas legadas que ficaram ativas no banco antes da
+    // remoção do Pix online da mesa. Se essa limpeza auxiliar falhar, a conta
+    // permanece paga e a mesa continua livre.
+    try {
+      const tentativasPixLegadas = await MesaPaymentAttempt.find({
+        estabelecimentoId: idEstabelecimento,
+        mesaId: mesa._id,
+        ativa: true,
+      })
+        .select("_id")
+        .lean();
+
+      if (tentativasPixLegadas.length) {
+        const tentativaIds = tentativasPixLegadas.map((item) => item._id);
+        const encerradoEm = new Date();
+
+        await MesaPaymentAttempt.updateMany(
+          { _id: { $in: tentativaIds }, ativa: true },
+          {
+            $set: {
+              ativa: false,
+              status: "cancelled",
+              cancelledAt: encerradoEm,
+              cancelledBy: req.session.user.id,
+              reconciliationStatus: "processed",
+              reconciliationReason: "mesa_pix_disabled_manual_payment",
+              remoteCancellationStatus: "local_feature_disabled",
+            },
+          },
+        );
+
+        await PrintJob.updateMany(
+          {
+            mesaPaymentAttemptId: { $in: tentativaIds },
+            status: { $in: ["pendente", "aguardando_retry", "recebido"] },
+          },
+          {
+            $set: {
+              status: "cancelado",
+              erro: "Pix da mesa desativado; conta registrada manualmente.",
+            },
+          },
+        );
+      }
+    } catch (cleanupError) {
+      appLogger.warn("mesa_pix_legacy_cleanup_failed", {
+        mesaIdSuffix: String(mesa._id).slice(-8),
+        code: String(cleanupError?.code || "MESA_PIX_LEGACY_CLEANUP_FAILED"),
+      });
+    }
 
     return salvarERedirecionar(
       req,
@@ -8097,18 +8139,6 @@ exports.criarPedidoMesa = async (
           "Mesa não encontrada.",
       });
     }
-    const pixMesaAtivo = await MesaPaymentAttempt.exists({
-      estabelecimentoId: mesa.estabelecimentoId,
-      mesaId: mesa._id,
-      ativa: true,
-    });
-    if (pixMesaAtivo) {
-      return res.status(409).json({
-        success: false,
-        code: "MESA_PIX_PAYMENT_ACTIVE",
-        message: "Esta mesa está aguardando a confirmação do Pix. Não é possível adicionar novos pedidos agora.",
-      });
-    }
     const configuracao = await Configuracao.findOne({
       estabelecimentoId: mesa.estabelecimentoId,
     }).lean();
@@ -8506,19 +8536,6 @@ exports.solicitarRemocaoPedidoMesa = async (req, res) => {
         success: false,
         code: "MESA_NAO_ENCONTRADA",
         message: "Mesa não encontrada.",
-      });
-    }
-
-    const pixMesaAtivo = await MesaPaymentAttempt.exists({
-      estabelecimentoId: mesa.estabelecimentoId,
-      mesaId: mesa._id,
-      ativa: true,
-    });
-    if (pixMesaAtivo) {
-      return res.status(409).json({
-        success: false,
-        code: "MESA_PIX_PAYMENT_ACTIVE",
-        message: "Esta mesa está aguardando a confirmação do Pix. Cancele o Pix antes de solicitar troca ou remoção.",
       });
     }
 
