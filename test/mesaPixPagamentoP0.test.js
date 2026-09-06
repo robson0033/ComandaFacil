@@ -9,154 +9,57 @@ function read(relative) {
   return fs.readFileSync(path.resolve(__dirname, "..", relative), "utf8");
 }
 
-test("Pix da mesa possui tentativa própria e unicidade ativa por loja/mesa", () => {
-  const source = read("src/models/painelModels.js");
-  assert.match(source, /const mesaPaymentAttemptSchema = new mongoose\.Schema/);
-  assert.match(source, /mesa_payment_active_unique/);
-  assert.match(source, /partialFilterExpression:\s*\{ ativa: true \}/);
-  assert.match(source, /const MesaPaymentAttempt = mongoose\.model\("MesaPaymentAttempt"/);
-  assert.match(source, /mesaPaymentAttemptId/);
-  assert.match(source, /expectedTableAmount/);
-  assert.match(source, /paymentMode/);
-  assert.match(source, /paymentPlan/);
-  assert.match(source, /"pix_mesa"/);
+test("Pix da mesa fica disponível apenas como registro manual", () => {
+  const controller = read("src/controllers/adminRealController.js");
+  const view = read("src/views/admin-real.ejs");
+
+  assert.match(controller, /Pix informado na mesa é somente um registro manual da forma de pagamento/);
+  assert.doesNotMatch(controller, /formasPixMesaSolicitadas/);
+  assert.doesNotMatch(controller, /O Pix da mesa precisa ser confirmado pelo Mercado Pago/);
+
+  // Pix continua selecionável para registrar a forma recebida e alimentar dashboard/relatórios.
+  assert.match(view, /<option value="pix">\s*Pix\s*<\/option>/);
+  assert.match(view, /painelDashboard\.formasPagamento\?\.pix/);
 });
 
-test("rotas Pix da mesa exigem sessão, assinatura e permissão", () => {
-  const source = read("route.js");
-  for (const fragment of [
-    "'/admin/mesas/:id/pix'",
-    "'/admin/mesas/:id/pix/status'",
-    "'/admin/mesas/:id/pix/cancelar'",
-  ]) assert.match(source, new RegExp(fragment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-  assert.match(source, /mesaPix\.gerar/);
-  assert.match(source, /mesaPix\.status/);
-  assert.match(source, /mesaPix\.cancelar/);
-  assert.match(source, /permissaoQualquer\('mesas', 'pedidos'\)/);
+test("rota antiga de criação de Pix da mesa está desativada e não gera QR Code", () => {
+  const route = read("route.js");
+
+  assert.match(route, /'\/admin\/mesas\/:id\/pix'/);
+  assert.match(route, /MESA_PIX_DISABLED/);
+  assert.match(route, /Nenhum QR Code é gerado/);
+  assert.doesNotMatch(route, /mesaPix\.gerar/);
+
+  // Rotas de status/cancelamento permanecem apenas para tentativas legadas já existentes.
+  assert.match(route, /mesaPix\.status/);
+  assert.match(route, /mesaPix\.cancelar/);
 });
 
-test("Pix não pode marcar mesa como paga pelo POST manual antigo", () => {
-  const source = read("src/controllers/adminRealController.js");
-  assert.match(source, /formasPixMesaSolicitadas/);
-  assert.match(source, /formasPixMesaSolicitadas\.includes\("pix"\)/);
-  assert.match(source, /O Pix da mesa precisa ser confirmado pelo Mercado Pago/);
-  assert.match(source, /Pagamento combinado com Pix ainda não pode ser confirmado manualmente/);
-  assert.match(source, /MesaPaymentAttempt\.exists/);
+test("painel não abre modal nem chama fluxo online de Pix da mesa", () => {
+  const view = read("src/views/admin-real.ejs");
+
+  assert.doesNotMatch(view, /id="modalPixMesa"/);
+  assert.doesNotMatch(view, /function montarPayloadPixMesa\(form\)/);
+  assert.doesNotMatch(view, /function iniciarPixMesa\(/);
+  assert.doesNotMatch(view, /\/admin\/mesas\/\$\{encodeURIComponent\(mesaId\)\}\/pix/);
+  assert.doesNotMatch(view, /QR Code impresso\. Aguardando o pagamento/);
 });
 
-test("conta fica imutável enquanto existir Pix ativo", () => {
-  const source = read("src/controllers/adminRealController.js");
-  assert.match(source, /MESA_PIX_PAYMENT_ACTIVE/g);
-  assert.match(source, /Não é possível adicionar novos pedidos agora/);
-  assert.match(source, /Cancele o Pix antes de solicitar troca ou remoção/);
+test("Pix manual e Pix online continuam consolidados no Dashboard", () => {
+  const controller = read("src/controllers/adminRealController.js");
+  const view = read("src/views/admin-real.ejs");
+
+  assert.match(controller, /method === "pix" \|\| method === "pix_online"/);
+  assert.match(view, /Recebimentos por forma de pagamento/);
+  assert.match(view, /Valor registrado em Pix no período/);
 });
 
-test("cobrança usa token OAuth da loja, valor do servidor, application_fee e idempotência", () => {
-  const source = read("src/services/mesaPixPaymentService.js");
-  assert.match(source, /accessTokenCriptografado/);
-  assert.match(source, /X-Idempotency-Key/);
-  assert.match(source, /application_fee:\s*centsToDecimal\(attempt\.platformFeeCents\)/);
-  assert.match(source, /prepararPlanoPixMesa/);
-  assert.match(source, /const amount = plano\.pixCentavos \/ 100/);
-  assert.match(source, /transaction_amount:\s*amount/);
-  assert.match(source, /pedidoIds/);
-  assert.match(source, /expectedAmount/);
-  assert.match(source, /expectedTableAmount/);
-  assert.match(source, /paymentPlan:\s*plano\.pagamentos/);
-});
-
-test("mesa só é liberada por payment approved e cancelamento incerto exige conciliação", () => {
-  const source = read("src/services/mesaPixPaymentService.js");
-  assert.match(source, /remoteStatus !== "approved"/);
-  assert.match(source, /distribuirPagamentosPorPedidos/);
-  assert.match(source, /planoPersistidoDaTentativa/);
-  assert.match(source, /status: "livre"/);
-  assert.match(source, /cancellation_not_confirmed/);
-  assert.match(source, /reconciliation_required/);
-  assert.match(source, /approved_after_confirmed_cancellation/);
-  assert.doesNotMatch(source, /pedido\.mercadoPagoPaymentId\s*=/);
-});
-
-test("QR da mesa usa job manual único e exige agente 1.4.0", () => {
-  const source = read("src/services/printQueueService.js");
-  assert.match(source, /async function criarJobPixMesa/);
-  assert.match(source, /compareVersions\(agent\?\.agentVersion, "1\.4\.0"\)/);
-  assert.match(source, /tipo: "manual"/);
-  assert.match(source, /motivo: "pix_mesa"/);
-  assert.match(source, /pixPagamento:/);
-  assert.match(source, /\.find\(item =>/);
-});
-
-test("painel abre modal, acompanha impressão/pagamento e permite cancelamento seguro", () => {
-  const source = read("src/views/admin-real.ejs");
-  assert.match(source, /id="modalPixMesa"/);
-  assert.match(source, /Gerando pagamento Pix/);
-  assert.match(source, /QR Code impresso\. Aguardando o pagamento/);
-  assert.match(source, /Cancelar Pix e escolher outra forma/);
-  assert.match(source, /\/pix\/status/);
-  assert.match(source, /\/pix\/cancelar/);
-  assert.match(source, /data-forma-pagamento-mesa/);
-  assert.match(source, /function montarPayloadPixMesa\(form\)/);
-  assert.match(source, /paymentPayload\.formaPagamento === 'combinado'/);
-  assert.match(source, /Confirme que a parte em/);
-  assert.match(source, /JSON\.stringify\(paymentPayload\)/);
-});
-
-test("Pix combinado da mesa cobra apenas a parte Pix e finaliza o plano completo após approved", () => {
+test("infraestrutura legada de Pix da mesa permanece capaz de reconciliar pagamentos antigos", () => {
+  const paymentController = read("src/controllers/pagamentoController.js");
   const service = read("src/services/mesaPixPaymentService.js");
-  const controller = read("src/controllers/mesaPixController.js");
-  const view = read("src/views/admin-real.ejs");
 
-  assert.match(controller, /paymentBody:\s*req\.body \|\| \{\}/);
-  assert.match(service, /pixCentavos/);
-  assert.match(service, /expectedTableAmount:\s*totalConta/);
-  assert.match(service, /paymentMode:\s*plano\.paymentMode/);
-  assert.match(service, /paymentPlan:\s*plano\.pagamentos/);
-  assert.match(service, /totalEsperadoTentativaCentavos\(attempt\)/);
-  assert.match(service, /pedido\.pagamentos = distribuicao\.pagamentos/);
-  assert.match(service, /pagamento_mesa_pix_combinado/);
-  assert.match(view, /Valor do Pix:/);
-  assert.match(view, /Quando o Mercado Pago aprovar o Pix, a mesa será liberada automaticamente/);
-});
-
-test("webhook classifica e processa pagamento Pix da mesa antes de assinatura", () => {
-  const source = read("src/controllers/pagamentoController.js");
-  assert.match(source, /mesaPixPaymentService\.loadWebhookPayment/);
-  assert.match(source, /mesaPixPaymentService\.recoverWebhookByExternalReference/);
-  assert.match(source, /loaded\.kind === "mesa_payment"/);
-  assert.match(source, /mesaPixPaymentService\.processWebhookPayment/);
-});
-
-test("migração controlada inclui os índices da tentativa Pix da mesa", () => {
-  const source = read("scripts/create-mercado-pago-indexes.js");
-  assert.match(source, /MesaPaymentAttempt/);
-  assert.match(source, /mesa_payment_attempt_id_unique/);
-  assert.match(source, /mesa_payment_payment_id_unique/);
-  assert.match(source, /mesa_payment_active_unique/);
-  assert.match(source, /partialFilterExpression:\s*\{ ativa: true \}/);
-});
-
-test("criação incerta não libera outra forma e recuperação busca pela external_reference", () => {
-  const service = read("src/services/mesaPixPaymentService.js");
-  const controller = read("src/controllers/mesaPixController.js");
-  const view = read("src/views/admin-real.ejs");
-  assert.match(service, /paymentCreationMayBeUncertain/);
-  assert.match(service, /\/v1\/payments\/search\?\$\{query\.toString\(\)\}/);
-  assert.match(service, /payment_creation_uncertain/);
-  assert.match(service, /reconciliationStatus \|\| ""\) === "reconciliation_required"/);
-  assert.match(controller, /pixActive: true/);
-  assert.match(controller, /reconciliationRequired: true/);
-  assert.match(view, /Não escolha outra forma de pagamento enquanto esta tentativa estiver ativa/);
-  const estoque = service.indexOf("for (const pedido of aindaPendentes) {\n      exigirEstoqueConcluido");
-  const baixaFinanceira = service.indexOf("pedido.pagamentoStatus = \"pago\"");
-  assert.ok(estoque >= 0 && baixaFinanceira > estoque, "estoque de toda a comanda deve ser processado antes de marcar pedidos como pagos");
-});
-
-
-test("modal Pix da mesa pode ser fechado sem cancelar o pagamento", () => {
-  const view = read("src/views/admin-real.ejs");
-  assert.match(view, /id="fecharPixMesa"/);
-  assert.match(view, /id="fecharPixMesaRodape"/);
-  assert.match(view, /function fecharAcompanhamentoPixMesa\(\)/);
-  assert.match(view, /Fechar o modal NÃO cancela o Pix/);
+  assert.match(paymentController, /mesaPixPaymentService\.loadWebhookPayment/);
+  assert.match(paymentController, /mesaPixPaymentService\.recoverWebhookByExternalReference/);
+  assert.match(paymentController, /mesaPixPaymentService\.processWebhookPayment/);
+  assert.match(service, /reconciliation_required/);
 });

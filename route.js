@@ -659,7 +659,11 @@ route.post(
   carregarAssinatura,
   assinaturaRequired,
   permissaoQualquer('mesas', 'pedidos'),
-  mesaPix.gerar
+  (req, res) => res.status(410).json({
+    success: false,
+    code: 'MESA_PIX_DISABLED',
+    message: 'Pix da mesa é apenas uma forma de pagamento manual. Nenhum QR Code é gerado.',
+  })
 );
 
 route.get(

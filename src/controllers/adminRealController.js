@@ -5181,24 +5181,8 @@ exports.pagarContaMesa = async (
       );
     }
 
-    // PIX_MESA_P0: nenhum Pix pode cair na confirmação manual antiga.
-    // O fluxo combinado com Pix fica bloqueado até possuir uma tentativa financeira própria.
-    const formasPixMesaSolicitadas = [
-      req.body?.formaPagamento,
-      req.body?.formaPagamento1,
-      req.body?.formaPagamento2,
-    ].map(value => String(value || "").trim().toLowerCase());
-    if (formasPixMesaSolicitadas.includes("pix")) {
-      return erroERedirecionar(
-        req,
-        res,
-        secaoRetorno,
-        String(req.body?.formaPagamento || "") === "pix"
-          ? "O Pix da mesa precisa ser confirmado pelo Mercado Pago. Use o fluxo Pix do painel."
-          : "Pagamento combinado com Pix ainda não pode ser confirmado manualmente. Escolha Dinheiro/Cartão ou use Pix integral.",
-      );
-    }
-
+    // Pix informado na mesa é somente um registro manual da forma de pagamento.
+    // Não cria cobrança, QR Code nem pagamento no Mercado Pago.
     const pixMesaAtivo = await MesaPaymentAttempt.exists({
       estabelecimentoId: idEstabelecimento,
       mesaId: mesa._id,
