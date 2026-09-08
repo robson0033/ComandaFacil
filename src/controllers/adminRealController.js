@@ -149,6 +149,8 @@ const CAMPOS_PEDIDO_PAINEL = [
   "telefoneCliente",
   "canal",
   "mesaId",
+  "manterNaComandaMesa",
+  "pagoIndividualMesaEm",
   "itens",
   "observacao",
   "subtotalProdutos",
@@ -178,6 +180,8 @@ const CAMPOS_PEDIDO_PAINEL = [
   "createdAt",
   "updatedAt",
 ].join(" ");
+
+const CAMPOS_COMANDA_MESA_PAINEL = `${CAMPOS_PEDIDO_PAINEL} historicoFinanceiro.tipo`;
 
 function exigirMovimentacaoEstoqueConcluida(resultado) {
   if (resultado?.success
@@ -2607,6 +2611,27 @@ exports.admin = async (req, res) => {
       status: { $ne: "cancelado" },
     };
 
+    // Para a tela de Pedidos, mantém na mesma comanda os pedidos pagos
+    // separadamente enquanto a mesa ainda possuir saldo pendente.
+    // O filtro de contas/mesas continua considerando somente pedidos pendentes.
+    const filtroPedidosMesaComandaPainel = {
+      estabelecimentoId: idEstabelecimento,
+      canal: "mesa",
+      mesaId: { $ne: null },
+      excluido: { $ne: true },
+      status: { $ne: "cancelado" },
+      $or: [
+        { pagamentoStatus: "pendente" },
+        {
+          pagamentoStatus: "pago",
+          $or: [
+            { manterNaComandaMesa: true },
+            { "historicoFinanceiro.tipo": "pagamento_pedido_mesa" },
+          ],
+        },
+      ],
+    };
+
     const [
       categorias,
       estoque,
@@ -2755,8 +2780,8 @@ exports.admin = async (req, res) => {
         : Promise.resolve(0),
 
       carregarPedidosPainel
-        ? Pedido.find(filtroPedidosMesaAbertos)
-            .select(CAMPOS_PEDIDO_PAINEL)
+        ? Pedido.find(filtroPedidosMesaComandaPainel)
+            .select(CAMPOS_COMANDA_MESA_PAINEL)
             .populate("mesaId", "numero setor status")
             .sort({ createdAt: 1 })
             .limit(1000)
@@ -5157,6 +5182,178 @@ exports.solicitarContaMesa = async (
   }
 };
 
+exports.pagarPedidoMesa = async (req, res) => {
+  const secaoRetorno = req.body?.retorno === "mesas" ? "mesas" : "pedidos";
+
+  try {
+    const idEstabelecimento = estabelecimentoId(req);
+
+    const mesa = await Mesa.findOne({
+      _id: req.params.mesaId,
+      estabelecimentoId: idEstabelecimento,
+    });
+
+    if (!mesa) {
+      return erroERedirecionar(
+        req,
+        res,
+        secaoRetorno,
+        "Mesa não encontrada.",
+      );
+    }
+
+    const pedido = await Pedido.findOne({
+      _id: req.params.pedidoId,
+      estabelecimentoId: idEstabelecimento,
+      mesaId: mesa._id,
+      canal: "mesa",
+      excluido: { $ne: true },
+      status: { $ne: "cancelado" },
+    });
+
+    if (!pedido) {
+      return erroERedirecionar(
+        req,
+        res,
+        secaoRetorno,
+        "Pedido da mesa não encontrado.",
+      );
+    }
+
+    if (pedido.pagamentoStatus === "pago") {
+      return salvarERedirecionar(
+        req,
+        res,
+        secaoRetorno,
+        "Este pedido já está pago.",
+      );
+    }
+
+    if (pedido.pagamentoStatus !== "pendente") {
+      return erroERedirecionar(
+        req,
+        res,
+        secaoRetorno,
+        "Este pedido não está disponível para pagamento manual.",
+      );
+    }
+
+    const planoPagamento = montarPlanoPagamentoMesa(
+      req.body || {},
+      totalParaCentavos(pedido.total || 0),
+    );
+
+    await confirmarPedidoComEstoque(pedido, {
+      formaPagamento: planoPagamento.formaPagamento,
+      pagamentos: planoPagamento.pagamentos,
+      finalizar: true,
+      usuarioId: req.session.user.id,
+      tipo: "pagamento_pedido_mesa",
+      motivo: "Pagamento individual de pedido da mesa.",
+    });
+
+    // O pedido já foi quitado, mas permanece dentro da comanda visual enquanto
+    // existir outro pedido pendente na mesma mesa. O total da comanda considera
+    // somente os pedidos pendentes.
+    pedido.manterNaComandaMesa = true;
+    pedido.pagoIndividualMesaEm = pedido.pagoIndividualMesaEm || pedido.pagoEm || new Date();
+    await pedido.save();
+
+    await registrarAuditoria({
+      estabelecimentoId: idEstabelecimento,
+      entidade: "pedido",
+      entidadeId: pedido._id,
+      acao: "pagamento_individual_mesa",
+      usuarioId: req.session.user.id,
+      usuarioTipo: req.session.user.tipo,
+      dadosResumidos: {
+        mesaId: String(mesa._id),
+        codigoPedido: String(pedido.codigoPublico || pedido._id)
+          .slice(pedido.codigoPublico ? 0 : -6)
+          .toUpperCase(),
+        pagamentoStatus: "pago",
+        formaPagamento: pedido.formaPagamento,
+        valorCentavos: totalParaCentavos(pedido.total || 0),
+      },
+      operationKey: `auditoria:pagamento_individual_mesa:${pedido._id}`,
+    });
+
+    const pedidosRestantes = await Pedido.find({
+      estabelecimentoId: idEstabelecimento,
+      mesaId: mesa._id,
+      excluido: { $ne: true },
+      pagamentoStatus: "pendente",
+      status: { $ne: "cancelado" },
+    })
+      .select("_id total")
+      .lean();
+
+    const totalRestanteCentavos = pedidosRestantes.reduce(
+      (total, item) => total + totalParaCentavos(item.total || 0),
+      0,
+    );
+
+    if (pedidosRestantes.length === 0) {
+      // A comanda foi totalmente quitada. Remove os marcadores visuais da
+      // sessão encerrada para que esses pedidos não voltem a aparecer quando a
+      // mesma mesa for usada novamente.
+      await Pedido.updateMany(
+        {
+          estabelecimentoId: idEstabelecimento,
+          mesaId: mesa._id,
+          manterNaComandaMesa: true,
+        },
+        {
+          $set: {
+            manterNaComandaMesa: false,
+          },
+        },
+      );
+
+      mesa.status = "livre";
+      await mesa.save();
+
+      return salvarERedirecionar(
+        req,
+        res,
+        secaoRetorno,
+        "Pedido pago. Não há mais valores pendentes e a mesa foi liberada.",
+      );
+    }
+
+    // A mesa permanece aberta enquanto existir qualquer outro pedido pendente.
+    // O total exibido no painel é recalculado a partir desses pedidos, então o
+    // valor do pedido recém-pago deixa automaticamente a comanda aberta.
+    if (mesa.status === "livre") {
+      mesa.status = "ocupada";
+      await mesa.save();
+    }
+
+    const totalRestante = (totalRestanteCentavos / 100).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
+
+    return salvarERedirecionar(
+      req,
+      res,
+      secaoRetorno,
+      `Pedido pago. Restam ${pedidosRestantes.length} pedido(s) em aberto, totalizando ${totalRestante}.`,
+    );
+  } catch (error) {
+    appLogger.error("Erro ao pagar pedido individual da mesa:", error);
+
+    return erroERedirecionar(
+      req,
+      res,
+      secaoRetorno,
+      error?.code === "MESA_PAYMENT_VALIDATION"
+        ? error.message
+        : "Não foi possível pagar este pedido da mesa.",
+    );
+  }
+};
+
 exports.pagarContaMesa = async (
   req,
   res,
@@ -5215,6 +5412,21 @@ exports.pagarContaMesa = async (
         usuarioId: req.session.user.id,
       });
     }
+
+    // A conta inteira foi encerrada. Pedidos que tinham sido pagos
+    // separadamente deixam de pertencer à comanda visual desta sessão.
+    await Pedido.updateMany(
+      {
+        estabelecimentoId: idEstabelecimento,
+        mesaId: mesa._id,
+        manterNaComandaMesa: true,
+      },
+      {
+        $set: {
+          manterNaComandaMesa: false,
+        },
+      },
+    );
 
     // Libera a mesa imediatamente depois que todos os pedidos foram marcados
     // como pagos. A limpeza de tentativas antigas não pode impedir a liberação.

@@ -654,6 +654,15 @@ route.post(
 );
 
 route.post(
+  '/admin/mesas/:mesaId/pedidos/:pedidoId/pagar',
+  loginRequired,
+  carregarAssinatura,
+  assinaturaRequired,
+  permissaoQualquer('mesas', 'pedidos'),
+  admin.pagarPedidoMesa
+);
+
+route.post(
   '/admin/mesas/:id/pix',
   loginRequired,
   carregarAssinatura,

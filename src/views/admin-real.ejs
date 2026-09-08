@@ -556,6 +556,30 @@
   background: #fff;
 }
 
+.table-tab-order.is-paid {
+  border-color: #bfe3ca;
+  background: linear-gradient(180deg, #f8fff9 0%, #ffffff 100%);
+}
+
+.table-order-paid-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-top: 1px dashed #bfe3ca;
+  border-radius: 10px;
+  background: #edf9f0;
+  color: #26623a;
+  font-size: 11px;
+}
+
+.table-order-paid-row strong {
+  color: #16522c;
+  font-size: 12px;
+}
+
 .table-tab-order-header {
   display: flex;
   align-items: center;
@@ -607,11 +631,42 @@
   font-size: 11px;
 }
 
+.table-order-payment-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 420px);
+  gap: 12px;
+  align-items: start;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--cinza-200);
+}
+
+.table-order-payment-copy {
+  color: var(--cinza-500);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.table-order-payment-copy strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--cinza-800);
+  font-size: 12px;
+}
+
+.pedido-mesa-payment {
+  width: 100%;
+}
+
 @media (max-width: 700px) {
   .table-tab-order-actions,
   .table-tab-order-actions .order-status-form,
   .table-tab-payment {
     width: 100%;
+  }
+
+  .table-order-payment-row {
+    grid-template-columns: 1fr;
   }
 
   .table-tab-order-actions .order-status-form {
@@ -4632,6 +4687,15 @@
       .toUpperCase();
   };
 
+  const nomeFormaPagamentoPainel = forma => ({
+    dinheiro: 'Dinheiro',
+    pix: 'Pix',
+    pix_online: 'Pix online',
+    cartao: 'Cartão',
+    combinado: 'Pagamento combinado',
+    nao_informado: 'Não informado'
+  }[String(forma || '')] || String(forma || 'Não informado'));
+
   const codigoPublicoPedido = pedido =>
     String(pedido?.codigoPublico || '').trim().toUpperCase();
 
@@ -5444,15 +5508,20 @@
 
           <div class="table-tab-summary">
             <span><strong data-open-table-count><%= comanda.quantidadePedidos || pedidosComanda.length %></strong> pedido(s) nesta comanda</span>
-            <span>Todos aparecem juntos enquanto a mesa não for paga.</span>
+            <span><strong><%= comanda.quantidadePedidosPendentes || 0 %></strong> pendente(s)</span>
+            <% if (Number(comanda.quantidadePedidosPagos || 0) > 0) { %>
+              <span>✅ <strong><%= comanda.quantidadePedidosPagos %></strong> pago(s) separadamente</span>
+            <% } %>
+            <span>Pedidos pagos permanecem identificados aqui até a conta da mesa ser encerrada.</span>
             <% if (comanda.mesaSetor) { %><span>Setor: <%= comanda.mesaSetor %></span><% } %>
           </div>
 
           <div class="table-tab-orders" data-mesa-orders-list>
             <% pedidosComanda.forEach(subpedido => { %>
               <section
-                class="table-tab-order"
+                class="table-tab-order <%= subpedido.pagamentoStatus === 'pago' ? 'is-paid' : '' %>"
                 data-order-id="<%= subpedido._id %>"
+                data-order-payment-status="<%= subpedido.pagamentoStatus || 'pendente' %>"
                 data-suborder-total-centavos="<%= Math.round(Number(subpedido.total || 0) * 100) %>"
               >
                 <div class="table-tab-order-header">
@@ -5464,6 +5533,9 @@
                     <small><%= formatarDataHoraEstabelecimento(subpedido.createdAt) %></small>
                     <small>Cliente: <%= subpedido.cliente || `Mesa ${comanda.mesaNumero}` %></small>
                     <span class="status <%= subpedido.status || 'novo' %>"><%= String(subpedido.status || 'novo').replaceAll('_', ' ') %></span>
+                    <% if (subpedido.pagamentoStatus === 'pago') { %>
+                      <span class="status pago">💰 PAGO</span>
+                    <% } %>
                   </div>
 
                   <div class="table-tab-order-actions">
@@ -5544,13 +5616,104 @@
 
 
                 <div class="table-tab-note">Subtotal deste pedido: <strong><%= formatarMoeda(subpedido.total || 0) %></strong></div>
+
+                <% if (subpedido.pagamentoStatus === 'pago') { %>
+                  <div class="table-order-paid-row">
+                    <strong>✅ Pedido pago separadamente</strong>
+                    <span>Forma: <%= nomeFormaPagamentoPainel(subpedido.formaPagamento) %></span>
+                    <% if (subpedido.pagoEm || subpedido.pagoIndividualMesaEm) { %>
+                      <span>Pago em <%= formatarDataHoraEstabelecimento(subpedido.pagoIndividualMesaEm || subpedido.pagoEm) %></span>
+                    <% } %>
+                    <span>Este valor já foi descontado do total restante da mesa.</span>
+                  </div>
+                <% } else { %>
+                  <div class="table-order-payment-row">
+                    <div class="table-order-payment-copy">
+                      <strong>Pagamento separado deste pedido</strong>
+                      Ao pagar somente este pedido, o valor dele sai da conta aberta da mesa. A mesa continua ocupada enquanto houver outros pedidos pendentes.
+                    </div>
+
+                    <form
+                      action="/admin/mesas/<%= comanda.mesaId %>/pedidos/<%= subpedido._id %>/pagar"
+                      method="POST"
+                      class="pagamento-form table-tab-payment pedido-mesa-payment"
+                      data-total-centavos="<%= Math.round(Number(subpedido.total || 0) * 100) %>"
+                      data-pay-table-order
+                    >
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                      <input type="hidden" name="retorno" value="pedidos">
+
+                      <select
+                        name="formaPagamento"
+                        aria-label="Forma de pagamento deste pedido"
+                        data-forma-pagamento-mesa
+                      >
+                        <option value="dinheiro">Dinheiro</option>
+                        <option value="pix">Pix</option>
+                        <option value="cartao">Cartão</option>
+                        <option value="combinado">Combinar 2 pagamentos</option>
+                        <option value="nao_informado">Não informado</option>
+                      </select>
+
+                      <div class="pagamento-combinado" data-pagamento-combinado hidden>
+                        <div class="pagamento-combinado-linha">
+                          <label>1º meio
+                            <select name="formaPagamento1" data-forma-pagamento-1 disabled>
+                              <option value="dinheiro">Dinheiro</option>
+                              <option value="pix">Pix</option>
+                              <option value="cartao">Cartão</option>
+                            </select>
+                          </label>
+                          <label>Valor no 1º meio
+                            <input
+                              type="text"
+                              name="valorPagamento1"
+                              inputmode="decimal"
+                              autocomplete="off"
+                              placeholder="0,00"
+                              data-valor-pagamento-1
+                              disabled
+                            >
+                          </label>
+                        </div>
+
+                        <div class="pagamento-combinado-linha">
+                          <label>2º meio
+                            <select name="formaPagamento2" data-forma-pagamento-2 disabled>
+                              <option value="pix">Pix</option>
+                              <option value="cartao">Cartão</option>
+                              <option value="dinheiro">Dinheiro</option>
+                            </select>
+                          </label>
+                          <label>Valor no 2º meio
+                            <input
+                              type="text"
+                              name="valorPagamento2"
+                              readonly
+                              data-valor-pagamento-2
+                              disabled
+                            >
+                          </label>
+                        </div>
+
+                        <small data-resumo-pagamento-combinado>
+                          Informe o primeiro valor. O restante será calculado automaticamente para este pedido.
+                        </small>
+                      </div>
+
+                      <button type="submit" class="mini-button success">
+                        💳 Pagar este pedido
+                      </button>
+                    </form>
+                  </div>
+                <% } %>
               </section>
             <% }) %>
           </div>
 
           <div class="order-footer">
             <div class="order-total">
-              <span>Total da comanda da Mesa <%= comanda.mesaNumero || '?' %></span>
+              <span>Saldo restante da Mesa <%= comanda.mesaNumero || '?' %></span>
               <strong data-open-table-total><%= formatarMoeda(comanda.total || 0) %></strong>
             </div>
 
@@ -10983,6 +11146,18 @@
       });
 
       atualizarModoPagamento();
+    });
+
+    document.querySelectorAll('[data-pay-table-order]').forEach(form => {
+      form.addEventListener('submit', event => {
+        if (event.defaultPrevented) return;
+        const totalCentavos = Math.max(0, Number(form.dataset.totalCentavos || 0));
+        const valor = formatarCentavosPagamento(totalCentavos);
+        const confirmar = window.confirm(
+          `Pagar somente este pedido no valor de R$ ${valor}? O valor será retirado da comanda, mas a mesa só será liberada quando não houver outros pedidos pendentes.`
+        );
+        if (!confirmar) event.preventDefault();
+      });
     });
 
     document

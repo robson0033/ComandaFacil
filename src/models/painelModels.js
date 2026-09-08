@@ -821,6 +821,12 @@ const Pedido = mongoose.model(
         default: null,
       },
 
+      // Quando um pedido de uma mesa é pago separadamente enquanto ainda há
+      // outros pedidos pendentes, ele continua visualmente dentro da comanda
+      // aberta até o fechamento completo da mesa.
+      manterNaComandaMesa: { type: Boolean, default: false },
+      pagoIndividualMesaEm: { type: Date, default: null },
+
       cliente: {
         type: String,
         default: "Cliente",
