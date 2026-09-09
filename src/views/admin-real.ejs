@@ -5518,6 +5518,15 @@
 
           <div class="table-tab-orders" data-mesa-orders-list>
             <% pedidosComanda.forEach(subpedido => { %>
+              <%
+                const telefoneWhatsappSubpedido = String(subpedido.telefoneCliente || '').replace(/\D/g, '');
+                const telefoneWhatsappBrasilSubpedido = telefoneWhatsappSubpedido && !telefoneWhatsappSubpedido.startsWith('55')
+                  ? `55${telefoneWhatsappSubpedido}`
+                  : telefoneWhatsappSubpedido;
+                const mensagemWhatsappSubpedido = encodeURIComponent(
+                  `Olá, ${subpedido.cliente || 'cliente'}! Estou entrando em contato sobre o pedido #${numeroPedidoPainel(subpedido)}${codigoPublicoPedido(subpedido) ? ` (código ${codigoPublicoPedido(subpedido)})` : ''} feito no ${(configuracao && configuracao.nomeEstabelecimento) || 'estabelecimento'}.`
+                );
+              %>
               <section
                 class="table-tab-order <%= subpedido.pagamentoStatus === 'pago' ? 'is-paid' : '' %>"
                 data-order-id="<%= subpedido._id %>"
@@ -5558,6 +5567,17 @@
                       </select>
                       <button type="submit" class="mini-button edit">Atualizar</button>
                     </form>
+
+                    <% if (telefoneWhatsappBrasilSubpedido) { %>
+                      <a
+                        href="https://wa.me/<%= telefoneWhatsappBrasilSubpedido %>?text=<%= mensagemWhatsappSubpedido %>"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="whatsapp-order-button"
+                      >
+                        💬 Falar no WhatsApp
+                      </a>
+                    <% } %>
 
                     <% if (pode('imprimir_pedidos')) { %>
                       <button type="button" class="mini-button print-order-button" data-print-order="<%= subpedido._id %>">🖨 Este pedido</button>
