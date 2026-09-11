@@ -1047,6 +1047,7 @@ function obterPeriodoRelatorio(
   dataFim,
   agoraReferencia = new Date(),
   timeZone,
+  opcoes = {},
 ) {
   const agora =
     new Date(agoraReferencia);
@@ -1055,6 +1056,15 @@ function obterPeriodoRelatorio(
   let inicio = null;
   let fim = null;
   let filtroFinal = filtro;
+
+  const diaCicloInformado = Number.parseInt(opcoes.diaCiclo, 10);
+  const diaCiclo = Number.isInteger(diaCicloInformado)
+    ? Math.min(31, Math.max(1, diaCicloInformado))
+    : 10;
+  const mesCicloPadrao = `${hoje.ano}-${String(hoje.mes).padStart(2, "0")}`;
+  const mesCiclo = /^\d{4}-(0[1-9]|1[0-2])$/.test(String(opcoes.mesCiclo || ""))
+    ? String(opcoes.mesCiclo)
+    : mesCicloPadrao;
 
   if (filtro === "hoje") {
     inicio = dataLocalParaUtc(
@@ -1218,7 +1228,39 @@ function obterPeriodoRelatorio(
     }
   }
 
-  if (filtro === "todos") {
+  if (filtro === "ciclo") {
+    const [anoFechamento, mesFechamento] = mesCiclo.split("-").map(Number);
+    const mesAnterior = mesFechamento === 1
+      ? { ano: anoFechamento - 1, mes: 12 }
+      : { ano: anoFechamento, mes: mesFechamento - 1 };
+
+    // Permite ciclos de 1 a 31. Em meses mais curtos (ex.: fevereiro),
+    // o dia é ajustado para o último dia disponível daquele mês.
+    const ultimoDiaMesAnterior = new Date(
+      Date.UTC(mesAnterior.ano, mesAnterior.mes, 0),
+    ).getUTCDate();
+    const ultimoDiaMesFechamento = new Date(
+      Date.UTC(anoFechamento, mesFechamento, 0),
+    ).getUTCDate();
+    const diaInicioCiclo = Math.min(diaCiclo, ultimoDiaMesAnterior);
+    const diaFechamentoCiclo = Math.min(diaCiclo, ultimoDiaMesFechamento);
+
+    inicio = dataLocalParaUtc({
+      ano: mesAnterior.ano,
+      mes: mesAnterior.mes,
+      dia: diaInicioCiclo,
+    }, timeZone);
+
+    fim = new Date(
+      dataLocalParaUtc({
+        ano: anoFechamento,
+        mes: mesFechamento,
+        dia: diaFechamentoCiclo,
+      }, timeZone).getTime() - 1,
+    );
+  }
+
+  if (filtro === "inicio" || filtro === "todos") {
     inicio = null;
     fim = null;
   }
@@ -1227,6 +1269,8 @@ function obterPeriodoRelatorio(
     filtro: filtroFinal,
     inicio,
     fim,
+    diaCiclo,
+    mesCiclo,
   };
 }
 
@@ -1613,10 +1657,37 @@ function filtroBaseRelatorio(
     periodo?.inicio &&
     periodo?.fim
   ) {
-    filtro[dateField] = {
+    const intervalo = {
       $gte: periodo.inicio,
       $lte: periodo.fim,
     };
+
+    if (dateField === "pagoEm") {
+      // Pedidos antigos podem estar marcados como pagos sem possuir pagoEm.
+      // Nesses casos usamos createdAt apenas como referência histórica, para
+      // que eles não desapareçam do faturamento e dos filtros financeiros.
+      filtro.$and = [
+        {
+          $or: [
+            { pagoEm: intervalo },
+            {
+              $and: [
+                {
+                  $or: [
+                    { pagoEm: null },
+                    { pagoEm: { $exists: false } },
+                  ],
+                },
+                { pagamentoStatus: "pago" },
+                { createdAt: intervalo },
+              ],
+            },
+          ],
+        },
+      ];
+    } else {
+      filtro[dateField] = intervalo;
+    }
   }
 
   if (canalAtual !== "todos") {
@@ -1666,7 +1737,8 @@ function formatoDataGrafico(
 
   if (
     filtro === "ano" ||
-    filtro === "todos"
+    filtro === "todos" ||
+    filtro === "inicio"
   ) {
     return "%Y-%m";
   }
@@ -2185,7 +2257,22 @@ async function agregarRelatorios({
               $match: {
                 pagamentoStatus:
                   "pago",
-                pagoEm: { $type: "date" },
+              },
+            },
+            {
+              $addFields: {
+                _dataFinanceiraRelatorio: {
+                  $cond: [
+                    { $eq: [{ $type: "$pagoEm" }, "date"] },
+                    "$pagoEm",
+                    "$createdAt",
+                  ],
+                },
+              },
+            },
+            {
+              $match: {
+                _dataFinanceiraRelatorio: { $type: "date" },
               },
             },
             {
@@ -2193,7 +2280,7 @@ async function agregarRelatorios({
                 _id: {
                   $dateToString: {
                     format: formato,
-                    date: "$pagoEm",
+                    date: "$_dataFinanceiraRelatorio",
                     timezone: timeZone,
                   },
                 },
@@ -2274,9 +2361,9 @@ async function agregarRelatorios({
     Pedido.countDocuments({
       ...filtroBaseRelatorio(
         idEstabelecimento,
-        { inicio: null, fim: null },
+        periodo,
         canalAtual,
-        "pagoEm",
+        "createdAt",
       ),
       pagamentoStatus: "pago",
       pagoEm: null,
@@ -2465,7 +2552,9 @@ exports.admin = async (req, res) => {
             temQuery("filtro") ||
             temQuery("dataInicio") ||
             temQuery("dataFim") ||
-            temQuery("canal")
+            temQuery("canal") ||
+            temQuery("diaCiclo") ||
+            temQuery("mesCiclo")
           )
         )
       );
@@ -2564,16 +2653,6 @@ exports.admin = async (req, res) => {
         : "hoje",
       String(req.query.dashboardDataInicio || "").trim(),
       String(req.query.dashboardDataFim || "").trim(),
-      new Date(),
-      timezoneEstabelecimento,
-    );
-
-    const relatorioPeriodoConsulta = obterPeriodoRelatorio(
-      ["hoje", "semana", "mes", "ano", "todos", "personalizado"].includes(req.query.filtro)
-        ? req.query.filtro
-        : "hoje",
-      String(req.query.dataInicio || "").trim(),
-      String(req.query.dataFim || "").trim(),
       new Date(),
       timezoneEstabelecimento,
     );
@@ -2980,6 +3059,8 @@ exports.admin = async (req, res) => {
       "mes",
       "ano",
       "todos",
+      "inicio",
+      "ciclo",
       "personalizado",
     ];
 
@@ -3070,6 +3151,8 @@ exports.admin = async (req, res) => {
       "mes",
       "ano",
       "todos",
+      "inicio",
+      "ciclo",
       "personalizado",
     ];
 
@@ -3088,14 +3171,180 @@ exports.admin = async (req, res) => {
       req.query.dataFim || "",
     ).trim();
 
-    const periodo =
+    const diaCicloInformado = String(
+      req.query.diaCiclo || "",
+    ).trim();
+
+    const mesCiclo = String(
+      req.query.mesCiclo || "",
+    ).trim();
+
+    // A data real de início financeiro é descoberta automaticamente.
+    // Preferimos a primeira movimentação paga registrada. Se ainda não houver
+    // venda paga, usamos a data de criação do estabelecimento como referência.
+    const formatarDataInputRelatorio = data => {
+      const partes = datePartsInTimezone(data, timezoneEstabelecimento);
+      return `${partes.year}-${String(partes.month).padStart(2, "0")}-${String(partes.day).padStart(2, "0")}`;
+    };
+
+    const formatarDataBrDeDateRelatorio = data => {
+      const partes = datePartsInTimezone(data, timezoneEstabelecimento);
+      return `${String(partes.day).padStart(2, "0")}/${String(partes.month).padStart(2, "0")}/${partes.year}`;
+    };
+
+    const hojeRelatorio = new Date();
+    const dataFimDesdeInicio = formatarDataInputRelatorio(hojeRelatorio);
+    let dataInicioFinanceiro = null;
+    let origemDataInicioFinanceiro = "cadastro da loja";
+
+    if (mongoose.isValidObjectId(idEstabelecimento)) {
+      try {
+        const idCadastro = new mongoose.Types.ObjectId(String(idEstabelecimento));
+        dataInicioFinanceiro = idCadastro.getTimestamp();
+      } catch (_) {
+        dataInicioFinanceiro = null;
+      }
+    }
+
+    if (carregarRelatorios) {
+      const idRelatorio = mongoose.isValidObjectId(idEstabelecimento)
+        ? new mongoose.Types.ObjectId(String(idEstabelecimento))
+        : idEstabelecimento;
+
+      const primeiraMovimentacaoPaga = await Pedido.findOne({
+        estabelecimentoId: idRelatorio,
+        excluido: { $ne: true },
+        status: { $ne: "cancelado" },
+        pagamentoStatus: "pago",
+        pagoEm: { $type: "date" },
+      })
+        .select("pagoEm createdAt")
+        .sort({ pagoEm: 1 })
+        .lean();
+
+      if (primeiraMovimentacaoPaga?.pagoEm) {
+        dataInicioFinanceiro = new Date(primeiraMovimentacaoPaga.pagoEm);
+        origemDataInicioFinanceiro = "primeira movimentação paga";
+      } else {
+        const primeiraVendaPaga = await Pedido.findOne({
+          estabelecimentoId: idRelatorio,
+          excluido: { $ne: true },
+          status: { $ne: "cancelado" },
+          pagamentoStatus: "pago",
+        })
+          .select("createdAt")
+          .sort({ createdAt: 1 })
+          .lean();
+
+        if (primeiraVendaPaga?.createdAt) {
+          dataInicioFinanceiro = new Date(primeiraVendaPaga.createdAt);
+          origemDataInicioFinanceiro = "primeira venda paga";
+        }
+      }
+    }
+
+    if (!dataInicioFinanceiro || Number.isNaN(dataInicioFinanceiro.getTime())) {
+      dataInicioFinanceiro = hojeRelatorio;
+    }
+
+    const partesInicioFinanceiro = datePartsInTimezone(
+      dataInicioFinanceiro,
+      timezoneEstabelecimento,
+    );
+    const diaCicloCorreto = Math.min(31, Math.max(1, Number(partesInicioFinanceiro.day) || 1));
+    const diaCicloDigitado = Number.parseInt(diaCicloInformado, 10);
+    let diaCicloParaCalculo = Number.isInteger(diaCicloDigitado)
+      ? diaCicloDigitado
+      : diaCicloCorreto;
+    let cicloCorrigido = false;
+    const mensagensCiclo = [];
+
+    if (filtroSolicitado === "ciclo") {
+      if (
+        !Number.isInteger(diaCicloDigitado)
+        || diaCicloDigitado < 1
+        || diaCicloDigitado > 31
+        || diaCicloDigitado !== diaCicloCorreto
+      ) {
+        cicloCorrigido = true;
+        diaCicloParaCalculo = diaCicloCorreto;
+        const diaRecebido = Number.isInteger(diaCicloDigitado)
+          ? `dia ${diaCicloDigitado}`
+          : "o dia informado";
+        mensagensCiclo.push(
+          `${diaRecebido} não corresponde ao início do seu ciclo. `
+          + `Pelo histórico do sistema, sua ${origemDataInicioFinanceiro} foi em `
+          + `${formatarDataBrDeDateRelatorio(dataInicioFinanceiro)}. `
+          + `Por isso, o ciclo correto começa no dia ${diaCicloCorreto}.`,
+        );
+      }
+    }
+
+    let periodo =
       obterPeriodoRelatorio(
         filtroSolicitado,
         dataInicio,
         dataFim,
         new Date(),
         timezoneEstabelecimento,
+        { diaCiclo: String(diaCicloParaCalculo), mesCiclo },
       );
+
+    if (filtroSolicitado === "ciclo" && periodo.inicio && periodo.fim) {
+      const inicioFinanceiroLocal = dataLocalParaUtc({
+        ano: partesInicioFinanceiro.year,
+        mes: partesInicioFinanceiro.month,
+        dia: partesInicioFinanceiro.day,
+      }, timezoneEstabelecimento);
+
+      // Se o mês escolhido gera um ciclo que termina antes da primeira
+      // movimentação da loja, o usuário selecionou um fechamento impossível.
+      // Corrigimos para o primeiro fechamento válido: o mês seguinte ao início.
+      if (periodo.fim < inicioFinanceiroLocal) {
+        const mesPrimeiroFechamento = partesInicioFinanceiro.month === 12
+          ? { ano: partesInicioFinanceiro.year + 1, mes: 1 }
+          : { ano: partesInicioFinanceiro.year, mes: partesInicioFinanceiro.month + 1 };
+        const mesCicloCorrigido = `${mesPrimeiroFechamento.ano}-${String(mesPrimeiroFechamento.mes).padStart(2, "0")}`;
+
+        periodo = obterPeriodoRelatorio(
+          "ciclo",
+          dataInicio,
+          dataFim,
+          new Date(),
+          timezoneEstabelecimento,
+          { diaCiclo: String(diaCicloParaCalculo), mesCiclo: mesCicloCorrigido },
+        );
+
+        cicloCorrigido = true;
+        mensagensCiclo.push(
+          `O mês de fechamento escolhido gera um período anterior ao início financeiro da loja. `
+          + `Como a primeira movimentação foi em ${formatarDataBrDeDateRelatorio(dataInicioFinanceiro)}, `
+          + `o primeiro ciclo válido começa nessa data e fecha no mês seguinte. `
+          + `O sistema ajustou o período automaticamente.`,
+        );
+      }
+    }
+
+    const mensagemCiclo = mensagensCiclo.join(" ");
+
+    // "Desde o início" usa a mesma referência financeira descoberta acima.
+    // O relatório continua sem limitar pagoEm nesse modo para também incluir
+    // pagamentos antigos que possam não possuir data de pagamento registrada.
+    const dataInicioDesdeInicio = formatarDataInputRelatorio(dataInicioFinanceiro);
+
+    const desdeInicioSelecionado =
+      periodo.filtro === "inicio" || periodo.filtro === "todos";
+    const dataInicioExibicao = desdeInicioSelecionado
+      ? dataInicioDesdeInicio
+      : dataInicio;
+    const dataFimExibicao = desdeInicioSelecionado
+      ? dataFimDesdeInicio
+      : dataFim;
+
+    const formatarDataBrRelatorio = valor => {
+      const [ano, mes, dia] = String(valor || "").split("-");
+      return ano && mes && dia ? `${dia}/${mes}/${ano}` : "";
+    };
 
     const canaisPermitidos = [
       "todos",
@@ -3202,8 +3451,27 @@ exports.admin = async (req, res) => {
     const relatorios = {
       filtroAtual: periodo.filtro,
       canalAtual,
-      dataInicio,
-      dataFim,
+      dataInicio: dataInicioExibicao,
+      dataFim: dataFimExibicao,
+      dataInicioDesdeInicio,
+      dataFimDesdeInicio,
+      diaCiclo: periodo.diaCiclo,
+      diaCicloCorreto,
+      diaCicloInformado: diaCicloInformado,
+      cicloCorrigido,
+      mensagemCiclo,
+      cicloSemMovimento: periodo.filtro === "ciclo" && Number(agregadoRelatorios.quantidadePaga || 0) === 0,
+      mensagemCicloSemMovimento: periodo.filtro === "ciclo" && Number(agregadoRelatorios.quantidadePaga || 0) === 0
+        ? "Nenhum pagamento foi encontrado neste ciclo. Se houver pedidos antigos marcados como pagos sem horário de pagamento, o sistema usa a data do pedido como referência histórica."
+        : "",
+      dataReferenciaCiclo: formatarDataBrDeDateRelatorio(dataInicioFinanceiro),
+      origemDataInicioFinanceiro,
+      mesCiclo: periodo.mesCiclo,
+      periodoDescricao: periodo.inicio && periodo.fim
+        ? `${String(datePartsInTimezone(periodo.inicio, timezoneEstabelecimento).day).padStart(2, "0")}/${String(datePartsInTimezone(periodo.inicio, timezoneEstabelecimento).month).padStart(2, "0")}/${datePartsInTimezone(periodo.inicio, timezoneEstabelecimento).year} até ${String(datePartsInTimezone(periodo.fim, timezoneEstabelecimento).day).padStart(2, "0")}/${String(datePartsInTimezone(periodo.fim, timezoneEstabelecimento).month).padStart(2, "0")}/${datePartsInTimezone(periodo.fim, timezoneEstabelecimento).year}`
+        : desdeInicioSelecionado
+          ? `${formatarDataBrRelatorio(dataInicioDesdeInicio)} até ${formatarDataBrRelatorio(dataFimDesdeInicio)}`
+          : "Todo o histórico",
       faturamento,
       custo,
       lucro: faturamento - custo,

@@ -1002,6 +1002,52 @@
   align-items: end;
 }
 
+.report-cycle-form {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--cinza-200);
+}
+
+.report-cycle-title {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--cinza-800);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.report-cycle-help {
+  grid-column: 1 / -1;
+  margin: -4px 0 0;
+  color: var(--cinza-500);
+  font-size: 12px;
+}
+
+.report-cycle-detected {
+  grid-column: 1 / -1;
+  margin: -2px 0 0;
+  color: var(--cinza-600);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.report-cycle-alert {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 11px 13px;
+  border: 1px solid #f1b8a4;
+  border-radius: 11px;
+  background: #fff5f1;
+  color: #8a2e17;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.report-cycle-alert strong {
+  font-size: 13px;
+}
+
 .report-filter-field {
   display: grid;
   gap: 7px;
@@ -6376,24 +6422,25 @@
       <section class="page" id="page-relatorios">
   <section class="report-filter-panel">
     <div class="report-filters">
-      <a href="/admin?filtro=hoje#relatorios" class="filter-chip <%= relatorios.filtroAtual === 'hoje' ? 'ativo' : '' %>">Hoje</a>
-      <a href="/admin?filtro=semana#relatorios" class="filter-chip <%= relatorios.filtroAtual === 'semana' ? 'ativo' : '' %>">Esta semana</a>
-      <a href="/admin?filtro=mes#relatorios" class="filter-chip <%= relatorios.filtroAtual === 'mes' ? 'ativo' : '' %>">Este mês</a>
-      <a href="/admin?filtro=ano#relatorios" class="filter-chip <%= relatorios.filtroAtual === 'ano' ? 'ativo' : '' %>">Este ano</a>
-      <a href="/admin?filtro=todos#relatorios" class="filter-chip <%= relatorios.filtroAtual === 'todos' ? 'ativo' : '' %>">Todos</a>
+      <a href="/admin?section=relatorios&filtro=hoje#relatorios" class="filter-chip <%= relatorios.filtroAtual === 'hoje' ? 'ativo' : '' %>">Hoje</a>
+      <a href="/admin?section=relatorios&filtro=semana#relatorios" class="filter-chip <%= relatorios.filtroAtual === 'semana' ? 'ativo' : '' %>">Esta semana</a>
+      <a href="/admin?section=relatorios&filtro=mes#relatorios" class="filter-chip <%= relatorios.filtroAtual === 'mes' ? 'ativo' : '' %>">Este mês</a>
+      <a href="/admin?section=relatorios&filtro=ano#relatorios" class="filter-chip <%= relatorios.filtroAtual === 'ano' ? 'ativo' : '' %>">Este ano</a>
+      <a href="/admin?section=relatorios&filtro=inicio#relatorios" class="filter-chip <%= relatorios.filtroAtual === 'inicio' || relatorios.filtroAtual === 'todos' ? 'ativo' : '' %>">Desde o início</a>
     </div>
 
-    <form action="/admin" method="GET" class="report-filter-form">
+    <form action="/admin#relatorios" method="GET" class="report-filter-form" id="reportFilterForm">
+      <input type="hidden" name="section" value="relatorios">
       <input type="hidden" name="filtro" value="personalizado">
 
       <div class="report-filter-field">
         <label for="dataInicio">Data inicial</label>
-        <input type="date" id="dataInicio" name="dataInicio" value="<%= relatorios.dataInicio || '' %>">
+        <input type="date" id="dataInicio" name="dataInicio" value="<%= relatorios.dataInicio || '' %>" required>
       </div>
 
       <div class="report-filter-field">
         <label for="dataFim">Data final</label>
-        <input type="date" id="dataFim" name="dataFim" value="<%= relatorios.dataFim || '' %>">
+        <input type="date" id="dataFim" name="dataFim" value="<%= relatorios.dataFim || '' %>" required>
       </div>
 
       <div class="report-filter-field">
@@ -6408,9 +6455,69 @@
 
       <div class="report-filter-actions">
         <button type="submit" class="button">Filtrar</button>
-        <a href="/admin?filtro=hoje&canal=todos#relatorios" class="button secondary">Limpar</a>
+        <a href="/admin?section=relatorios&filtro=hoje&canal=todos#relatorios" class="button secondary">Limpar</a>
       </div>
     </form>
+
+    <form action="/admin#relatorios" method="GET" class="report-filter-form report-cycle-form" id="reportCycleForm">
+      <input type="hidden" name="section" value="relatorios">
+      <input type="hidden" name="filtro" value="ciclo">
+
+      <h3 class="report-cycle-title">Ciclo financeiro</h3>
+      <p class="report-cycle-help">Escolha o dia em que seu ciclo começa e o mês em que ele fecha. O sistema confere o período pelo histórico financeiro antes de calcular. Ex.: se o ciclo começa em 03/09, o primeiro fechamento é em outubro e o período será 03/09 até 02/10.</p>
+      <% if (relatorios.dataReferenciaCiclo) { %>
+        <p class="report-cycle-detected">Início financeiro identificado: <strong><%= relatorios.dataReferenciaCiclo %></strong> — ciclo no dia <strong><%= relatorios.diaCicloCorreto %></strong>.</p>
+      <% } %>
+
+      <div class="report-filter-field">
+        <label for="diaCiclo">Dia em que o ciclo começa</label>
+        <input type="number" id="diaCiclo" name="diaCiclo" min="1" max="31" inputmode="numeric" value="<%= relatorios.diaCiclo || relatorios.diaCicloCorreto || 10 %>" required>
+      </div>
+
+      <div class="report-filter-field">
+        <label for="mesCiclo">Mês do fechamento</label>
+        <input type="month" id="mesCiclo" name="mesCiclo" value="<%= relatorios.mesCiclo || '' %>" required>
+      </div>
+
+      <div class="report-filter-field">
+        <label for="canalCicloRelatorio">Tipo do pedido</label>
+        <select id="canalCicloRelatorio" name="canal">
+          <option value="todos" <%= !relatorios.canalAtual || relatorios.canalAtual === 'todos' ? 'selected' : '' %>>Todos</option>
+          <option value="delivery" <%= relatorios.canalAtual === 'delivery' ? 'selected' : '' %>>Delivery</option>
+          <option value="mesa" <%= relatorios.canalAtual === 'mesa' ? 'selected' : '' %>>Mesa</option>
+          <option value="retirada" <%= relatorios.canalAtual === 'retirada' ? 'selected' : '' %>>Retirada no local</option>
+        </select>
+      </div>
+
+      <div class="report-filter-actions">
+        <button type="submit" class="button">Calcular ciclo</button>
+      </div>
+    </form>
+
+    <% if (relatorios.cicloCorrigido && relatorios.mensagemCiclo) { %>
+      <div class="report-cycle-alert" role="alert" aria-live="polite">
+        <strong>Ciclo financeiro ajustado automaticamente</strong>
+        <span><%= relatorios.mensagemCiclo %></span>
+      </div>
+    <% } %>
+
+    <% if (relatorios.filtroAtual === 'ciclo') { %>
+      <div class="report-filter-summary">
+        <span>Ciclo financeiro selecionado</span>
+        <strong><%= relatorios.periodoDescricao || '-' %></strong>
+      </div>
+      <% if (relatorios.cicloSemMovimento && relatorios.mensagemCicloSemMovimento) { %>
+        <div class="report-cycle-alert" role="status" aria-live="polite">
+          <strong>Nenhuma movimentação encontrada</strong>
+          <span><%= relatorios.mensagemCicloSemMovimento %></span>
+        </div>
+      <% } %>
+    <% } else if (relatorios.filtroAtual === 'inicio' || relatorios.filtroAtual === 'todos') { %>
+      <div class="report-filter-summary">
+        <span>Período financeiro</span>
+        <strong><%= relatorios.periodoDescricao || 'Desde o início até hoje' %></strong>
+      </div>
+    <% } %>
   </section>
 
   <div class="stats">
@@ -6545,7 +6652,7 @@
       <h3><%= relatorios.filtroAtual === 'hoje' ? 'Faturamento por hora do pagamento' : 'Faturamento no período selecionado' %></h3>
       <p>Horários em <%= fusoEstabelecimento %></p>
       <% if (relatorios.paidOrdersWithoutPaymentDate > 0) { %>
-        <p><%= relatorios.paidOrdersWithoutPaymentDate %> pagamento(s) antigo(s) sem horário registrado não aparecem no gráfico.</p>
+        <p><%= relatorios.paidOrdersWithoutPaymentDate %> pagamento(s) antigo(s) sem horário de pagamento foram considerados pela data do pedido.</p>
       <% } %>
     </div>
 
@@ -13981,6 +14088,40 @@ if (podeReceberNotificacoes) {
         }
       }
     );
+
+    const reportFilterForm = document.querySelector('#reportFilterForm');
+    const reportDataInicio = document.querySelector('#dataInicio');
+    const reportDataFim = document.querySelector('#dataFim');
+
+    function validarIntervaloRelatorio() {
+      const inicio = String(reportDataInicio?.value || '');
+      const fim = String(reportDataFim?.value || '');
+      const intervaloInvertido = Boolean(inicio && fim && inicio > fim);
+
+      if (reportDataInicio) {
+        reportDataInicio.max = fim || '';
+      }
+      if (reportDataFim) {
+        reportDataFim.min = inicio || '';
+        reportDataFim.setCustomValidity(
+          intervaloInvertido
+            ? 'A data final não pode ser anterior à data inicial.'
+            : ''
+        );
+      }
+
+      return !intervaloInvertido;
+    }
+
+    reportDataInicio?.addEventListener('change', validarIntervaloRelatorio);
+    reportDataFim?.addEventListener('change', validarIntervaloRelatorio);
+    reportFilterForm?.addEventListener('submit', event => {
+      if (!validarIntervaloRelatorio()) {
+        event.preventDefault();
+        reportDataFim?.reportValidity();
+      }
+    });
+    validarIntervaloRelatorio();
 
     function definirEstadoEnvioFormulario(form, enviando) {
       const botoes = Array.from(
