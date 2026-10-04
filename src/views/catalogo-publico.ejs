@@ -2074,6 +2074,8 @@
             <% for (const cidade of (cidadesEntrega || [])) { %>
               <option
                 value="<%= cidade.id %>"
+                data-horario-limite="<%= cidade.horarioLimiteEntrega || '' %>"
+                <%= cidade.disponivel === false ? 'hidden disabled' : '' %>
                 data-cidade-nome="<%= cidade.nome %> - <%= cidade.uf %>"
                 data-taxa-centavos="<%= cidade.taxaCentavos %>"
                 data-pedido-minimo-centavos="<%= cidade.pedidoMinimoCentavos || 0 %>"
@@ -2572,8 +2574,56 @@
     const valorPagamento2 = document.querySelector("#valorPagamento2");
     const combinedPaymentNote = document.querySelector("#combinedPaymentNote");
 
-    const cidadesEntregaDisponiveis =
-      <%- safeJsonForHtml((cidadesEntrega || []).length > 0) %>;
+    let cidadesEntregaDisponiveis = false;
+    const entregaServidorInicio = <%- safeJsonForHtml(entregaServidorAgora) %>;
+    const entregaRelogioInicio = performance.now();
+    const entregaTimezone = <%- safeJsonForHtml(entregaTimezone) %>;
+    const opcoesCidadesEntrega = Array.from(cidadeEntregaId.options).filter(opcao => opcao.value);
+    const entregaFormatter = new Intl.DateTimeFormat("en-GB", {
+      timeZone: entregaTimezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    });
+
+    function atualizarCidadesPorHorario() {
+      const agora = new Date(entregaServidorInicio + performance.now() - entregaRelogioInicio);
+      const partes = entregaFormatter.formatToParts(agora);
+      const minutos = Number(partes.find(p => p.type === "hour").value) * 60
+        + Number(partes.find(p => p.type === "minute").value);
+      const selecionada = cidadeEntregaId.value;
+      let mudou = false;
+      for (const opcao of opcoesCidadesEntrega) {
+        const limite = opcao.dataset.horarioLimite;
+        const [hora, minuto] = (limite || "00:00").split(":").map(Number);
+        const disponivel = !limite || minutos < hora * 60 + minuto;
+        if (disponivel && !opcao.parentNode) {
+          opcao.hidden = false;
+          opcao.disabled = false;
+          cidadeEntregaId.appendChild(opcao);
+          mudou = true;
+        } else if (!disponivel && opcao.parentNode) {
+          opcao.remove();
+          mudou = true;
+        } else if (disponivel) {
+          opcao.hidden = false;
+          opcao.disabled = false;
+        }
+      }
+      cidadesEntregaDisponiveis = cidadeEntregaId.options.length > 1;
+      if (selecionada && !Array.from(cidadeEntregaId.options).some(o => o.value === selecionada)) {
+        cidadeEntregaId.value = "";
+        formMessage.className = "form-message error";
+        formMessage.textContent = "O horário de entrega da cidade selecionada encerrou. Escolha outra cidade ou retirada no local.";
+      }
+      if (mudou) atualizarResumoFinanceiroPedido();
+    }
+    // Atualização alinhada à virada do minuto, usando o relógio do servidor.
+    function agendarAtualizacaoCidades() {
+      atualizarCidadesPorHorario();
+      const agora = entregaServidorInicio + performance.now() - entregaRelogioInicio;
+      setTimeout(agendarAtualizacaoCidades, 60000 - (agora % 60000) + 20);
+    }
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) atualizarCidadesPorHorario();
+    });
     const pixOnlineDisponivel =
       <%- safeJsonForHtml(Boolean(configuracao.mercadoPago && configuracao.mercadoPago.conectado)) %>;
 
@@ -4628,6 +4678,7 @@
     }
 
     function atualizarEndereco() {
+      atualizarCidadesPorHorario();
       let delivery =
         canalPedido.value ===
         "delivery";
@@ -4638,7 +4689,7 @@
         delivery = false;
         formMessage.className = "form-message error";
         formMessage.textContent =
-          "Esta loja ainda não cadastrou cidades para entrega. Selecione retirada no local.";
+          "Não há cidades disponíveis para entrega neste horário. Selecione retirada no local.";
       }
 
       document.querySelectorAll(".delivery-address-field").forEach(field => {
@@ -4700,6 +4751,8 @@
       "change",
       atualizarEndereco
     );
+
+    agendarAtualizacaoCidades();
 
     cidadeEntregaId.addEventListener(
       "change",
@@ -5096,6 +5149,7 @@
           return;
         }
 
+        atualizarCidadesPorHorario();
         atualizarResumoFinanceiroPedido();
         if (!validarRegraEntregaAntesDoEnvio()) return;
 

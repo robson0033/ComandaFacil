@@ -694,6 +694,15 @@ const Configuracao = mongoose.model(
 
 const cidadeEntregaSchema = new mongoose.Schema(
   {
+    horarioLimiteEntrega: {
+      type: String,
+      default: "",
+      trim: true,
+      validate: {
+        validator: value => !value || /^([01]\d|2[0-3]):[0-5]\d$/.test(value),
+        message: "Horário limite de entrega inválido.",
+      },
+    },
     ...base,
     nome: {
       type: String,

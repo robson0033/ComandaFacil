@@ -8727,6 +8727,11 @@
                 <small>Preencha somente se escolher “Aceitar com taxa especial”. Esse valor substitui a taxa normal enquanto o pedido estiver abaixo do mínimo.</small>
               </div>
 
+              <div class="field">
+                <label for="cidadeEntregaHorarioLimite">Entregar até (opcional)</label>
+                <input id="cidadeEntregaHorarioLimite" type="time" name="horarioLimiteEntrega" step="60">
+                <small>Ex.: 22:00. Ao chegar nesse horário, a cidade sai do cardápio até o próximo dia. Deixe vazio para não limitar. Usa o fuso horário da loja (padrão: Brasília).</small>
+              </div>
               <div class="field" style="align-self:end">
                 <button type="submit" class="button">Adicionar cidade</button>
               </div>
@@ -8818,6 +8823,12 @@
                       >
                     </div>
 
+                    <div class="field">
+                      <label>Entregar até (opcional)
+                        <input type="time" name="horarioLimiteEntrega" step="60" value="<%= cidade.horarioLimiteEntrega || '' %>">
+                      </label>
+                      <small>Limite diário no fuso horário da loja (padrão: Brasília). Vazio = sem limite.</small>
+                    </div>
                     <div class="field" style="align-self:end">
                       <button type="submit" class="mini-button edit">Salvar alterações</button>
                     </div>

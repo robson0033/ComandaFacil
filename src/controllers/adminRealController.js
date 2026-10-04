@@ -113,6 +113,7 @@ const {
   avaliarRegraEntregaCidade,
   calcularTotaisPedidoComEntrega,
   montarDadosCidadeEntrega,
+  cidadeDisponivelNoHorario,
   validarTaxaEntregaCentavos,
 } = require("../services/cidadeEntregaService");
 const {
@@ -6565,6 +6566,7 @@ exports.editarCidadeEntrega = async (req, res) => {
       );
     }
 
+    cidade.horarioLimiteEntrega = dados.horarioLimiteEntrega;
     cidade.nome = dados.nome;
     cidade.nomeNormalizado = dados.nomeNormalizado;
     cidade.uf = dados.uf;
@@ -8239,7 +8241,7 @@ exports.catalogoPublico = async (req, res) => {
           estabelecimentoId: configuracao.estabelecimentoId,
           ativo: true,
         })
-          .select("nome uf taxaCentavos pedidoMinimoCentavos abaixoMinimoModo taxaAbaixoMinimoCentavos")
+          .select("nome uf taxaCentavos pedidoMinimoCentavos abaixoMinimoModo taxaAbaixoMinimoCentavos horarioLimiteEntrega")
           .sort({ nome: 1, uf: 1 })
           .lean()
         : Promise.resolve([]),
@@ -8257,7 +8259,11 @@ exports.catalogoPublico = async (req, res) => {
       configuracao,
       produtos,
       avaliacoesPorProduto,
+      entregaServidorAgora: Date.now(),
+      entregaTimezone: getEstablishmentTimezone(configuracao),
       cidadesEntrega: cidadesEntrega.map(cidade => ({
+        horarioLimiteEntrega: cidade.horarioLimiteEntrega || "",
+        disponivel: cidadeDisponivelNoHorario(cidade, new Date(), getEstablishmentTimezone(configuracao)),
         id: String(cidade._id),
         nome: cidade.nome,
         uf: cidade.uf,
@@ -10030,10 +10036,12 @@ exports.criarPedidoCatalogo =
           estabelecimentoId: configuracao.estabelecimentoId,
           ativo: true,
         })
-          .select("_id nome uf taxaCentavos pedidoMinimoCentavos abaixoMinimoModo taxaAbaixoMinimoCentavos")
+          .select("_id nome uf taxaCentavos pedidoMinimoCentavos abaixoMinimoModo taxaAbaixoMinimoCentavos horarioLimiteEntrega")
           .lean();
 
-        if (!cidadeEntregaSelecionada) {
+        if (!cidadeEntregaSelecionada || !cidadeDisponivelNoHorario(
+          cidadeEntregaSelecionada, new Date(), getEstablishmentTimezone(configuracao),
+        )) {
           return res.status(409).json({
             success: false,
             code: "CIDADE_ENTREGA_INDISPONIVEL",
@@ -10582,6 +10590,17 @@ exports.criarPedidoCatalogo =
             `O valor para troco deve ser igual ou maior que a parte em dinheiro de R$ ${valorDinheiro
               .toFixed(2)
               .replace(".", ",")}.`,
+        });
+      }
+
+      // Revalida após as consultas e cálculos, caso o limite tenha virado durante o checkout.
+      if (canal === "delivery" && !cidadeDisponivelNoHorario(
+        cidadeEntregaSelecionada, new Date(), getEstablishmentTimezone(configuracao),
+      )) {
+        return res.status(409).json({
+          success: false,
+          code: "CIDADE_ENTREGA_INDISPONIVEL",
+          message: "O horário de entrega para esta cidade encerrou. Escolha outra cidade ou retirada no local.",
         });
       }
 

@@ -1,5 +1,7 @@
 "use strict";
 
+const { datePartsInTimezone, DEFAULT_TIMEZONE } = require("./timezoneService");
+
 const UFS_BRASIL = Object.freeze([
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO",
   "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI",
@@ -257,6 +259,23 @@ function avaliarRegraEntregaCidade({ subtotalProdutos, cidade } = {}) {
   };
 }
 
+function normalizarHorarioLimiteEntrega(value) {
+  const horario = String(value ?? "").trim();
+  if (horario && !/^([01]\d|2[0-3]):[0-5]\d$/.test(horario)) {
+    throw criarErroValidacao("Informe um horário limite válido no formato HH:MM.");
+  }
+  return horario;
+}
+
+function cidadeDisponivelNoHorario(cidade, agora = new Date(), timezone = DEFAULT_TIMEZONE) {
+  if (!cidade || cidade.ativo === false) return false;
+  const limite = normalizarHorarioLimiteEntrega(cidade.horarioLimiteEntrega);
+  if (!limite) return true;
+  const [hora, minuto] = limite.split(":").map(Number);
+  const local = datePartsInTimezone(agora, timezone);
+  return local.hour * 60 + local.minute < hora * 60 + minuto;
+}
+
 function montarDadosCidadeEntrega(input = {}) {
   const nome = validarNomeCidadeEntrega(input.nome);
   const pedidoMinimoCentavos = converterPedidoMinimoParaCentavos(
@@ -278,6 +297,7 @@ function montarDadosCidadeEntrega(input = {}) {
 
   return {
     nome,
+    horarioLimiteEntrega: normalizarHorarioLimiteEntrega(input.horarioLimiteEntrega),
     nomeNormalizado: normalizarNomeCidadeEntrega(nome),
     uf: normalizarUf(input.uf),
     taxaCentavos: converterTaxaEntregaParaCentavos(input.taxa),
@@ -288,6 +308,8 @@ function montarDadosCidadeEntrega(input = {}) {
 }
 
 module.exports = {
+  normalizarHorarioLimiteEntrega,
+  cidadeDisponivelNoHorario,
   NOME_CIDADE_MAXIMO,
   PEDIDO_MINIMO_MAXIMO_CENTAVOS,
   TAXA_ENTREGA_MAXIMA_CENTAVOS,
