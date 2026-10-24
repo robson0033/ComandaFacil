@@ -6106,7 +6106,10 @@
               <%= dataPagamentoPedido ? formatarDataHoraEstabelecimento(dataPagamentoPedido) : 'Ainda não confirmado' %>
             </div>
 
-            <% if (pedido.formaPagamento === 'dinheiro') { %>
+            <% if (pedido.formaPagamento === 'dinheiro' || (
+              pedido.formaPagamento === 'combinado'
+              && pagamentosPedido.some(item => item.formaPagamento === 'dinheiro')
+            )) { %>
               <div>
                 <strong>Troco:</strong>
                 <%= pedido.precisaTroco
@@ -12448,7 +12451,11 @@ function criarCardPedido(
       ${pedido.pagoEm ? escaparHtml(formatarDataPedido(pedido.pagoEm)) : 'Ainda não confirmado'}
     </div>
 
-    ${pedido.formaPagamento === 'dinheiro' ? `
+    ${pedido.formaPagamento === 'dinheiro' || (
+      pedido.formaPagamento === 'combinado'
+      && Array.isArray(pedido.pagamentos)
+      && pedido.pagamentos.some(item => item?.formaPagamento === 'dinheiro' && Number(item.valorCentavos || 0) > 0)
+    ) ? `
       <div style="margin-top:7px;">
         <strong>Troco:</strong>
         ${pedido.precisaTroco

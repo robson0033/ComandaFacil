@@ -123,6 +123,7 @@ const {
   normalizarPagamentosPedido,
   totalParaCentavos,
   valorFormaPagamentoCentavos,
+  valorMonetarioParaCentavos,
 } = require("../services/mesaPagamentoService");
 const {
   filtrarComandasMesaParaPainel,
@@ -9909,12 +9910,17 @@ exports.criarPedidoCatalogo =
             .toLowerCase(),
         );
 
-      const trocoTexto = String(req.body.trocoPara ?? "")
-        .replace(/\s/g, "")
-        .replace(/R\$/gi, "")
-        .replace(/\./g, "")
-        .replace(",", ".");
-      const trocoParaRecebido = Number(trocoTexto);
+      let trocoParaRecebido = 0;
+      if (precisaTrocoSolicitado) {
+        try {
+          trocoParaRecebido = valorMonetarioParaCentavos(req.body.trocoPara) / 100;
+        } catch {
+          return res.status(400).json({
+            success: false,
+            message: "Informe para quanto o cliente precisa de troco usando um valor válido.",
+          });
+        }
+      }
 
       if (
         precisaTrocoSolicitado &&
@@ -10693,8 +10699,8 @@ exports.criarPedidoCatalogo =
             precisaTroco
               ? Math.max(
                   0,
-                  trocoParaRecebido - valorDinheiro,
-                )
+                  totalParaCentavos(trocoParaRecebido) - valorDinheiroCentavos,
+                ) / 100
               : null,
         });
       } catch (error) {

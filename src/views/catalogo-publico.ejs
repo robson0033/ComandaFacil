@@ -5087,13 +5087,8 @@
     confirmarTrocoBtn.addEventListener("click", async () => {
       if (!pedidoPendente) return;
 
-      const valorDigitado = String(trocoParaModal.value || "")
-        .trim()
-        .replace(/\s/g, "")
-        .replace("R$", "")
-        .replace(/\./g, "")
-        .replace(",", ".");
-      const trocoPara = Number(valorDigitado);
+      const trocoCentavos = valorDigitadoParaCentavos(trocoParaModal.value);
+      const trocoPara = Number.isSafeInteger(trocoCentavos) ? trocoCentavos / 100 : NaN;
 
       if (!Number.isFinite(trocoPara) || trocoPara <= 0) {
         trocoMessage.className = "form-message error";
