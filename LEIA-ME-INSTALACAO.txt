@@ -1,0 +1,63 @@
+COMANDA FÁCIL WEB — TROCO NO PAGAMENTO COMBINADO
+Atualização: 24/10/2026
+
+O QUE FOI CORRIGIDO
+Ao selecionar Combinar 2 pagamentos e escolher Dinheiro em qualquer posição, o cardápio passa a mostrar no próprio formulário:
+- o valor do pedido que será pago em dinheiro;
+- a pergunta sobre precisar de troco;
+- o valor que o cliente vai entregar, quando houver troco;
+- o troco previsto, calculado somente sobre a parte em dinheiro.
+
+Exemplo da tela enviada:
+Produtos: R$ 71,50 + entrega: R$ 15,00 = total de R$ 86,50.
+Pix: R$ 50,00. Dinheiro: R$ 36,50.
+Se o cliente entregar R$ 50,00, o troco será R$ 13,50.
+O Pix continua cobrando somente sua própria parcela.
+
+O valor informado é revalidado ao mudar o primeiro pagamento ou o total do pedido. Ao retirar Dinheiro da combinação, os dados anteriores de troco são limpos. O envio é bloqueado se o cliente pedir troco e informar dinheiro insuficiente ou valor inválido.
+O pagamento apenas em dinheiro mantém o modal existente. Também foi corrigida a leitura de centavos no navegador e no servidor: 50,50 e 50.50 representam R$ 50,50. O cálculo salvo usa centavos inteiros, evitando resíduos de ponto flutuante.
+
+INSTALAÇÃO
+Este pacote é SOMENTE para o Comanda Fácil WEB em /var/www/comandafacil.
+Copie src/controllers/adminRealController.js e src/views/catalogo-publico.ejs para os mesmos caminhos no projeto. A pasta test contém uma verificação nova, opcional na implantação, recomendada para manter no Git.
+Preserve os demais arquivos do projeto. Faça o backup habitual dos dois arquivos antes de substituí-los. Não há alteração de banco, .env ou dependências.
+
+Depois de atualizar os arquivos do projeto na VPS:
+
+cd /var/www/comandafacil
+node --check src/controllers/adminRealController.js
+node --test test/catalogoTrocoCombinadoP0.test.js test/catalogoPagamentoDivididoP0.test.js test/mesaPagamentoDivididoP0.test.js
+
+Se os testes terminarem sem falhas:
+pm2 restart comandafacil
+
+Atualize o cardápio com Ctrl+F5.
+
+SE HOUVER MODIFICAÇÕES PRÓPRIAS NOS DOIS ARQUIVOS
+Os arquivos completos foram preparados sobre robson0033/ComandaFacil, commit f9c8b0963d4871c888ab1dcd329cd01041cf51b0.
+O patch CORRECAO-TROCO.patch também está incluído para aplicar somente os trechos alterados, preservando outras mudanças da instalação.
+Copie o patch para a raiz do projeto e verifique antes de aplicá-lo:
+
+git apply --check CORRECAO-TROCO.patch
+
+Se a verificação passar:
+git apply CORRECAO-TROCO.patch
+
+Escolha a substituição dos arquivos OU o patch, não aplique os dois. Se o patch não corresponder à versão instalada, não force sua aplicação.
+
+CONFERÊNCIA
+1. Escolha Combinar 2 pagamentos: Pix R$ 50,00 e Dinheiro como segundo meio.
+2. Para total de R$ 86,50, confira Parte do pedido em dinheiro: R$ 36,50.
+3. Escolha Sim, preciso de troco e informe 50,00: deve mostrar R$ 13,50.
+4. Inverta os meios: Dinheiro R$ 36,50 primeiro e Pix segundo. O troco deve permanecer correto.
+5. Confira também Cartão + Dinheiro, Dinheiro + Cartão e Não, vou pagar o valor exato.
+6. Se o valor da parte em dinheiro aumentar acima do valor entregue, o formulário deve bloquear o envio até a correção.
+7. Ao concluir um pedido real, confira os dados de troco no painel e no comprovante conforme a configuração de impressão da loja.
+
+VALIDAÇÃO REALIZADA
+- 6 novos testes do controller real passaram, com persistência/impressão substituídas por mocks: inclui a taxa de entrega, composição de pagamentos, dinheiro primeiro/segundo, centavos, troco zero, valores inválidos e fluxo de dinheiro único.
+- 9 verificações do checkout passaram usando o EJS completo renderizado e seu JavaScript em jsdom. Incluem visibilidade imediata, validação HTML, payload enviado, alteração de total, limpeza de dados e manutenção do modal antigo.
+- A execução de regressões selecionadas teve 46 testes aprovados e uma falha anterior no teste estático de polling do Pix. Essa mesma falha foi reproduzida no commit original.
+- Um arquivo adicional de testes de cidades teve 3 falhas, também reproduzidas no commit original. Elas não foram alteradas nesta correção.
+- Os 179 arquivos JavaScript passaram pela verificação de sintaxe; todos os scripts inline do cardápio renderizado também foram compilados.
+- Não foram criados pedidos nem cobranças na loja de produção, nem acessado o banco da VPS. O navegador foi simulado com jsdom; a conferência visual na instalação deve seguir o roteiro acima.

@@ -358,6 +358,28 @@ function sanitizarPedidoParaAgente(pedido = {}) {
   );
 }
 
+function prepararPedidoParaAgente(pedido, agentVersion) {
+  const sanitized = sanitizarPedidoParaAgente(pedido);
+  const versionComparison = compareVersions(agentVersion, "1.4.1");
+  if (!sanitized || typeof sanitized !== "object" || Array.isArray(sanitized)) {
+    return sanitized;
+  }
+  // Agentes anteriores ao 1.4.1 imprimem os campos de troco apenas quando
+  // formaPagamento é dinheiro. Essa adaptação pertence SOMENTE ao envio:
+  // o Pedido e o snapshot do PrintJob preservam combinado e todas as parcelas.
+  // O recibo antigo terá o cabeçalho Dinheiro e continuará detalhando ambas
+  // as formas, seus valores e o troco já calculado pelo site.
+  const temDinheiro = Array.isArray(sanitized.pagamentos) &&
+    sanitized.pagamentos.some(item => item?.formaPagamento === "dinheiro" &&
+      Number(item.valorCentavos) > 0);
+  if ((versionComparison === null || versionComparison < 0) &&
+      sanitized.formaPagamento === "combinado" &&
+      sanitized.precisaTroco === true && temDinheiro) {
+    return { ...sanitized, formaPagamento: "dinheiro" };
+  }
+  return sanitized;
+}
+
 function sanitizarImpressora(impressora = {}) {
   const allowed = [
     "nome", "tipoConexao", "deviceName", "ip", "porta", "papel", "modo",
@@ -1220,7 +1242,10 @@ async function processarJob(job, socket) {
       deadline: new Date(Date.now() + LEASE_MS).toISOString(),
       modo: entregando.tipo,
       estabelecimento: entregando.estabelecimento,
-      pedido: sanitizarPedidoParaAgente(entregando.pedido),
+      pedido: prepararPedidoParaAgente(
+        entregando.pedido,
+        socket?.data?.compatibility?.agentVersion,
+      ),
       impressoras: [entregando.impressora],
     }));
     await atualizarStatusDoAgente(entregando.estabelecimentoId, {
@@ -1467,4 +1492,5 @@ module.exports = {
   reconciliarResumoDoAgente,
   sanitizarImpressora,
   sanitizarPedidoParaAgente,
+  prepararPedidoParaAgente,
 };

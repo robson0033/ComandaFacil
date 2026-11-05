@@ -962,6 +962,20 @@
       line-height: 1.45;
     }
 
+    .combined-cash-change {
+      grid-column: 1 / -1;
+      display: grid;
+      gap: 12px;
+      padding-top: 14px;
+      border-top: 1px solid #eadfd8;
+    }
+
+    .combined-cash-change p {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
     .calculated-payment-value {
       background: #f4efec;
       color: #2b201b;
@@ -2173,6 +2187,25 @@
             <p class="combined-payment-note" id="combinedPaymentNote">
               Informe somente o primeiro valor. O restante será calculado automaticamente usando o total atual do pedido.
             </p>
+
+            <div class="combined-cash-change hidden" id="combinedCashChange">
+              <p id="combinedCashAmount" aria-live="polite"></p>
+              <div class="form-field">
+                <label for="combinedCashNeedsChange">Precisa de troco para a parte em dinheiro?</label>
+                <select id="combinedCashNeedsChange" name="precisaTrocoCombinado" disabled>
+                  <option value="">Selecione uma opção</option>
+                  <option value="nao">Não, vou pagar o valor exato</option>
+                  <option value="sim">Sim, preciso de troco</option>
+                </select>
+              </div>
+              <div class="form-field hidden" id="combinedCashTenderField">
+                <label for="combinedCashTender">Qual valor você vai entregar em dinheiro?</label>
+                <input id="combinedCashTender" name="trocoParaCombinado"
+                  inputmode="decimal" autocomplete="off" placeholder="Ex.: 50,00" disabled>
+                <small>Informe somente o dinheiro que será entregue. O Pix ou cartão já foi separado.</small>
+              </div>
+              <p id="combinedCashChangePreview" role="status" aria-live="polite"></p>
+            </div>
           </div>
         </div>
 
@@ -2573,6 +2606,12 @@
     const formaPagamento2 = document.querySelector("#formaPagamento2");
     const valorPagamento2 = document.querySelector("#valorPagamento2");
     const combinedPaymentNote = document.querySelector("#combinedPaymentNote");
+    const combinedCashChange = document.querySelector("#combinedCashChange");
+    const combinedCashAmount = document.querySelector("#combinedCashAmount");
+    const combinedCashNeedsChange = document.querySelector("#combinedCashNeedsChange");
+    const combinedCashTenderField = document.querySelector("#combinedCashTenderField");
+    const combinedCashTender = document.querySelector("#combinedCashTender");
+    const combinedCashChangePreview = document.querySelector("#combinedCashChangePreview");
 
     let cidadesEntregaDisponiveis = false;
     const entregaServidorInicio = <%- safeJsonForHtml(entregaServidorAgora) %>;
@@ -3162,6 +3201,7 @@
         valorPagamento1.setCustomValidity("");
         formaPagamento2.setCustomValidity("");
         valorPagamento2.value = currency(0);
+        atualizarTrocoCombinado();
         return;
       }
 
@@ -3189,6 +3229,7 @@
           ? `${formaPagamento1.selectedOptions[0]?.textContent?.trim() || "Primeiro pagamento"}: ${currency(firstCents / 100)} • ${formaPagamento2.selectedOptions[0]?.textContent?.trim() || "Segundo pagamento"}: ${currency(secondCents / 100)}`
           : "Informe somente o primeiro valor. O restante será calculado automaticamente usando o total atual do pedido.";
       }
+      atualizarTrocoCombinado();
     }
 
     function payloadIncluiForma(payload, method) {
@@ -3208,6 +3249,73 @@
       if (payload.formaPagamento1 === method) return firstCents;
       if (payload.formaPagamento2 === method) return totalCents - firstCents;
       return 0;
+    }
+
+    function atualizarTrocoCombinado() {
+      const payload = {
+        formaPagamento: formaPagamento.value,
+        formaPagamento1: formaPagamento1.value,
+        formaPagamento2: formaPagamento2.value,
+        valorPagamento1: valorPagamento1.value,
+      };
+      const active = pagamentoCombinadoAtivo() && payloadIncluiForma(payload, "dinheiro");
+      combinedCashChange.classList.toggle("hidden", !active);
+      combinedCashNeedsChange.disabled = !active;
+      combinedCashNeedsChange.required = active;
+      combinedCashNeedsChange.setCustomValidity("");
+      combinedCashTender.setCustomValidity("");
+
+      if (!active) {
+        combinedCashNeedsChange.value = "";
+        combinedCashTender.value = "";
+        combinedCashAmount.textContent = "";
+        combinedCashChangePreview.textContent = "";
+      }
+
+      const needsChange = active && combinedCashNeedsChange.value === "sim";
+      combinedCashTenderField.classList.toggle("hidden", !needsChange);
+      combinedCashTender.disabled = !needsChange;
+      combinedCashTender.required = needsChange;
+      if (!needsChange) combinedCashTender.value = "";
+      if (!active) return;
+
+      if (!["sim", "nao"].includes(combinedCashNeedsChange.value)) {
+        combinedCashNeedsChange.setCustomValidity("Informe se precisa de troco para a parte em dinheiro.");
+      }
+
+      const firstCents = valorDigitadoParaCentavos(payload.valorPagamento1);
+      const totalCents = totalAtualPedidoCentavos();
+      const validSplit = Number.isSafeInteger(firstCents) && firstCents > 0
+        && firstCents < totalCents && payload.formaPagamento1 !== payload.formaPagamento2;
+      const cashCents = validSplit ? valorFormaPayloadCentavos(payload, "dinheiro") : 0;
+      combinedCashAmount.textContent = cashCents > 0
+        ? `Parte do pedido em dinheiro: ${currency(cashCents / 100)}.`
+        : "Informe um primeiro valor válido para calcular a parte em dinheiro.";
+      combinedCashChangePreview.textContent = "";
+      if (!needsChange) return;
+
+      const tenderCents = valorDigitadoParaCentavos(combinedCashTender.value);
+      if (!cashCents) {
+        combinedCashTender.setCustomValidity("Confira os valores dos dois pagamentos antes de informar o troco.");
+      } else if (!Number.isSafeInteger(tenderCents) || tenderCents <= 0) {
+        combinedCashTender.setCustomValidity("Informe um valor em dinheiro válido. Exemplo: 50,00.");
+      } else if (tenderCents < cashCents) {
+        const message = `O dinheiro entregue deve ser igual ou maior que ${currency(cashCents / 100)}.`;
+        combinedCashTender.setCustomValidity(message);
+        combinedCashChangePreview.textContent = message;
+      } else {
+        combinedCashChangePreview.textContent = `Troco previsto: ${currency((tenderCents - cashCents) / 100)}.`;
+      }
+    }
+
+    function dadosTrocoCombinado() {
+      atualizarTrocoCombinado();
+      if (!combinedCashNeedsChange.checkValidity() || !combinedCashTender.checkValidity()) return null;
+      const precisaTroco = combinedCashNeedsChange.value === "sim";
+      return {
+        precisaTroco,
+        trocoPara: precisaTroco ? valorDigitadoParaCentavos(combinedCashTender.value) / 100 : null,
+      };
     }
 
     function urlImagemSegura(value) {
@@ -4764,6 +4872,8 @@
     formaPagamento1.addEventListener("change", atualizarPagamentoCombinado);
     formaPagamento2.addEventListener("change", atualizarPagamentoCombinado);
     valorPagamento1.addEventListener("input", atualizarPagamentoCombinado);
+    combinedCashNeedsChange.addEventListener("change", atualizarTrocoCombinado);
+    combinedCashTender.addEventListener("input", atualizarTrocoCombinado);
 
     if (!pixOnlineDisponivel) {
       if (formaPagamento.value === "pix") formaPagamento.value = "dinheiro";
@@ -5206,6 +5316,15 @@
         }
 
         const valorDinheiroCentavos = valorFormaPayloadCentavos(payload, "dinheiro");
+        if (payload.formaPagamento === "combinado" && valorDinheiroCentavos > 0) {
+          const troco = dadosTrocoCombinado();
+          if (!troco) {
+            orderForm.reportValidity();
+            return;
+          }
+          await enviarPedido({ ...payload, ...troco });
+          return;
+        }
         if (valorDinheiroCentavos > 0) {
           abrirModalTroco(payload, valorDinheiroCentavos);
           return;
