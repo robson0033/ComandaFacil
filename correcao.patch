@@ -1,0 +1,11 @@
+--- a/src/views/admin-real.ejs
++++ b/src/views/admin-real.ejs
+@@ -12520,7 +12520,7 @@
+           method="POST"
+           class="order-status-form"
+           ${pedido.pagamentoStatus !== 'pago' && ['dinheiro', 'cartao'].includes(pedido.formaPagamento)
+-            ? `onsubmit="if(this.status.value === 'finalizado') return confirm('Finalizar este pedido? O pagamento continuará pendente até você usar Confirmar pagamento.');"`
++            ? 'data-confirm-finalize-pending'
+             : ''}
+         >
+             <input type="hidden" name="_csrf" value="<%= csrfToken %>">

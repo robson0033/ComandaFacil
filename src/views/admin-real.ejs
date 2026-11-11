@@ -12520,7 +12520,7 @@ function criarCardPedido(
           method="POST"
           class="order-status-form"
           ${pedido.pagamentoStatus !== 'pago' && ['dinheiro', 'cartao'].includes(pedido.formaPagamento)
-            ? `onsubmit="if(this.status.value === 'finalizado') return confirm('Finalizar este pedido? O pagamento continuará pendente até você usar Confirmar pagamento.');"`
+            ? 'data-confirm-finalize-pending'
             : ''}
         >
             <input type="hidden" name="_csrf" value="<%= csrfToken %>">
@@ -15158,3 +15158,4 @@ if (podeReceberNotificacoes) {
 
 </body>
 </html>
+

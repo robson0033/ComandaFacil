@@ -1,0 +1,50 @@
+COMANDA FÁCIL WEB — EVENTO DO PEDIDO BLOQUEADO PELA CSP
+
+CAUSA IDENTIFICADA
+O navegador mostra: Executing inline event handler violates Content Security Policy.
+No código do repositório, o card inserido por atualização em tempo real ainda
+criava um onsubmit no formulário de status. A CSP bloqueia esse atributo.
+O pedido carregado inicialmente já usava data-confirm-finalize-pending.
+A correção passa a usar o mesmo marcador também nos novos cards, aproveitando
+o listener delegado que já faz a confirmação dentro do script autorizado.
+Não modifica a política de segurança.
+
+ARQUIVO PARA SUBSTITUIR NO PROJETO WEB
+  src/views/admin-real.ejs
+Copie a pasta src deste ZIP para a raiz do projeto ComandaFacil web, mantendo
+a estrutura e substituindo o arquivo. Não é para o desktop ou o site EngineSoft.
+Fonte utilizada: robson0033/ComandaFacil, commit
+9d926203cca9b698412f4ba3dbf7dd90e814b8ab.
+O arquivo é completo e altera apenas uma linha em relação a esse commit.
+Se você tiver outras alterações locais nesse arquivo, aplique só a mudança
+mostrada no arquivo correcao.patch em vez de substituir o template completo.
+
+PUBLICAÇÃO
+Publique no mesmo serviço que atende comandafacilservice.com.br.
+Se o site está no Render, envie a alteração pelo seu Git, aguarde o deploy
+concluir e recarregue o navegador com Ctrl+F5.
+Se estiver na VPS, atualize o arquivo em /var/www/comandafacil e execute:
+  pm2 restart comandafacil
+Não precisa executar migração ou alterar o banco de dados.
+
+CONFERÊNCIA
+- Deixe Pedidos aberto e faça um pedido em dinheiro ou cartão pendente.
+- Aguarde o novo card aparecer sem recarregar.
+- Selecione Finalizado e clique Atualizar.
+- A confirmação de pagamento pendente deve aparecer.
+- Cancelar impede o envio; confirmar permite a atualização de status.
+- Confira que não aparece mais a violação CSP desse onsubmit no console.
+
+LIMITES DO DIAGNÓSTICO
+Este erro é do formulário Atualizar status. A captura não comprova que ele
+seja a causa de uma falha no agente de impressão. Se a impressão continuar
+falhando após a publicação, consulte a mensagem retornada pelo botão Imprimir
+pedido e pela requisição correspondente na aba Network/Rede.
+
+VALIDAÇÃO
+8 testes locais executam o código real do criador do card e do listener, com
+DOM simulado: renderização sem evento inline, confirmação/cancelamento,
+pagamento já realizado, troca para preparo, ação do formulário e campo CSRF.
+O navegador de teste não pôde iniciar neste ambiente; não houve teste no site
+publicado nem alteração em pedidos reais.
+Para repetir: node --test verificacoes/pedidos-csp.test.cjs
